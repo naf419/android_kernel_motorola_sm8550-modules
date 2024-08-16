@@ -743,7 +743,7 @@ static int msm_cvp_session_process_hfi_fence(struct msm_cvp_inst *inst,
 	}
 
 	if (is_config_pkt)
-		pr_info(CVP_DBG_TAG "inst %pK config %s\n",
+		pr_info(CVP_DBG_TAG "inst %pK config %s\n", "pkt",
 			inst, cvp_hfi_defs[idx].name);
 
 	rc = msm_cvp_map_frame(inst, (struct eva_kmd_hfi_packet *)pkt, offset,
