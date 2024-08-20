@@ -1247,6 +1247,14 @@ lim_check_oci_match(struct mac_context *mac, struct pe_session *pe_session,
 	 */
 	peer_oci = (tDot11fIEoci *)&oci_ie[2];
 
+	if (oci_ie[SIR_MAC_IE_LEN_OFFSET] <
+	    MIN_OCI_IE_LEN - sizeof(struct ie_header)) {
+		pe_err("OCI len %d is incorrect",
+		       oci_ie[SIR_MAC_IE_LEN_OFFSET]);
+		return false;
+	}
+
+
 	wlan_reg_read_current_country(mac->psoc, country_code);
 	peer_chan_width =
 	wlan_reg_dmn_get_chanwidth_from_opclass_auto(
