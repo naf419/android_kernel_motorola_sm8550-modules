@@ -1248,32 +1248,31 @@ static int qmi_rmnet_pm_notify_cb(struct notifier_block *notifier,
 {
 	struct qmi_info *qmi;
 	struct rmnet_port *port;
-	u8 num_bearers;
 
 	port = container_of(notifier, struct rmnet_port, dfc_pm_notifier);
 	qmi = port->qmi_info;
 
 	trace_dfc_pm_event(pm_event, rmnet_work_quit);
+
+	rcu_read_lock();
+	if (rmnet_work_quit)
+		goto out;
+	rcu_read_unlock();
+
 	switch (pm_event) {
 	case PM_SUSPEND_PREPARE:
 		cancel_delayed_work_sync(&rmnet_work->work);
 		if (!qmi->ps_enabled) {
+			/* Enter powersave */
+			if (dfc_qmap)
+				dfc_qmap_set_powersave(1, 0, NULL);
+			else
+				qmi_rmnet_set_powersave_mode(port, 1, 0, NULL);
+
 			qmi->ps_ignore_grant = true;
 			qmi->ps_enabled = true;
 			/* Needed Memory barrier */
 			smp_mb();
-
-			num_bearers = sizeof(ps_bearer_id);
-			memset(ps_bearer_id, 0, sizeof(ps_bearer_id));
-			rmnet_prepare_ps_bearers(port, &num_bearers,
-						 ps_bearer_id);
-
-			/* Enter powersave */
-			if (dfc_qmap)
-				dfc_qmap_set_powersave(1, num_bearers, ps_bearer_id);
-			else
-				qmi_rmnet_set_powersave_mode(port, 1,
-							     num_bearers, ps_bearer_id);
 
 			if (rmnet_get_powersave_notif(port))
 				qmi_rmnet_ps_on_notify(port);
@@ -1285,10 +1284,13 @@ static int qmi_rmnet_pm_notify_cb(struct notifier_block *notifier,
 		 * can trigger the work again
 		 */
 		clear_bit(PS_WORK_ACTIVE_BIT, &qmi->ps_work_active);
+		rmnet_enable_all_flows(port);
 		break;
 	default:
 		break;
 	}
+
+out:
 	return NOTIFY_DONE;
 }
 
