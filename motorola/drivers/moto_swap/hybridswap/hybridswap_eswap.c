@@ -560,7 +560,7 @@ ssize_t hybridswap_report_show(struct device *dev,
 	return hybridswap_fail_record_show(buf);
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
 static inline ssize_t meminfo_show(struct hybstatus *stat, char *buf, ssize_t len)
 #else
 static inline meminfo_show(struct hybstatus *stat, char *buf, ssize_t len)
