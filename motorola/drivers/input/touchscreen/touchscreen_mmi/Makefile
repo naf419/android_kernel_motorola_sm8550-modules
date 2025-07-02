@@ -14,4 +14,4 @@ modules_install:
 
 KBUILD_EXTRA_SYMBOLS += $(M)/../../../sensors/Module.symvers
 KBUILD_EXTRA_SYMBOLS += $(M)/../../../mmi_relay/Module.symvers
-KBUILD_EXTRA_SYMBOLS += $(M)/../../../../../qcom/display-drivers/msm/Module.symvers
+KBUILD_EXTRA_SYMBOLS += $(M)/../../../../../qcom/opensource/display-drivers/msm/Module.symvers
