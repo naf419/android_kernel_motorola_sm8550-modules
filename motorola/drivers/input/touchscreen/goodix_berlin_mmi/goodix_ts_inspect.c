@@ -110,7 +110,6 @@
 
 
 #define ABS(val)			((val < 0)? -(val) : val)
-#define MAX(a, b)			((a > b)? a : b)
 
 static bool module_initialized;
 
@@ -501,7 +500,7 @@ static int parse_valid_data(char *buf_start, loff_t buf_size,
 			kfree(row_data);
 			row_data = NULL;
 			return -EPERM;
-		}        
+		}
     }
     kfree(row_data);
     return j;
@@ -528,7 +527,7 @@ static int parse_csvfile(char *buf, size_t size, char *target_name,
             ts_err("load %s failed 2!", target_name);
             return -EIO;
         }
-        
+
         if (data) {
             ret = parse_valid_data(buf, size, ptr, data, rows);
         } else {
