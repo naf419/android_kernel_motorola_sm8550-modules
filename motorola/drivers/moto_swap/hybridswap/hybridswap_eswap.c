@@ -16,9 +16,7 @@
 #include <linux/healthinfo/fg.h>
 #endif
 #include <linux/version.h>
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
 #include <linux/sched/task_stack.h>
-#endif
 
 #include "hybridswap_internal.h"
 #include "hybridswap.h"
@@ -48,10 +46,6 @@
 #define ENTRY_LOCK_BIT		ENTRY_MCG_SHIFT_HALF
 #define ENTRY_DATA_BIT		(ENTRY_PTR_SHIFT + ENTRY_MCG_SHIFT_HALF + \
 		ENTRY_MCG_SHIFT_HALF + 1)
-
-#if IS_ENABLED(CONFIG_SPRD_UNISOC_MANUFACTURER_MODULE)
-#define MAX_FAULT_OUT_TIMEOUT 60*1000 //60s
-#endif
 
 struct zs_eswap_para {
 	struct hybridswap_page_pool *pool;
@@ -779,11 +773,7 @@ static void hybridswap_wait_io_finish(struct hybridswap_io_req *req)
 	if (req->io_para.class == HYB_FAULT_OUT) {
 		hybp(HYB_DEBUG, "fault out wait finish start\n");
 		if (!wait_for_completion_io_timeout(&req->io_end_flag,
-#if IS_ENABLED(CONFIG_SPRD_UNISOC_MANUFACTURER_MODULE)
-				msecs_to_jiffies(MAX_FAULT_OUT_TIMEOUT)))
-#else
 				MAX_SCHEDULE_TIMEOUT))
-#endif
 			hybp(HYB_ERR, "fault out io submit timeout");
 
 		return;
@@ -1521,14 +1511,11 @@ static void hybperf_init_monitor(
 
 	record->task = current;
 	get_task_struct(record->task);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+
 	if (object_is_on_stack((void *)&record->lat_monitor))
 		timer_setup_on_stack(&record->lat_monitor, hybperf_warning, 0);
 	else
 		timer_setup(&record->lat_monitor, hybperf_warning, 0);
-#else
-	timer_setup(&record->lat_monitor, hybperf_warning, 0);
-#endif
 	mod_timer(&record->lat_monitor,
 			jiffies + msecs_to_jiffies(record->warn_level));
 }
@@ -1540,10 +1527,9 @@ static void hybperf_stop_monitor(
 		return;
 
 	del_timer_sync(&record->lat_monitor);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
 	if (object_is_on_stack((void *)&record->lat_monitor))
 		destroy_timer_on_stack(&record->lat_monitor);
-#endif
+
 	put_task_struct(record->task);
 }
 
@@ -4629,14 +4615,6 @@ void hybridswap_record(struct zram *zram, u32 index,
 	if (!hybridswap_core_enabled())
 		return;
 
-#if IS_ENABLED(CONFIG_SPRD_UNISOC_MANUFACTURER_MODULE)
-	if ((zram_test_flag(zram, index, ZRAM_UNDER_WB) || zram_test_flag(zram, index, ZRAM_BATCHING_OUT))
-		&& current && (current->flags & PF_KTHREAD ) && strstr(current->comm, "f2fs_ckpt-")) {
-			hybp(HYB_INFO, "Skip f2fs_ckpt record id=%u, comm=%s\n", index, current->comm);
-			return;
-	}
-#endif
-
 	if (!memcg || !memcg->id.id) {
 		stat = hybridswap_fetch_stat_obj();
 		if (stat)
@@ -4687,12 +4665,6 @@ void hybridswap_untrack(struct zram *zram, u32 index)
 
 	while (zram_test_flag(zram, index, ZRAM_UNDER_WB) ||
 			zram_test_flag(zram, index, ZRAM_BATCHING_OUT)) {
-#if IS_ENABLED(CONFIG_SPRD_UNISOC_MANUFACTURER_MODULE)
-		if (current && (current->flags & PF_KTHREAD ) && strstr(current->comm, "f2fs_ckpt-")) {
-			hybp(HYB_INFO, "Skip f2fs_ckpt untrack id=%u, comm=%s\n", index, current->comm);
-			break;
-		}
-#endif
 		zram_slot_unlock(zram, index);
 		udelay(50);
 		zram_slot_lock(zram, index);
