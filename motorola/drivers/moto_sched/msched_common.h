@@ -25,7 +25,7 @@
 #include <linux/sched/walt.h>
 #endif
 
-#define VERION 250101
+#define VERION 251105
 
 #define cond_trace_printk(cond, fmt, ...)	\
 do {										\
@@ -43,6 +43,7 @@ do {										\
 #define DEBUG_BASE					(1 << 0)
 #define DEBUG_LOCK					(1 << 1)
 #define DEBUG_BINDER				(1 << 2)
+#define DEBUG_MDPF				(1 << 3)
 
 #define UX_ENABLE_BASE				(1 << 0)
 #define UX_ENABLE_INTERACTION		(1 << 1)
@@ -53,6 +54,10 @@ do {										\
 #define UX_ENABLE_KSWAPD			(1 << 6)
 #define UX_ENABLE_BOOST				(1 << 7)
 #define UX_ENABLE_KERNEL			(1 << 8)
+#define UX_ENABLE_MDPF				(1 << 9)
+#define UX_ENABLE_KWORKER			(1 << 10)
+#define UX_ENABLE_IRQWTH			(1 << 11)
+#define UX_ENABLE_PERCPU_RWSEM			(1 << 12)
 
 /* define for UX thread type, keep same as the define in java file */
 #define UX_TYPE_PERF_DAEMON			(1 << 0)
@@ -79,6 +84,7 @@ do {										\
 #define UX_TYPE_KERNEL				(1 << 21)
 #define UX_TYPE_IO_PRIO_1			(1 << 22)
 #define UX_TYPE_IO_PRIO_2			(1 << 23)
+#define UX_TYPE_MDPF				(1 << 24)
 
 /* define for UX scene type, keep same as the define in java file */
 #define UX_SCENE_LAUNCH				(1 << 0)
@@ -94,6 +100,7 @@ do {										\
 #define UX_PRIO_AUDIO		80
 #define UX_PRIO_ANIMATOR	79
 #define UX_PRIO_SYSTEM		78
+#define UX_PRIO_MDPF		71 // must be aligned with walt.h!
 #define UX_PRIO_TOPAPP		70 // must be aligned with walt.h!
 #define UX_PRIO_CAMERA		69
 #define UX_PRIO_KSWAPD		65 // must be aligned with walt.h!
@@ -116,14 +123,24 @@ enum {
 
 /* Moto task struct */
 struct moto_task_struct {
+#ifdef CONFIG_MOTO_LOCKING_2
+	struct list_head owner_node;
+	u64				owner;
+	short			nice_backup;
+	struct task_struct *task;
+#endif
+
+	u8				inherit_depth;
+	u8				boost_kernel_lock_depth;
+	char			cgr_type;
 	int				ux_type;
 
-	int				inherit_depth;
 	u64				inherit_start;
-
 	u64				boost_kernel_start;
-	int				boost_kernel_lock_depth;
-	char			cgr_type;
+
+	u16				uclamp[UCLAMP_CNT];
+	u16				uclamp_pi[UCLAMP_CNT];
+	bool				uclamp_active;
 };
 
 /* global vars and functions */
@@ -140,6 +157,8 @@ extern pid_t __read_mostly global_audioapp_tgid;
 extern pid_t __read_mostly global_camera_tgid;
 extern atomic_t __read_mostly global_boost_pid;
 
+extern void task_ux_type_set(int pid, int ux_type);
+extern void task_ux_type_clear(int pid, int ux_type);
 extern int task_get_origin_mvp_prio(struct task_struct *p, bool with_inherit);
 extern int task_get_mvp_prio(struct task_struct *p, bool with_inherit);
 extern unsigned int task_get_mvp_limit(struct task_struct *p, int mvp_prio);
@@ -179,33 +198,60 @@ static inline unsigned long moto_task_util(struct task_struct *p)
 #endif
 }
 
-static inline struct moto_task_struct *get_moto_task_struct(struct task_struct *p)
+#ifdef CONFIG_MOTO_LOCKING_2
+static inline struct moto_task_struct *get_moto_task_struct(struct task_struct *t)
 {
-	return (struct moto_task_struct *) p->android_oem_data1;
+	struct moto_task_struct *mts = NULL;
+
+	/* Skip idle thread */
+	if (!t || !t->pid)
+		return NULL;
+
+	mts = (struct moto_task_struct *) READ_ONCE(t->android_oem_data1[0]);
+	if (IS_ERR_OR_NULL(mts)) {
+		pr_info("moto_task_struct not allocated for pid=%d, returning NULL.\n", t->pid);
+		return NULL;
+	}
+
+	return mts;
 }
+#else
+static inline struct moto_task_struct *get_moto_task_struct(struct task_struct *t)
+{
+	return (struct moto_task_struct *) t->android_oem_data1;
+}
+#endif
 
 static inline int task_get_ux_type(struct task_struct *p)
 {
-	struct moto_task_struct *wts = (struct moto_task_struct *) p->android_oem_data1;
-	return wts->ux_type;
+	struct moto_task_struct *mts = get_moto_task_struct(p);
+	if (IS_ERR_OR_NULL(mts))
+		return 0;
+	return mts->ux_type;
 }
 
 static inline void task_add_ux_type(struct task_struct *p, int type)
 {
-	struct moto_task_struct *wts = (struct moto_task_struct *) p->android_oem_data1;
-	wts->ux_type |= type;
+	struct moto_task_struct *mts = get_moto_task_struct(p);
+	if (IS_ERR_OR_NULL(mts))
+		return;
+	mts->ux_type |= type;
 }
 
 static inline bool task_has_ux_type(struct task_struct *p, int type)
 {
-	struct moto_task_struct *wts = (struct moto_task_struct *) p->android_oem_data1;
-	return (wts->ux_type & type) != 0;
+	struct moto_task_struct *mts = get_moto_task_struct(p);
+	if (IS_ERR_OR_NULL(mts))
+		return false;
+	return (mts->ux_type & type) != 0;
 }
 
 static inline void task_clr_ux_type(struct task_struct *p, int type)
 {
-	struct moto_task_struct *wts = (struct moto_task_struct *) p->android_oem_data1;
-	wts->ux_type &= ~type;
+	struct moto_task_struct *mts = get_moto_task_struct(p);
+	if (IS_ERR_OR_NULL(mts))
+		return;
+	mts->ux_type &= ~type;
 }
 
 static inline int get_task_cgroup_id(struct task_struct *task)
@@ -226,25 +272,31 @@ static inline bool current_is_important_ux(void)
 
 static inline void task_set_ux_inherit_prio(struct task_struct *p, int depth)
 {
-	struct moto_task_struct *wts = (struct moto_task_struct *) p->android_oem_data1;
-	wts->ux_type |= UX_TYPE_INHERIT_LOCK;
-	wts->inherit_start = jiffies_to_nsecs(jiffies);
-	wts->inherit_depth = depth;
+	struct moto_task_struct *mts = get_moto_task_struct(p);
+	if (IS_ERR_OR_NULL(mts))
+		return;
+	mts->ux_type |= UX_TYPE_INHERIT_LOCK;
+	mts->inherit_start = jiffies_to_nsecs(jiffies);
+	mts->inherit_depth = depth;
 }
 
 static inline int task_get_ux_depth(struct task_struct *t)
 {
-	struct moto_task_struct *wts = (struct moto_task_struct *) t->android_oem_data1;
+	struct moto_task_struct *mts = get_moto_task_struct(t);
+	if (IS_ERR_OR_NULL(mts))
+		return 0;
 
-	return wts->inherit_depth;
+	return mts->inherit_depth;
 }
 
 static inline void task_clr_inherit_type(struct task_struct *p)
 {
-	struct moto_task_struct *wts = (struct moto_task_struct *) p->android_oem_data1;
-	wts->inherit_depth = 0;
-	wts->inherit_start = 0;
-	wts->ux_type &= ~UX_TYPE_INHERIT_LOCK;
+	struct moto_task_struct *mts = get_moto_task_struct(p);
+	if (IS_ERR_OR_NULL(mts))
+		return;
+	mts->inherit_depth = 0;
+	mts->inherit_start = 0;
+	mts->ux_type &= ~UX_TYPE_INHERIT_LOCK;
 }
 
 #endif /* _MOTO_SCHED_COMMON_H_ */

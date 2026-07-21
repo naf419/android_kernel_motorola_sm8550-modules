@@ -1333,6 +1333,9 @@ int hybridswap_page_fault_sync(struct zram *zram, u32 index)
 {
 	struct hybridswap_work work;
 
+	if (!zram_test_flag(zram, index, ZRAM_WB))
+		return 0;
+
 	zram_slot_unlock(zram, index);
 	work.zram = zram;
 	work.index = index;
@@ -1426,6 +1429,11 @@ static int zram_write_page(struct zram *zram, struct page *page, u32 index)
 	struct zcomp_strm *zstrm;
 	unsigned long element = 0;
 	enum zram_pageflags flags = 0;
+
+#ifdef CONFIG_HYBRIDSWAP_CORE
+	if (skip_zram_write(zram, index))
+		return -EBUSY;
+#endif
 
 	mem = kmap_atomic(page);
 	if (page_same_filled(mem, &element)) {

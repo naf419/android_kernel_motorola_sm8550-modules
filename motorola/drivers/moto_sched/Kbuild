@@ -3,7 +3,7 @@ ANDROID_BUILD_TOP := $(srctree)/..
 endif
 
 # add -Wall to try to catch everything we can.
-EXTRA_CFLAGS += -Wall
+EXTRA_CFLAGS += -Wall -Wno-declaration-after-statement
 EXTRA_CFLAGS += -I$(ANDROID_BUILD_TOP)/motorola/kernel/modules/include
 EXTRA_CFLAGS += -I$(ANDROID_BUILD_TOP)/kernel_platform/common
 ifneq ($strip($(LINUX_KERNEL_VERSION)),)
@@ -32,9 +32,19 @@ ifneq ($(filter m y,$(CONFIG_MOTO_FUTEX_INHERIT)),)
 	EXTRA_CFLAGS += -DCONFIG_MOTO_FUTEX_INHERIT
 endif
 
-moto_sched-y := msched_main.o msched_sysfs.o msched_common.o
+ifneq ($(filter m y,$(CONFIG_MOTO_ENABLE_MDPF)),)
+	EXTRA_CFLAGS += -DCONFIG_MOTO_ENABLE_MDPF
+endif
+
+ifneq ($(filter m y,$(CONFIG_MOTO_LOCKING_2)),)
+	EXTRA_CFLAGS += -DCONFIG_MOTO_LOCKING_2
+endif
+
+moto_sched-y := msched_main.o msched_sysfs.o msched_common.o msched_oemdata.o locking/locking_trace.o
 
 moto_sched-y += locking/locking_main.o
 moto_sched-$(CONFIG_MOTO_MUTEX_INHERIT) += locking/mutex.o
 moto_sched-$(CONFIG_MOTO_RWSEM_INHERIT) += locking/rwsem.o
 moto_sched-$(CONFIG_MOTO_FUTEX_INHERIT) += locking/futex.o
+moto_sched-y += msched_uclamp.o
+moto_sched-$(CONFIG_MOTO_ENABLE_MDPF) += mdpf/mdpf_sysfs.o
