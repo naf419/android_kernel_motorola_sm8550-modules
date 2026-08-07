@@ -96,21 +96,25 @@ static unsigned int get_boot_seq(void)
 
 static int print_blocked_tasks(void)
 {
-	mm_segment_t fs;
 	char cmd;
 	size_t written;
 	loff_t pos = 0;
 	struct file *filep;
 	int rc = 0;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
+        mm_segment_t fs;
 	fs = get_fs();
 	set_fs(KERNEL_DS);
+#endif
 
 	filep = filp_open("/proc/sysrq-trigger", O_WRONLY, 0200);
 	if (IS_ERR_OR_NULL(filep)) {
 		rc = PTR_ERR(filep);
 		pr_err("opening sysrq errno=%d\n", rc);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
 		set_fs(fs);
+#endif
 		return rc;
 	}
 
@@ -138,8 +142,10 @@ static int print_blocked_tasks(void)
 		rc = -EIO;
 	}
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
 	set_fs(fs);
 	filp_close(filep, NULL);
+#endif
 
 	return rc;
 }
