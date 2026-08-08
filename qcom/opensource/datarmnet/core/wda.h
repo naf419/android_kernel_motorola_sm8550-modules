@@ -18,7 +18,7 @@
 #elif defined(RMNET_TRACE_INCLUDE_LE)
 	#define TRACE_INCLUDE_PATH ../../../../../../../datarmnet/core
 #else
-	#define TRACE_INCLUDE_PATH ../../../../../../../src/datarmnet/core
+	#define TRACE_INCLUDE_PATH ../../../../sm8550-modules/qcom/opensource/datarmnet/core
 #endif /* defined(RMNET_LA_PLATFORM) */
 
 #define TRACE_INCLUDE_FILE wda
