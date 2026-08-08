@@ -195,7 +195,7 @@ TRACE_EVENT(locking_debug_trace,
 #endif /* _LOCKING_TRACE_H */
 
 #undef TRACE_INCLUDE_PATH
-#define TRACE_INCLUDE_PATH ../../../motorola/kernel/modules/drivers/moto_sched/locking
+#define TRACE_INCLUDE_PATH ../../../motorola/drivers/moto_sched/locking
 
 /* This part must be outside the header guard */
 #include <trace/define_trace.h>

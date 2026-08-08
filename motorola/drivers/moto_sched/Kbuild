@@ -4,6 +4,7 @@ endif
 
 # add -Wall to try to catch everything we can.
 EXTRA_CFLAGS += -Wall -Wno-declaration-after-statement
+EXTRA_CFLAGS += -I$(KERNEL_SRC)
 EXTRA_CFLAGS += -I$(KERNEL_SRC)/../sm8550-modules/motorola/include
 EXTRA_CFLAGS += -I$(ANDROID_BUILD_TOP)/kernel_platform/common
 ifneq ($strip($(LINUX_KERNEL_VERSION)),)
