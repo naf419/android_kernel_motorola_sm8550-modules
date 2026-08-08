@@ -64,7 +64,7 @@ ifneq (,$(KERNEL_DIR_PATH))
 else ifneq (,$(KERNEL_PLATFORM_PATH))
         EXTRA_CFLAGS += -I$(KERNEL_PLATFORM_PATH)/common/drivers/base
 else
-        EXTRA_CFLAGS += -I$(ANDROID_BUILD_TOP)/kernel/drivers/base
+        EXTRA_CFLAGS += -I$(KERNEL_SRC)/drivers/base
 endif
 KBUILD_EXTRA_SYMBOLS += $(CURDIR)/$(KBUILD_EXTMOD)/../../sensors/Module.symvers
 
