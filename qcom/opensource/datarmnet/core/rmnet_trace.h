@@ -16,13 +16,13 @@
 #else
 	#ifdef CONFIG_ARCH_SCUBA
             #if defined(RMNET_LA_PLATFORM)
-                #define TRACE_INCLUDE_PATH ../../../../vendor/qcom/opensource/datarmnet/core
+                #define TRACE_INCLUDE_PATH ../../../../sm8550-modules/qcom/opensource/datarmnet/core
             #else
 		#define TRACE_INCLUDE_PATH ../../../../sm8550-modules/qcom/opensource/datarmnet/core
             #endif
         #elif defined(CONFIG_ARCH_KHAJE)
             #if defined(RMNET_LA_PLATFORM)
-                #define TRACE_INCLUDE_PATH ../../../../vendor/qcom/opensource/datarmnet/core
+                #define TRACE_INCLUDE_PATH ../../../../sm8550-modules/qcom/opensource/datarmnet/core
             #else
                 #define TRACE_INCLUDE_PATH ../../../../sm8550-modules/qcom/opensource/datarmnet/core
             #endif
