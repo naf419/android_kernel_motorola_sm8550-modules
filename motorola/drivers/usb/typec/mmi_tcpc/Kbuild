@@ -7,6 +7,15 @@ subdir-ccflags-y += -Wall -Werror -DCONFIG_RT_REGMAP
 
 EXTRA_CFLAGS += -DCONFIG_PD_DBG_INFO
 
+# if building as external module, Kconfig options defined
+# externally are ignored when making the final .config file
+# so set some defaults here:
+ifeq ($(CONFIG_ARCH_KHAJE), y)
+	CONFIG_TCPC_CLASS=m
+	CONFIG_TCPC_AW35616=m
+	CONFIG_TCPC_SGM7220=m
+endif
+
 ifneq ($(filter m y,$(CONFIG_TCPC_CLASS)),)
 	EXTRA_CFLAGS += -DCONFIG_TCPC_CLASS
 endif
