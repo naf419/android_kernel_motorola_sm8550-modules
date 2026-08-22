@@ -1,12 +1,10 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2019, The Linux Foundation. All rights reserved.
  */
 
 #ifndef CAM_OPE_CORE_H
 #define CAM_OPE_CORE_H
-
 
 #include <linux/interrupt.h>
 #include <linux/io.h>
@@ -17,9 +15,6 @@
 #include "cam_cpas_api.h"
 #include "ope_hw.h"
 #include "ope_dev_intf.h"
-
-#define CAM_OPE_HW_MAX_NUM_PID 2
-
 /**
  * struct cam_ope_cpas_vote
  * @ahb_vote: AHB vote info
@@ -84,6 +79,7 @@ struct cam_ope_device_core_info {
 	struct cam_ope_set_irq_cb irq_cb;
 };
 
+
 int cam_ope_init_hw(void *device_priv,
 	void *init_hw_args, uint32_t arg_size);
 int cam_ope_deinit_hw(void *device_priv,
@@ -98,8 +94,6 @@ int cam_ope_get_hw_caps(void *device_priv,
 	void *get_hw_cap_args, uint32_t arg_size);
 int cam_ope_process_cmd(void *device_priv, uint32_t cmd_type,
 	void *cmd_args, uint32_t arg_size);
-int ope_validate_buff_offset(size_t buf_len,
-		struct ope_cmd_buf_info *cmd_buf);
 irqreturn_t cam_ope_irq(int irq_num, void *data);
 
 #endif /* CAM_OPE_CORE_H */

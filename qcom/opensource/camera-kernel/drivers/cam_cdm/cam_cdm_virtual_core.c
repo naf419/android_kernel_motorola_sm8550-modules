@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/delay.h>
@@ -21,7 +21,6 @@
 #include "cam_cdm_soc.h"
 #include "cam_io_util.h"
 #include "cam_req_mgr_workq.h"
-#include "cam_common_util.h"
 
 #define CAM_CDM_VIRTUAL_NAME "qcom,cam_virtual_cdm"
 
@@ -36,10 +35,8 @@ static void cam_virtual_cdm_work(struct work_struct *work)
 		cdm_hw = payload->hw;
 		core = (struct cam_cdm *)cdm_hw->core_info;
 
-		cam_common_util_thread_switch_delay_detect(
-			"virtual_cdm_workq", "schedule", cam_virtual_cdm_work,
-			payload->workq_scheduled_ts,
-			CAM_WORKQ_SCHEDULE_TIME_THRESHOLD);
+		cam_req_mgr_thread_switch_delay_detect(
+			payload->workq_scheduled_ts);
 
 		if (payload->irq_status & 0x2) {
 			struct cam_cdm_bl_cb_request_entry *node;
@@ -161,7 +158,8 @@ int cam_virtual_cdm_submit_bl(struct cam_hw_info *cdm_hw,
 			CAM_DBG(CAM_CDM,
 				"write BL success for cnt=%d with tag=%d",
 				i, core->bl_tag);
-			if (req->data->flag && (i == req->data->cmd_arrary_count)) {
+			if ((true == req->data->flag) &&
+				(i == req->data->cmd_arrary_count)) {
 				struct cam_cdm_bl_cb_request_entry *node;
 
 				node = kzalloc(sizeof(
