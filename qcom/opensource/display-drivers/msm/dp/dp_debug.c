@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -74,17 +74,18 @@ static int dp_debug_attach_sim_bridge(struct dp_debug_private *debug)
 {
 	int ret;
 
-	if (!debug->sim_bridge) {
-		ret = dp_sim_create_bridge(debug->dev, &debug->sim_bridge);
-		if (ret)
-			return ret;
+	if (debug->sim_bridge)
+		return 0;
 
-		if (debug->sim_bridge->register_hpd)
-			debug->sim_bridge->register_hpd(debug->sim_bridge,
-					dp_debug_sim_hpd_cb, debug);
-	}
+	ret = dp_sim_create_bridge(debug->dev, &debug->sim_bridge);
+	if (ret)
+		return ret;
 
 	dp_sim_update_port_num(debug->sim_bridge, 1);
+
+	if (debug->sim_bridge->register_hpd)
+		debug->sim_bridge->register_hpd(debug->sim_bridge,
+				dp_debug_sim_hpd_cb, debug);
 
 	return 0;
 }
@@ -119,8 +120,6 @@ static void dp_debug_disable_sim_mode(struct dp_debug_private *debug,
 	/* update sim mode */
 	debug->sim_mode &= ~mode_mask;
 	dp_sim_set_sim_mode(debug->sim_bridge, debug->sim_mode);
-
-	dp_sim_update_port_num(debug->sim_bridge, 0);
 
 	/* switch to normal mode */
 	if (!debug->sim_mode)
@@ -545,13 +544,13 @@ static ssize_t dp_debug_write_mst_con_id(struct file *file,
 
 	debug->mst_con_id = con_id;
 
-	if (status == connector_status_unknown)
-		goto out;
-
 	if (status == connector_status_connected)
 		DP_INFO("plug mst connector %d\n", con_id);
-	else if (status == connector_status_disconnected)
+	else
 		DP_INFO("unplug mst connector %d\n", con_id);
+
+	if (status == connector_status_unknown)
+		goto out;
 
 	mst_port = sde_conn->mst_port;
 	dp_panel = sde_conn->drv_panel;
@@ -2373,8 +2372,6 @@ static void dp_debug_abort(struct dp_debug *dp_debug)
 	debug = container_of(dp_debug, struct dp_debug_private, dp_debug);
 
 	mutex_lock(&debug->lock);
-	// disconnect has already been handled. so clear hotplug
-	debug->hotplug = false;
 	dp_debug_set_sim_mode(debug, false);
 	mutex_unlock(&debug->lock);
 }

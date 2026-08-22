@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -15,7 +15,6 @@
 #include "sde_dbg.h"
 #include "msm_drv.h"
 #include "sde_encoder.h"
-#include "dsi_display_mot_ext.h"
 
 #define to_dsi_bridge(x)     container_of((x), struct dsi_bridge, base)
 #define to_dsi_state(x)      container_of((x), struct dsi_connector_state, base)
@@ -35,9 +34,6 @@ static struct dsi_display_mode_priv_info default_priv_info = {
 static void convert_to_dsi_mode(const struct drm_display_mode *drm_mode,
 				struct dsi_display_mode *dsi_mode)
 {
-
-	char *p_mode_group = NULL;
-
 	memset(dsi_mode, 0, sizeof(*dsi_mode));
 
 	dsi_mode->timing.h_active = drm_mode->hdisplay;
@@ -62,14 +58,6 @@ static void convert_to_dsi_mode(const struct drm_display_mode *drm_mode,
 			!!(drm_mode->flags & DRM_MODE_FLAG_PHSYNC);
 	dsi_mode->timing.v_sync_polarity =
 			!!(drm_mode->flags & DRM_MODE_FLAG_PVSYNC);
-
-	// Motorola zhanggb, add refreshrate group, IKSWT-18219
-	// Check type/flags/name to set group
-	p_mode_group = strchr(drm_mode->name, '@');
-	if (p_mode_group && strlen(p_mode_group) > 1) {
-	    dsi_mode->timing.refresh_rate_group_flag= mot_atoi(++p_mode_group);
-	}
-
 }
 
 static void msm_parse_mode_priv_info(const struct msm_display_mode *msm_mode,
@@ -144,13 +132,7 @@ void dsi_convert_to_drm_mode(const struct dsi_display_mode *dsi_mode,
 		drm_mode->flags |= DRM_MODE_FLAG_PVSYNC;
 
 	/* set mode name */
-	// Motorola zhanggb, Add refreshrate group, IKSWT-18219
-	if (dsi_mode->timing.refresh_rate_group_flag)
-	    snprintf(drm_mode->name, DRM_DISPLAY_MODE_LEN, "%dx%dx%d%s@%d",
-			drm_mode->hdisplay, drm_mode->vdisplay,
-			drm_mode_vrefresh(drm_mode), panel_caps, dsi_mode->timing.refresh_rate_group_flag);
-	else
-	    snprintf(drm_mode->name, DRM_DISPLAY_MODE_LEN, "%dx%dx%d%s",
+	snprintf(drm_mode->name, DRM_DISPLAY_MODE_LEN, "%dx%dx%d%s",
 			drm_mode->hdisplay, drm_mode->vdisplay,
 			drm_mode_vrefresh(drm_mode), panel_caps);
 }
@@ -210,8 +192,7 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 		return;
 	}
 
-	if (bridge->encoder->crtc->state->active_changed)
-		atomic_set(&c_bridge->display->panel->esd_recovery_pending, 0);
+	atomic_set(&c_bridge->display->panel->esd_recovery_pending, 0);
 
 	/* By this point mode should have been validated through mode_fixup */
 	rc = dsi_display_set_mode(c_bridge->display,
@@ -467,14 +448,6 @@ static bool _dsi_bridge_mode_validate_and_fixup(struct drm_bridge *bridge,
 			adj_mode->panel_mode_caps);
 	}
 
-	if (!dsi_display_mode_match(&cur_dsi_mode, adj_mode,
-			DSI_MODE_MATCH_ACTIVE_TIMINGS) &&
-			(adj_mode->dsi_mode_flags & DSI_MODE_FLAG_DYN_CLK)) {
-		adj_mode->dsi_mode_flags &= ~DSI_MODE_FLAG_DYN_CLK;
-		DSI_ERR("DMS and dyn clk not supported in same commit\n");
-		return false;
-	}
-
 	return rc;
 }
 
@@ -710,7 +683,7 @@ int dsi_conn_get_mode_info(struct drm_connector *connector,
 	if (mode_info->comp_info.comp_type) {
 		tar_bpp = dsi_mode->priv_info->pclk_scale.numer;
 		src_bpp = dsi_mode->priv_info->pclk_scale.denom;
-		mode_info->comp_info.comp_ratio = mult_frac(100, src_bpp,
+		mode_info->comp_info.comp_ratio = mult_frac(1, src_bpp,
 				tar_bpp);
 		mode_info->wide_bus_en = dsi_mode->priv_info->widebus_support;
 	}
@@ -1204,7 +1177,6 @@ int dsi_connector_get_modes(struct drm_connector *connector, void *data,
 			/* set the first mode in device tree list as preferred */
 			m->type |= DRM_MODE_TYPE_PREFERRED;
 		}
-
 		drm_mode_probed_add(connector, m);
 	}
 

@@ -42,14 +42,9 @@ else
 endif
 endif
 
-ifeq ($(CONFIG_ARCH_CROW), y)
-ifeq ($(CONFIG_ARCH_QTI_VM), y)
-        include $(DISPLAY_ROOT)/config/gki_crowdisptui.conf
-        LINUX_INC += -include $(DISPLAY_ROOT)/config/gki_crowdisptuiconf.h
-else
-	include $(DISPLAY_ROOT)/config/gki_crowdisp.conf
-	LINUX_INC += -include $(DISPLAY_ROOT)/config/gki_crowdispconf.h
-endif
+ifeq ($(CONFIG_ARCH_TRINKET), y)
+	include $(DISPLAY_ROOT)/config/trinketdisp.conf
+	LINUX_INC += -include $(DISPLAY_ROOT)/config/trinketdispconf.h
 endif
 
 ifeq (y, $(findstring y, $(CONFIG_ARCH_SA8155) $(CONFIG_ARCH_SA6155) $(CONFIG_ARCH_SA8195)))
@@ -160,7 +155,8 @@ msm_drm-$(CONFIG_DRM_MSM_DP) += dp/dp_altmode.o \
 				sde_hdcp_2x.o \
 				dp/dp_pll.o \
 				dp/dp_pll_5nm.o \
-				dp/dp_pll_4nm.o
+				dp/dp_pll_4nm.o \
+				dp/dp_pll_14nm.o
 
 msm_drm-$(CONFIG_DRM_MSM_DP_MST) += dp/dp_mst_drm.o
 
@@ -175,7 +171,6 @@ msm_drm-$(CONFIG_DRM_MSM_SDE) += sde/sde_crtc.o \
 				 sde/sde_core_perf.o \
 				 sde/sde_rm.o \
 				 sde/sde_kms_utils.o \
-				 sde/sde_motUtil.o \
 				 sde/sde_kms.o \
 				 sde/sde_plane.o \
 				 sde/sde_connector.o \
@@ -229,15 +224,18 @@ msm_drm-$(CONFIG_DRM_SDE_RSC) += sde_rsc.o \
 msm_drm-$(CONFIG_DRM_MSM_DSI) += dsi/dsi_phy.o \
 				 dsi/dsi_pwr.o \
 				 dsi/dsi_phy.o \
+				 dsi/dsi_phy_hw_v2_0.o \
 				 dsi/dsi_phy_hw_v3_0.o \
 				 dsi/dsi_phy_hw_v4_0.o \
 				 dsi/dsi_phy_hw_v5_0.o \
 				 dsi/dsi_phy_timing_calc.o \
+				 dsi/dsi_phy_timing_v2_0.o \
 				 dsi/dsi_phy_timing_v3_0.o \
 				 dsi/dsi_phy_timing_v4_0.o \
 				 dsi/dsi_pll.o \
 				 dsi/dsi_pll_5nm.o \
 				 dsi/dsi_pll_4nm.o \
+				 dsi/dsi_pll_14nm.o \
 				 dsi/dsi_ctrl_hw_cmn.o \
 				 dsi/dsi_ctrl_hw_2_2.o \
 				 dsi/dsi_ctrl.o \
@@ -246,8 +244,7 @@ msm_drm-$(CONFIG_DRM_MSM_DSI) += dsi/dsi_phy.o \
 				 dsi/dsi_display.o \
 				 dsi/dsi_panel.o \
 				 dsi/dsi_clk_manager.o \
-				 dsi/dsi_display_test.o \
-				 dsi/dsi_display_mot_ext.o
+				 dsi/dsi_display_test.o
 
 msm_drm-$(CONFIG_DSI_PARSER) += dsi/dsi_parser.o
 

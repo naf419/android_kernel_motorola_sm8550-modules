@@ -19,7 +19,6 @@
 #define MAX_AUDIO_DATA_BLOCK_SIZE 30
 #define MAX_SPKR_ALLOC_DATA_BLOCK_SIZE 3
 #define EDID_VENDOR_ID_SIZE     4
-#define EDID_MONITOR_NAME_SIZE 13
 
 #define SDE_CEA_EXT    0x02
 #define SDE_EXTENDED_TAG 0x07
@@ -95,7 +94,6 @@ struct sde_edid_ctrl {
 	char vendor_id[EDID_VENDOR_ID_SIZE];
 	struct sde_edid_sink_caps sink_caps;
 	struct sde_edid_hdr_data hdr_data;
-	char monitor_name[EDID_MONITOR_NAME_SIZE+1];
 };
 
 /**

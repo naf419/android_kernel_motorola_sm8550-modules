@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -57,7 +57,6 @@ static const struct drm_prop_enum_list e_topology_control[] = {
 	{SDE_RM_TOPCTL_DSPP,		"dspp"},
 	{SDE_RM_TOPCTL_DS,		"ds"},
 	{SDE_RM_TOPCTL_DNSC_BLUR,	"dnsc_blur"},
-	{SDE_RM_TOPCTL_CDM,		"cdm"},
 };
 static const struct drm_prop_enum_list e_power_mode[] = {
 	{SDE_MODE_DPMS_ON,	"ON"},
@@ -146,9 +145,7 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 	if (brightness > c_conn->thermal_max_brightness)
 		brightness = c_conn->thermal_max_brightness;
 
-	if(brightness && brightness < display->panel->bl_config.bl_min_level)
-		brightness = display->panel->bl_config.bl_min_level;
-
+	display->panel->bl_config.brightness = brightness;
 	/* map UI brightness into driver backlight level with rounding */
 	bl_lvl = mult_frac(brightness, display->panel->bl_config.bl_max_level,
 			display->panel->bl_config.brightness_max_level);
@@ -164,12 +161,9 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 	sde_vm_lock(sde_kms);
 
 	if (!sde_vm_owns_hw(sde_kms)) {
-		sde_vm_unlock(sde_kms);
 		SDE_DEBUG("skipping bl update due to HW unavailablity\n");
 		goto done;
 	}
-
-	sde_vm_unlock(sde_kms);
 
 	if (c_conn->ops.set_backlight) {
 		/* skip notifying user space if bl is 0 */
@@ -187,6 +181,7 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 	}
 
 done:
+	sde_vm_unlock(sde_kms);
 
 	return rc;
 }
@@ -208,7 +203,7 @@ static int sde_backlight_cooling_cb(struct notifier_block *nb,
 	struct backlight_device *bd = (struct backlight_device *)data;
 
 	c_conn = bl_get_data(bd);
-	SDE_INFO("bl: thermal max brightness cap:%lu\n", val);
+	SDE_DEBUG("bl: thermal max brightness cap:%lu\n", val);
 	c_conn->thermal_max_brightness = val;
 
 	sde_backlight_device_update_status(bd);
@@ -244,7 +239,7 @@ static int sde_backlight_setup(struct sde_connector *c_conn,
 	props.type = BACKLIGHT_RAW;
 	props.power = FB_BLANK_UNBLANK;
 	props.max_brightness = bl_config->brightness_max_level;
-	props.brightness = bl_config->brightness_default_level;
+	props.brightness = bl_config->brightness_max_level;
 	snprintf(bl_node_name, BL_NODE_NAME_SIZE, "panel%u-backlight",
 							display_count);
 	c_conn->bl_device = backlight_device_register(bl_node_name, dev->dev, c_conn,
@@ -607,10 +602,8 @@ void sde_connector_schedule_status_work(struct drm_connector *connector,
 		return;
 
 	sde_connector_get_info(connector, &info);
-	if ((c_conn->ops.force_esd_disable &&
-		(c_conn->ops.force_esd_disable(c_conn->display) == false)) &&
-		(c_conn->ops.check_status &&
-		(info.capabilities & MSM_DISPLAY_ESD_ENABLED))) {
+	if (c_conn->ops.check_status &&
+		(info.capabilities & MSM_DISPLAY_ESD_ENABLED)) {
 		if (en) {
 			u32 interval;
 
@@ -932,24 +925,6 @@ static int _sde_connector_update_hdr_metadata(struct sde_connector *c_conn,
 	return rc;
 }
 
-static int _sde_connector_update_param(struct sde_connector *c_conn,
-			struct msm_param_info *param_info)
-{
-	struct dsi_display *dsi_display;
-	int rc = 0;
-
-	if (!c_conn) {
-		SDE_ERROR("Invalid params sde_connector null\n");
-		return -EINVAL;
-	}
-
-	dsi_display = c_conn->display;
-	if (dsi_display && c_conn->ops.set_param)
-		rc = c_conn->ops.set_param(dsi_display, param_info);
-
-	return rc;
-}
-
 static int _sde_connector_update_dirty_properties(
 				struct drm_connector *connector)
 {
@@ -1159,7 +1134,6 @@ void sde_connector_helper_bridge_enable(struct drm_connector *connector)
 	struct sde_connector *c_conn = NULL;
 	struct dsi_display *display;
 	struct sde_kms *sde_kms;
-	struct drm_crtc *crtc;
 
 	sde_kms = sde_connector_get_kms(connector);
 	if (!sde_kms) {
@@ -1169,17 +1143,15 @@ void sde_connector_helper_bridge_enable(struct drm_connector *connector)
 
 	c_conn = to_sde_connector(connector);
 	display = (struct dsi_display *) c_conn->display;
-	crtc = connector->state->crtc;
 
 	/*
 	 * Special handling for some panels which need atleast
 	 * one frame to be transferred to GRAM before enabling backlight.
 	 * So delay backlight update to these panels until the
-	 * first frame commit is received from the HW only during power on.
+	 * first frame commit is received from the HW.
 	 */
-	if ((display->panel->bl_config.bl_update ==
-		BL_UPDATE_DELAY_UNTIL_FIRST_FRAME) &&
-		crtc && crtc->state->active_changed)
+	if (display->panel->bl_config.bl_update ==
+				BL_UPDATE_DELAY_UNTIL_FIRST_FRAME)
 		sde_encoder_wait_for_event(c_conn->encoder,
 				MSM_ENC_TX_COMPLETE);
 	c_conn->allow_bl_update = true;
@@ -1223,6 +1195,9 @@ void sde_connector_destroy(struct drm_connector *connector)
 	}
 
 	c_conn = to_sde_connector(connector);
+
+	if (c_conn->sysfs_dev)
+		device_unregister(c_conn->sysfs_dev);
 
 	/* cancel if any pending esd work */
 	sde_connector_schedule_status_work(connector, false);
@@ -1657,23 +1632,6 @@ static int _sde_connector_set_prop_out_fb(struct drm_connector *connector,
 	return rc;
 }
 
-static struct drm_encoder *
-sde_connector_best_encoder(struct drm_connector *connector)
-{
-	struct sde_connector *c_conn = to_sde_connector(connector);
-
-	if (!connector) {
-		SDE_ERROR("invalid connector\n");
-		return NULL;
-	}
-
-	/*
-	 * This is true for now, revisit this code when multiple encoders are
-	 * supported.
-	 */
-	return c_conn->encoder;
-}
-
 static int _sde_connector_set_prop_retire_fence(struct drm_connector *connector,
 		struct drm_connector_state *state,
 		uint64_t val)
@@ -1709,13 +1667,9 @@ static int _sde_connector_set_prop_retire_fence(struct drm_connector *connector,
 		 */
 		offset++;
 
-		/* get hw_ctl for a wb connector not in cwb mode */
-		if (c_conn->connector_type == DRM_MODE_CONNECTOR_VIRTUAL) {
-			struct drm_encoder *drm_enc = sde_connector_best_encoder(connector);
-
-			if (drm_enc && !sde_encoder_in_clone_mode(drm_enc))
-				hw_ctl = sde_encoder_get_hw_ctl(c_conn);
-		}
+		/* get hw_ctl for a wb connector */
+		if (c_conn->connector_type == DRM_MODE_CONNECTOR_VIRTUAL)
+			hw_ctl = sde_encoder_get_hw_ctl(c_conn);
 
 		rc = sde_fence_create(c_conn->retire_fence,
 					&fence_user_fd, offset, hw_ctl);
@@ -1755,20 +1709,6 @@ static int _sde_connector_set_prop_dyn_transfer_time(struct sde_connector *c_con
 	return rc;
 }
 
-static void _sde_connector_handle_dpms_off(struct sde_connector *c_conn, uint64_t val)
-{
-	/* suspend case: clear stale MISR */
-	if (val == SDE_MODE_DPMS_OFF) {
-		memset(&c_conn->previous_misr_sign, 0, sizeof(struct sde_misr_sign));
-
-		/* reset backlight scale of LTM */
-		if (c_conn->bl_scale_sv != MAX_SV_BL_SCALE_LEVEL) {
-			c_conn->bl_scale_sv = MAX_SV_BL_SCALE_LEVEL;
-			c_conn->bl_scale_dirty = true;
-		}
-	}
-}
-
 static int sde_connector_atomic_set_property(struct drm_connector *connector,
 		struct drm_connector_state *state,
 		struct drm_property *property,
@@ -1777,7 +1717,6 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 	struct sde_connector *c_conn;
 	struct sde_connector_state *c_state;
 	int idx, rc;
-	struct msm_param_info param_info;
 
 	if (!connector || !state || !property) {
 		SDE_ERROR("invalid argument(s), conn %pK, state %pK, prp %pK\n",
@@ -1860,51 +1799,15 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 		if (rc)
 			SDE_ERROR_CONN(c_conn, "dynamic bit clock set failed, rc: %d", rc);
 
-	case CONNECTOR_PROP_HBM:
-		param_info.value = val;
-		param_info.param_idx = PARAM_HBM_ID;
-		param_info.param_conn_idx = CONNECTOR_PROP_HBM;
-		rc = _sde_connector_update_param(c_conn, &param_info);
-		if (rc)
-			goto end;
-		break;
-	case CONNECTOR_PROP_ACL:
-		param_info.value = val;
-		param_info.param_idx = PARAM_ACL_ID;
-		param_info.param_conn_idx = CONNECTOR_PROP_ACL;
-		rc = _sde_connector_update_param(c_conn, &param_info);
-		if (rc)
-			goto end;
-		break;
-	case CONNECTOR_PROP_CABC:
-		param_info.value = val;
-		param_info.param_idx = PARAM_CABC_ID;
-		param_info.param_conn_idx = CONNECTOR_PROP_CABC;
-		rc = _sde_connector_update_param(c_conn, &param_info);
-		if (rc)
-			goto end;
-		break;
-	case CONNECTOR_PROP_DC:
-		param_info.value = val;
-		param_info.param_idx = PARAM_DC_ID;
-		param_info.param_conn_idx = CONNECTOR_PROP_DC;
-		rc = _sde_connector_update_param(c_conn, &param_info);
-		if (rc)
-			goto end;
-		break;
-	case CONNECTOR_PROP_COLOR:
-		param_info.value = val;
-		param_info.param_idx = PARAM_COLOR_ID;
-		param_info.param_conn_idx = CONNECTOR_PROP_COLOR;
-		rc = _sde_connector_update_param(c_conn, &param_info);
-		if (rc)
-			goto end;
 		break;
 	case CONNECTOR_PROP_DYN_TRANSFER_TIME:
 		_sde_connector_set_prop_dyn_transfer_time(c_conn, val);
 		break;
 	case CONNECTOR_PROP_LP:
-		_sde_connector_handle_dpms_off(c_conn, val);
+		/* suspend case: clear stale MISR */
+		if (val == SDE_MODE_DPMS_OFF)
+			memset(&c_conn->previous_misr_sign, 0, sizeof(struct sde_misr_sign));
+		break;
 	default:
 		break;
 	}
@@ -2208,8 +2111,7 @@ static int _sde_connector_lm_preference(struct sde_connector *sde_conn,
 		return -EINVAL;
 	}
 
-	sde_conn->lm_mask = sde_hw_mixer_set_preference(sde_kms->catalog,
-							num_lm, disp_type);
+	sde_hw_mixer_set_preference(sde_kms->catalog, num_lm, disp_type);
 
 	return ret;
 }
@@ -2744,6 +2646,23 @@ sde_connector_mode_valid(struct drm_connector *connector,
 	return MODE_OK;
 }
 
+static struct drm_encoder *
+sde_connector_best_encoder(struct drm_connector *connector)
+{
+	struct sde_connector *c_conn = to_sde_connector(connector);
+
+	if (!connector) {
+		SDE_ERROR("invalid connector\n");
+		return NULL;
+	}
+
+	/*
+	 * This is true for now, revisit this code when multiple encoders are
+	 * supported.
+	 */
+	return c_conn->encoder;
+}
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
 static struct drm_encoder *
 sde_connector_atomic_best_encoder(struct drm_connector *connector,
@@ -3051,61 +2970,6 @@ static int sde_connector_populate_mode_info(struct drm_connector *conn,
 	return rc;
 }
 
-static int sde_connector_install_panel_params(struct sde_connector *c_conn)
-{
-	struct panel_param *param_cmds;
-	uint32_t prop_idx;
-	int i;
-	struct dsi_display *dsi_display;
-	u16 prop_max, prop_min, prop_init;
-
-	if (c_conn->connector_type != DRM_MODE_CONNECTOR_DSI)
-		return 0;
-
-	dsi_display = (struct dsi_display *) (c_conn->display);
-	param_cmds = dsi_display->panel->param_cmds;
-	for (i = 0; i < PARAM_ID_NUM; i++) {
-		SDE_DEBUG("%s:i = %d param_name = %s is_support=%d\n",
-			__func__, i,
-                        param_cmds->param_name, param_cmds->is_supported);
-
-		if (!strncmp(param_cmds->param_name, "HBM", 3))
-			prop_idx = CONNECTOR_PROP_HBM;
-		else if (!strncmp(param_cmds->param_name, "CABC", 4))
-			prop_idx = CONNECTOR_PROP_CABC;
-		else if (!strncmp(param_cmds->param_name, "ACL", 3))
-			prop_idx = CONNECTOR_PROP_ACL;
-		else if (!strncmp(param_cmds->param_name, "DC", 2))
-			prop_idx = CONNECTOR_PROP_DC;
-		else if (!strncmp(param_cmds->param_name, "COLOR", 5))
-			prop_idx = CONNECTOR_PROP_COLOR;
-		else {
-			SDE_ERROR("Invalid param_name =%s\n",
-						param_cmds->param_name);
-			return -EINVAL;
-		}
-
-		if (param_cmds->is_supported) {
-			prop_max = param_cmds->val_max;
-			prop_min = PARAM_STATE_OFF;
-			prop_init = param_cmds->default_value;
-		} else {
-			prop_max = PARAM_STATE_OFF;
-			prop_min = PARAM_STATE_OFF;
-			prop_init = PARAM_STATE_DISABLE;
-		}
-
-		msm_property_install_volatile_range( &c_conn->property_info,
-					param_cmds->param_name, 0x0,
-					prop_min, prop_max,
-					prop_init, prop_idx);
-
-		param_cmds++;
-	}
-
-	return 0;
-}
-
 int sde_connector_set_blob_data(struct drm_connector *conn,
 		struct drm_connector_state *state,
 		enum msm_mdp_conn_property prop_id)
@@ -3375,6 +3239,105 @@ static int _sde_connector_install_properties(struct drm_device *dev,
 	return 0;
 }
 
+static ssize_t panel_power_state_show(struct device *device,
+	struct device_attribute *attr, char *buf)
+{
+	struct drm_connector *conn;
+	struct sde_connector *sde_conn;
+
+	conn = dev_get_drvdata(device);
+	sde_conn = to_sde_connector(conn);
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n", sde_conn->last_panel_power_mode);
+}
+
+static ssize_t twm_enable_store(struct device *device,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct drm_connector *conn;
+	struct sde_connector *sde_conn;
+	struct dsi_display *dsi_display;
+	int rc;
+	int data;
+
+	conn = dev_get_drvdata(device);
+	sde_conn = to_sde_connector(conn);
+	dsi_display = (struct dsi_display *) sde_conn->display;
+	rc = kstrtoint(buf, 10, &data);
+	if (rc) {
+		SDE_ERROR("kstrtoint failed, rc = %d\n", rc);
+		return -EINVAL;
+	}
+	sde_conn->twm_en = data ? true : false;
+	dsi_display->panel->is_twm_en = sde_conn->twm_en;
+	sde_conn->allow_bl_update = data ? false : true;
+
+	SDE_DEBUG("TWM: %s\n", sde_conn->twm_en ? "ENABLED" : "DISABLED");
+	return count;
+}
+
+static ssize_t twm_enable_show(struct device *device,
+	struct device_attribute *attr, char *buf)
+{
+	struct drm_connector *conn;
+	struct sde_connector *sde_conn;
+
+	conn = dev_get_drvdata(device);
+	sde_conn = to_sde_connector(conn);
+
+	SDE_DEBUG("TWM: %s\n", sde_conn->twm_en ? "ENABLED" : "DISABLED");
+	return scnprintf(buf, PAGE_SIZE, "%d\n", sde_conn->twm_en);
+}
+
+static DEVICE_ATTR_RO(panel_power_state);
+static DEVICE_ATTR_RW(twm_enable);
+
+static struct attribute *sde_connector_dev_attrs[] = {
+	&dev_attr_panel_power_state.attr,
+	&dev_attr_twm_enable.attr,
+	NULL
+};
+
+static const struct attribute_group sde_connector_attr_group = {
+	.attrs = sde_connector_dev_attrs,
+};
+static const struct attribute_group *sde_connector_attr_groups[] = {
+	&sde_connector_attr_group,
+	NULL,
+};
+
+int sde_connector_post_init(struct drm_device *dev, struct drm_connector *conn)
+{
+	struct sde_connector *c_conn;
+	int rc = 0;
+
+	if (!dev || !dev->primary || !dev->primary->kdev || !conn) {
+		SDE_ERROR("invalid input param(s)\n");
+		rc = -EINVAL;
+		return rc;
+	}
+
+	c_conn =  to_sde_connector(conn);
+
+	if (conn->connector_type != DRM_MODE_CONNECTOR_DSI)
+		return rc;
+
+	c_conn->sysfs_dev =
+		device_create_with_groups(dev->primary->kdev->class, dev->primary->kdev, 0,
+			conn, sde_connector_attr_groups, "sde-conn-%d-%s", conn->index,
+			conn->name);
+	if (IS_ERR_OR_NULL(c_conn->sysfs_dev)) {
+		SDE_ERROR("connector:%d sysfs create failed rc:%ld\n", &c_conn->base.index,
+			PTR_ERR(c_conn->sysfs_dev));
+		if (!c_conn->sysfs_dev)
+			rc = -EINVAL;
+		else
+			rc = PTR_ERR(c_conn->sysfs_dev);
+	}
+
+	return rc;
+}
+
 struct drm_connector *sde_connector_init(struct drm_device *dev,
 		struct drm_encoder *encoder,
 		struct drm_panel *panel,
@@ -3426,6 +3389,7 @@ struct drm_connector *sde_connector_init(struct drm_device *dev,
 	c_conn->dpms_mode = DRM_MODE_DPMS_ON;
 	c_conn->lp_mode = 0;
 	c_conn->last_panel_power_mode = SDE_MODE_DPMS_ON;
+	c_conn->twm_en = false;
 
 	sde_kms = to_sde_kms(priv->kms);
 	if (sde_kms->vbif[VBIF_NRT]) {
@@ -3491,14 +3455,6 @@ struct drm_connector *sde_connector_init(struct drm_device *dev,
 			SDE_ERROR("post-init failed, %d\n", rc);
 			goto error_cleanup_fence;
 		}
-	}
-
-	rc = sde_connector_install_panel_params(c_conn);
-	if (rc) {
-		SDE_ERROR_CONN(c_conn,
-			"failed to install property for panel params. rc =%d\n",
-							rc);
-			goto error_cleanup_fence;
 	}
 
 	rc = sde_connector_get_info(&c_conn->base, &display_info);
@@ -3616,8 +3572,7 @@ int sde_connector_register_custom_event(struct sde_kms *kms,
 		break;
 	case DRM_EVENT_SDE_HW_RECOVERY:
 		ret = _sde_conn_enable_hw_recovery(conn_drm);
-		if (SDE_DBG_DEFAULT_DUMP_MODE != SDE_DBG_DUMP_IN_LOG_LIMITED)
-			sde_dbg_update_dump_mode(val);
+		sde_dbg_update_dump_mode(val);
 		break;
 	default:
 		break;

@@ -20,8 +20,6 @@
 #include "dsi_ctrl.h"
 #include "dsi_phy.h"
 #include "dsi_panel.h"
-#include "sde_connector.h"
-#include "sde_motUtil.h"
 
 #define MAX_DSI_CTRLS_PER_DISPLAY             2
 #define DSI_CLIENT_NAME_SIZE		20
@@ -32,8 +30,6 @@
 #define DSI_MODE_MATCH_PORCH_TIMINGS (1 << 1)
 #define DSI_MODE_MATCH_FULL_TIMINGS (DSI_MODE_MATCH_ACTIVE_TIMINGS | DSI_MODE_MATCH_PORCH_TIMINGS)
 #define DSI_MODE_MATCH_DSC_CONFIG (1 << 2)
-
-#define MAX_PANEL_CELLID      50
 
 /*
  * DSI Validate Mode modifiers
@@ -145,7 +141,6 @@ struct dsi_display_ext_bridge {
  * @ext_conn:         Pointer to external connector attached to DSI connector
  * @name:             Name of the display.
  * @display_type:     Display type as defined in device tree.
- * @display_idx:      Display index (0-primary, 1-secondary)
  * @list:             List pointer.
  * @is_active:        Is display active.
  * @is_cont_splash_enabled:  Is continuous splash enabled
@@ -154,6 +149,8 @@ struct dsi_display_ext_bridge {
  * @disp_te_gpio:     GPIO for panel TE interrupt.
  * @is_te_irq_enabled:bool to specify whether TE interrupt is enabled.
  * @esd_te_gate:      completion gate to signal TE interrupt.
+ * @needs_clk_src_reset: Is clock source reset needed.
+ * @needs_ctrl_vreg_disable: Is ctrl vreg disable needed.
  * @ctrl_count:       Number of DSI interfaces required by panel.
  * @ctrl:             Controller information for DSI display.
  * @panel:            Handle to DSI panel.
@@ -211,7 +208,6 @@ struct dsi_display {
 
 	const char *name;
 	const char *display_type;
-	int display_idx;
 	struct list_head list;
 	bool is_cont_splash_enabled;
 	bool sw_te_using_wd;
@@ -219,6 +215,8 @@ struct dsi_display {
 	int disp_te_gpio;
 	bool is_te_irq_enabled;
 	struct completion esd_te_gate;
+	bool needs_clk_src_reset;
+	bool needs_ctrl_vreg_disable;
 
 	u32 ctrl_count;
 	struct dsi_display_ctrl ctrl[MAX_DSI_CTRLS_PER_DISPLAY];
@@ -275,7 +273,6 @@ struct dsi_display {
 	bool misr_enable;
 	u32 misr_frame_count;
 	u32 esd_trigger;
-	bool disp_esd_chk_underway;
 	/* multiple dsi error handlers */
 	struct workqueue_struct *err_workq;
 	struct work_struct fifo_underflow_work;
@@ -307,14 +304,10 @@ struct dsi_display {
 	struct dsi_panel_cmd_set cmd_set;
 
 	bool enabled;
-	bool sysfs_add_done;
-	u8 cellid[MAX_PANEL_CELLID];
-	bool read_cellid;
 };
 
 int dsi_display_dev_probe(struct platform_device *pdev);
 int dsi_display_dev_remove(struct platform_device *pdev);
-void dsi_display_dev_shutdown(struct platform_device *pdev);
 
 /**
  * dsi_display_get_num_of_displays() - returns number of display devices
@@ -608,8 +601,6 @@ int dsi_post_clkoff_cb(void *priv, enum dsi_clk_type clk_type,
 		enum dsi_lclk_type l_type,
 		enum dsi_clk_state curr_state);
 
-int dsi_display_set_param(void *display, struct msm_param_info *param_info);
-
 /**
  * dsi_post_clkon_cb() - Callback after clock is turned on
  * @priv: private data pointer.
@@ -647,10 +638,8 @@ int dsi_pre_clkon_cb(void *priv, enum dsi_clk_type clk_type,
  */
 int dsi_display_unprepare(struct dsi_display *display);
 
-int dsi_display_set_tpg_state(struct dsi_display *display, bool enable,
-		enum dsi_test_pattern type,
-		u32 init_val,
-		enum dsi_ctrl_tpg_pattern pattern);
+int dsi_display_set_ulp_load(struct dsi_display *display, bool enable);
+int dsi_display_set_tpg_state(struct dsi_display *display, bool enable);
 
 int dsi_display_clock_gate(struct dsi_display *display, bool enable);
 int dsi_dispaly_static_frame(struct dsi_display *display, bool enable);
@@ -726,29 +715,6 @@ int dsi_display_cmd_transfer(struct drm_connector *connector,
  */
 int dsi_display_cmd_receive(void *display, const char *cmd_buf,
 			    u32 cmd_buf_len, u8 *recv_buf, u32 recv_buf_len);
-/**
- * dsi_display_motUtil_transfer() - Convert motUtil data and transfer command
- *						to the panel
- * @display:            Handle to display.
- * @cmd_buf:            Command buffer
- * @cmd_buf_len:        Command buffer length in bytes
- * @motUtil_data:	motUtil data information
- */
-int dsi_display_motUtil_transfer(void *display, const char *cmd_buf,
-		u32 cmd_buf_len, struct motUtil *motUtil_data);
-
-/**
- * dsi_display_trigger_panel_dead_event() - Trigger ESD recovery
- *
- * @display:            Handle to display.
- */
-int dsi_display_trigger_panel_dead_event(struct dsi_display *display);
-/**
- * dsi_display_force_esd_disable() - check if ESD UTAG is forced to disable ESD
- * @display:            Handle to display.
- */
-bool dsi_display_force_esd_disable(void *display);
-
 
 /**
  * dsi_display_soft_reset() - perform a soft reset on DSI controller
@@ -812,20 +778,6 @@ enum dsi_pixel_format dsi_display_get_dst_format(
 		struct drm_connector *connector,
 		void *display);
 
-/*
- * dsi_display_cmd_mipi_transfer() - Sending the MIPI DSI command
- * @display:         Handle to display
- * @msg:             MIPI DSI command information
- * @flags:           Modifier flags
- * Return: if this is a MIPI DSI read then it will return number read byte
- *                                in success case. Otherwise will be "<=0"
- *         if this is a MIPI DSI write then it will return "0" for success
- *
- */
-int dsi_display_cmd_mipi_transfer(struct dsi_display *display,
-		struct mipi_dsi_msg *msg,
-		u32 flags);
-
 /**
  * dsi_display_cont_splash_config() - initialize splash resources
  * @display:         Handle to display
@@ -885,9 +837,6 @@ int dsi_display_restore_bit_clk(struct dsi_display *display, struct dsi_display_
 bool dsi_display_mode_match(const struct dsi_display_mode *mode1,
 		struct dsi_display_mode *mode2, unsigned int match_flags);
 
-void dsi_display_set_cmd_tx_ctrl_flags(struct dsi_display *display,
-		struct dsi_cmd_desc *cmd);
-
 /**
  * dsi_display_update_transfer_time() - update DSI transfer time and clocks
  * @display:     handle to display
@@ -896,5 +845,29 @@ void dsi_display_set_cmd_tx_ctrl_flags(struct dsi_display *display,
  * Return: error code
  */
 int dsi_display_update_transfer_time(void *display, u32 transfer_time);
+
+/**
+ * dsi_display_set_clk_src() - set the clocks source
+ * @display:         handle to display
+ * @set_xo:          check clk source is xo clk or not
+ * Return: Zero on Success
+ */
+int dsi_display_set_clk_src(struct dsi_display *display, bool set_xo);
+
+/**
+ * dsi_display_ctrl_vreg_on() - enable dsi ctrl regulator
+ * @display:         Handle to display
+ *
+ * Return: Zero on Success
+ */
+int dsi_display_ctrl_vreg_on(struct dsi_display *display);
+
+/**
+ * dsi_display_ctrl_vreg_off() - disable dsi ctrl regulator
+ * @display:         Handle to display
+ *
+ * Return: Zero on Success
+ */
+int dsi_display_ctrl_vreg_off(struct dsi_display *display);
 
 #endif /* _DSI_DISPLAY_H_ */

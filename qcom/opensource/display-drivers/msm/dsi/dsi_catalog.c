@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/errno.h>
@@ -66,7 +66,6 @@ static void dsi_catalog_cmn_init(struct dsi_ctrl_hw *ctrl,
 		dsi_ctrl_hw_cmn_wait4dynamic_refresh_done;
 	ctrl->ops.hs_req_sel = dsi_ctrl_hw_cmn_hs_req_sel;
 	ctrl->ops.vid_engine_busy = dsi_ctrl_hw_cmn_vid_engine_busy;
-	ctrl->ops.init_cmddma_trig_ctrl = dsi_ctrl_hw_cmn_init_cmddma_trig_ctrl;
 
 	switch (version) {
 	case DSI_CTRL_VERSION_2_2:
@@ -160,6 +159,33 @@ int dsi_catalog_ctrl_setup(struct dsi_ctrl_hw *ctrl,
 }
 
 /**
+ * dsi_catalog_phy_2_0_init() - catalog init for DSI PHY 14nm
+ */
+static void dsi_catalog_phy_2_0_init(struct dsi_phy_hw *phy)
+{
+	phy->ops.regulator_enable = dsi_phy_hw_v2_0_regulator_enable;
+	phy->ops.regulator_disable = dsi_phy_hw_v2_0_regulator_disable;
+	phy->ops.enable = dsi_phy_hw_v2_0_enable;
+	phy->ops.disable = dsi_phy_hw_v2_0_disable;
+	phy->ops.calculate_timing_params =
+		dsi_phy_hw_calculate_timing_params;
+	phy->ops.phy_idle_on = dsi_phy_hw_v2_0_idle_on;
+	phy->ops.phy_idle_off = dsi_phy_hw_v2_0_idle_off;
+	phy->ops.calculate_timing_params =
+		dsi_phy_hw_calculate_timing_params;
+	phy->ops.phy_timing_val = dsi_phy_hw_timing_val_v2_0;
+	phy->ops.clamp_ctrl = dsi_phy_hw_v2_0_clamp_ctrl;
+	phy->ops.dyn_refresh_ops.dyn_refresh_config =
+		dsi_phy_hw_v2_0_dyn_refresh_config;
+	phy->ops.dyn_refresh_ops.dyn_refresh_pipe_delay =
+		dsi_phy_hw_v2_0_dyn_refresh_pipe_delay;
+	phy->ops.dyn_refresh_ops.dyn_refresh_helper =
+		dsi_phy_hw_v2_0_dyn_refresh_helper;
+	phy->ops.dyn_refresh_ops.cache_phy_timings =
+		dsi_phy_hw_v2_0_cache_phy_timings;
+}
+
+/**
  * dsi_catalog_phy_3_0_init() - catalog init for DSI PHY 10nm
  */
 static void dsi_catalog_phy_3_0_init(struct dsi_phy_hw *phy)
@@ -234,7 +260,7 @@ static void dsi_catalog_phy_4_0_init(struct dsi_phy_hw *phy)
 		dsi_phy_hw_v4_0_cache_phy_timings;
 	phy->ops.set_continuous_clk = dsi_phy_hw_v4_0_set_continuous_clk;
 	phy->ops.commit_phy_timing = dsi_phy_hw_v4_0_commit_phy_timing;
-	phy->ops.phy_idle_off = NULL;
+	phy->ops.phy_idle_off = dsi_phy_hw_v4_0_phy_idle_off;
 }
 
 /**
@@ -296,6 +322,9 @@ int dsi_catalog_phy_setup(struct dsi_phy_hw *phy,
 	dsi_phy_timing_calc_init(phy, version);
 
 	switch (version) {
+	case DSI_PHY_VERSION_2_0:
+		dsi_catalog_phy_2_0_init(phy);
+		break;
 	case DSI_PHY_VERSION_3_0:
 		dsi_catalog_phy_3_0_init(phy);
 		break;
@@ -333,6 +362,10 @@ int dsi_catalog_phy_pll_setup(struct dsi_phy_hw *phy, u32 pll_ver)
 	case DSI_PLL_VERSION_4NM:
 		phy->ops.configure = dsi_pll_4nm_configure;
 		phy->ops.pll_toggle = dsi_pll_4nm_toggle;
+		break;
+	case DSI_PLL_VERSION_14NM:
+		phy->ops.configure = dsi_pll_14nm_configure;
+		phy->ops.pll_toggle = dsi_pll_14nm_toggle;
 		break;
 	default:
 		phy->ops.configure = NULL;
