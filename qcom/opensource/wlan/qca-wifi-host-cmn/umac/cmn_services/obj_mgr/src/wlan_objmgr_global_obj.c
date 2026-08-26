@@ -640,7 +640,6 @@ QDF_STATUS wlan_objmgr_register_peer_create_handler(
 	return QDF_STATUS_SUCCESS;
 }
 
-qdf_export_symbol(wlan_objmgr_register_peer_create_handler);
 
 QDF_STATUS wlan_objmgr_unregister_peer_create_handler(
 		enum wlan_umac_comp_id id,
@@ -668,8 +667,6 @@ QDF_STATUS wlan_objmgr_unregister_peer_create_handler(
 	return QDF_STATUS_SUCCESS;
 }
 
-qdf_export_symbol(wlan_objmgr_unregister_peer_create_handler);
-
 QDF_STATUS wlan_objmgr_register_peer_destroy_handler(
 		enum wlan_umac_comp_id id,
 		wlan_objmgr_peer_destroy_handler handler,
@@ -696,8 +693,6 @@ QDF_STATUS wlan_objmgr_register_peer_destroy_handler(
 	return QDF_STATUS_SUCCESS;
 }
 
-qdf_export_symbol(wlan_objmgr_register_peer_destroy_handler);
-
 QDF_STATUS wlan_objmgr_unregister_peer_destroy_handler(
 		enum wlan_umac_comp_id id,
 		wlan_objmgr_peer_destroy_handler handler,
@@ -723,8 +718,6 @@ QDF_STATUS wlan_objmgr_unregister_peer_destroy_handler(
 	qdf_spin_unlock_bh(&g_umac_glb_obj->global_lock);
 	return QDF_STATUS_SUCCESS;
 }
-
-qdf_export_symbol(wlan_objmgr_unregister_peer_destroy_handler);
 
 QDF_STATUS wlan_objmgr_register_peer_status_handler(
 		enum wlan_umac_comp_id id,
@@ -897,8 +890,6 @@ struct wlan_objmgr_psoc
 	return psoc;
 }
 
-qdf_export_symbol(wlan_objmgr_get_psoc_by_id);
-
 #ifdef WLAN_FEATURE_11BE_MLO
 struct mlo_mgr_context *wlan_objmgr_get_mlo_ctx(void)
 {
@@ -912,7 +903,6 @@ void wlan_objmgr_set_mlo_ctx(struct mlo_mgr_context *ctx)
 	g_umac_glb_obj->mlo_ctx = ctx;
 }
 
-#ifdef WLAN_MLO_MULTI_CHIP
 void wlan_objmgr_set_dp_mlo_ctx(void *dp_handle)
 {
 	struct mlo_mgr_context *mlo_ctx = wlan_objmgr_get_mlo_ctx();
@@ -920,7 +910,7 @@ void wlan_objmgr_set_dp_mlo_ctx(void *dp_handle)
 	if (!mlo_ctx)
 		return;
 
-	mlo_ctx->setup_info.dp_handle = dp_handle;
+	mlo_ctx->dp_handle = dp_handle;
 }
 
 qdf_export_symbol(wlan_objmgr_set_dp_mlo_ctx);
@@ -932,9 +922,8 @@ void *wlan_objmgr_get_dp_mlo_ctx(void)
 	if (!mlo_ctx)
 		return NULL;
 
-	return mlo_ctx->setup_info.dp_handle;
+	return mlo_ctx->dp_handle;
 }
 
 qdf_export_symbol(wlan_objmgr_get_dp_mlo_ctx);
-#endif /* WLAN_MLO_MULTI_CHIP */
 #endif

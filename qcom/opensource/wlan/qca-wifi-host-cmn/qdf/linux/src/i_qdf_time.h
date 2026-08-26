@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -322,7 +321,7 @@ static inline uint64_t __qdf_get_log_timestamp(void)
 /**
  * __qdf_get_log_timestamp - get time stamp for logging
  *
- * Return: system tick for non MSM platforms
+ * Return: system tick for non MSM platfroms
  */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 17, 0))
 static inline uint64_t __qdf_get_log_timestamp(void)

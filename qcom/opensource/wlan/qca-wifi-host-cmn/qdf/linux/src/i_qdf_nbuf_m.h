@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -88,10 +87,6 @@
 #define  QDF_NBUF_CB_RX_PACKET_REO_DEST_IND_OR_SW_EXCPT(skb) \
 	(((struct qdf_nbuf_cb *)((skb)->cb))->u.rx.dev.priv_cb_m. \
 	reo_dest_ind_or_sw_excpt)
-
-#define  QDF_NBUF_CB_RX_PACKET_LMAC_ID(skb) \
-	(((struct qdf_nbuf_cb *)((skb)->cb))->u.rx.dev.priv_cb_m. \
-	lmac_id)
 
 #define __qdf_nbuf_ipa_owned_get(skb) \
 	QDF_NBUF_CB_TX_IPA_OWNED(skb)
@@ -208,15 +203,4 @@ qdf_nbuf_deinit_replenish_timer(void)
 static inline void
 __qdf_nbuf_dma_inv_range(const void *buf_start, const void *buf_end) {}
 
-static inline void
-__qdf_nbuf_dma_inv_range_no_dsb(const void *buf_start, const void *buf_end) {}
-
-static inline void
-__qdf_nbuf_dma_clean_range_no_dsb(const void *buf_start, const void *buf_end) {}
-
-static inline void
-__qdf_dsb(void) {}
-
-static inline void
-__qdf_nbuf_dma_clean_range(const void *buf_start, const void *buf_end) {}
 #endif /*_I_QDF_NBUF_M_H */

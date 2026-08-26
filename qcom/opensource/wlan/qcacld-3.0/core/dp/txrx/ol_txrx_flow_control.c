@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2015-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -725,7 +724,7 @@ int ol_tx_free_invalid_flow_pool(struct ol_tx_flow_pool_t *pool)
 		return -EINVAL;
 	}
 
-	/* directly distribute to other deficient pools */
+	/* direclty distribute to other deficient pools */
 	ol_tx_distribute_descs_to_deficient_pools(pool);
 
 	qdf_spin_lock_bh(&pool->flow_pool_lock);
@@ -1006,7 +1005,7 @@ int ol_tx_distribute_descs_to_deficient_pools_from_global_pool(void)
 	if (!desc_move_count)
 		return 0;
 
-	/* distribute desc to deficient pool */
+	/* destribute desc to deficient pool */
 	qdf_spin_lock_bh(&pdev->tx_desc.flow_pool_list_lock);
 	TAILQ_FOREACH(dst_pool, &pdev->tx_desc.flow_pool_list,
 		      flow_pool_list_elem) {

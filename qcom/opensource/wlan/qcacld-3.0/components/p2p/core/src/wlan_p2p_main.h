@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -32,7 +32,6 @@
 #include <qdf_idr.h>
 #include <qdf_mc_timer.h>
 #include <wlan_scan_public_structs.h>
-#include "wlan_p2p_ucfg_api.h"
 
 #define MAX_QUEUE_LENGTH 20
 #define P2P_NOA_ATTR_IND 0x1090
@@ -212,14 +211,12 @@ void p2p_status_update(struct p2p_soc_priv_obj *p2p_soc_obj,
  *                                  MAC address from the primary MAC address
  * @skip_dfs_channel_p2p_search:    skip DFS Channel in case of P2P Search
  * @is_random_seq_num_enabled:      Flag to generate random sequence numbers
- * @indoor_channel_support:         support to allow GO in indoor channels
  */
 struct p2p_param {
 	uint32_t go_keepalive_period;
 	uint32_t go_link_monitor_period;
 	bool p2p_device_addr_admin;
 	bool is_random_seq_num_enabled;
-	bool indoor_channel_support;
 };
 
 /**
@@ -240,7 +237,6 @@ struct p2p_param {
  * @p2p_idr:          p2p idr
  * @param:            p2p parameters to be used
  * @connection_status:Global P2P connection status
- * @mcc_quota_ev_os_if_cb:  callback to OS IF to indicate mcc quota event
  */
 struct p2p_soc_priv_obj {
 	struct wlan_objmgr_psoc *soc;
@@ -258,9 +254,6 @@ struct p2p_soc_priv_obj {
 	struct p2p_param param;
 #ifdef WLAN_FEATURE_P2P_DEBUG
 	enum p2p_connection_status connection_status;
-#endif
-#ifdef WLAN_FEATURE_MCC_QUOTA
-	mcc_quota_event_callback mcc_quota_ev_os_if_cb;
 #endif
 };
 
@@ -625,15 +618,4 @@ QDF_STATUS
 p2p_check_and_force_scc_go_plus_go(struct wlan_objmgr_psoc *psoc,
 				   struct wlan_objmgr_vdev *vdev);
 #endif /* WLAN_FEATURE_P2P_P2P_STA */
-
-/**
- * p2p_is_p2p_go_noa_in_progress() - Check whether P2P GO single shot noa
- * is in progress or not
- * @pdev: PDEV object manager for P2P GO
- * @vdev_id: vdev id
- *
- * Return: True/False
- */
-bool p2p_is_p2p_go_noa_in_progress(struct wlan_objmgr_pdev *pdev,
-				   uint8_t vdev_id);
 #endif /* _WLAN_P2P_MAIN_H_ */

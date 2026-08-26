@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -35,39 +35,6 @@
 #include "wlan_mlme_vdev_mgr_interface.h"
 #include "wlan_cm_api.h"
 #include "wlan_scan_api.h"
-#include "wlan_mlo_mgr_roam.h"
-#include "wlan_mlo_mgr_sta.h"
-
-#ifdef WLAN_FEATURE_11BE_MLO
-static inline bool
-if_mgr_is_assoc_link_of_vdev(struct wlan_objmgr_pdev *pdev,
-			     struct wlan_objmgr_vdev *vdev,
-			     uint8_t cur_vdev_id)
-{
-	struct wlan_objmgr_vdev *cur_vdev, *assoc_vdev;
-
-	cur_vdev = wlan_objmgr_get_vdev_by_id_from_pdev(pdev, cur_vdev_id,
-							WLAN_IF_MGR_ID);
-	if (!cur_vdev)
-		return false;
-
-	assoc_vdev = wlan_mlo_get_assoc_link_vdev(cur_vdev);
-
-	wlan_objmgr_vdev_release_ref(cur_vdev, WLAN_IF_MGR_ID);
-	if (vdev == assoc_vdev)
-		return true;
-
-	return false;
-}
-#else
-static inline bool
-if_mgr_is_assoc_link_of_vdev(struct wlan_objmgr_pdev *pdev,
-			     struct wlan_objmgr_vdev *vdev,
-			     uint8_t cur_vdev_id)
-{
-	return true;
-}
-#endif
 
 static void if_mgr_enable_roaming_on_vdev(struct wlan_objmgr_pdev *pdev,
 					  void *object, void *arg)
@@ -79,16 +46,10 @@ static void if_mgr_enable_roaming_on_vdev(struct wlan_objmgr_pdev *pdev,
 	vdev_id = wlan_vdev_get_id(vdev);
 	curr_vdev_id = roam_arg->curr_vdev_id;
 
-	if (wlan_vdev_mlme_get_opmode(vdev) != QDF_STA_MODE)
-		return;
-
-	if (wlan_vdev_mlme_is_mlo_link_vdev(vdev) ||
-	    if_mgr_is_assoc_link_of_vdev(pdev, vdev, curr_vdev_id))
-		return;
-
 	if (curr_vdev_id != vdev_id &&
+	    vdev->vdev_mlme.vdev_opmode == QDF_STA_MODE &&
 	    vdev->vdev_mlme.mlme_state == WLAN_VDEV_S_UP) {
-		ifmgr_debug("Enable roaming for vdev_id %d", vdev_id);
+		ifmgr_debug("Roaming enabled on vdev_id %d", vdev_id);
 		wlan_cm_enable_rso(pdev, vdev_id,
 				   roam_arg->requestor,
 				   REASON_DRIVER_ENABLED);
@@ -175,7 +136,7 @@ if_mgr_enable_roaming_on_connected_sta(struct wlan_objmgr_pdev *pdev,
 
 	if (policy_mgr_is_sta_active_connection_exists(psoc) &&
 	    wlan_vdev_mlme_get_opmode(vdev) == QDF_STA_MODE &&
-	    mlo_is_enable_roaming_on_connected_sta_allowed(vdev)) {
+	    !wlan_vdev_mlme_is_mlo_link_vdev(vdev)) {
 		vdev_id = wlan_vdev_get_id(vdev);
 		ifmgr_debug("Enable roaming on connected sta for vdev_id %d", vdev_id);
 		wlan_cm_enable_roaming_on_connected_sta(pdev, vdev_id);
@@ -482,7 +443,7 @@ static bool if_mgr_validate_sta_bcn_intrvl(struct wlan_objmgr_vdev *vdev,
 			bss_arg->status = QDF_STATUS_SUCCESS;
 			return true;
 		case ALLOW_MCC_GO_DIFF_BI_WORKAROUND:
-			fallthrough;
+			/* fall through */
 		case ALLOW_MCC_GO_DIFF_BI_NO_DISCONNECT:
 			policy_mgr_get_conc_rule1(psoc, &conc_rule1);
 			policy_mgr_get_conc_rule2(psoc, &conc_rule2);
@@ -772,37 +733,7 @@ static inline uint32_t
 if_mgr_get_conc_ext_flags(struct wlan_objmgr_vdev *vdev,
 			  struct validate_bss_data *candidate_info)
 {
-	struct qdf_mac_addr *mld_addr;
-
-	/* If connection is happening on non-ML VDEV
-	 * force the ML AP candidate as non-MLO to
-	 * downgrade connection to 11ax.
-	 */
-	mld_addr = (struct qdf_mac_addr *)wlan_vdev_mlme_get_mldaddr(vdev);
-	if (qdf_is_macaddr_zero(mld_addr))
-		return policy_mgr_get_conc_ext_flags(vdev, false);
-
 	return policy_mgr_get_conc_ext_flags(vdev, candidate_info->is_mlo);
-}
-
-static void if_mgr_update_candidate(struct wlan_objmgr_psoc *psoc,
-				    struct validate_bss_data *candidate_info)
-{
-	struct scan_cache_entry *scan_entry = candidate_info->scan_entry;
-
-	if (!(scan_entry->ie_list.multi_link_bv || scan_entry->ie_list.ehtcap ||
-	      scan_entry->ie_list.ehtop))
-		return;
-
-	if (mlme_get_bss_11be_allowed(psoc, &candidate_info->peer_addr,
-				      util_scan_entry_ie_data(scan_entry),
-				      util_scan_entry_ie_len(scan_entry)))
-		return;
-	scan_entry->ie_list.multi_link_bv = NULL;
-	scan_entry->ie_list.ehtcap = NULL;
-	scan_entry->ie_list.ehtop = NULL;
-	qdf_mem_zero(&scan_entry->ml_info, sizeof(scan_entry->ml_info));
-	candidate_info->is_mlo = false;
 }
 #else
 static inline uint32_t
@@ -810,11 +741,6 @@ if_mgr_get_conc_ext_flags(struct wlan_objmgr_vdev *vdev,
 			  struct validate_bss_data *candidate_info)
 {
 	return 0;
-}
-
-static void if_mgr_update_candidate(struct wlan_objmgr_psoc *psoc,
-				    struct validate_bss_data *candidate_info)
-{
 }
 #endif
 
@@ -841,7 +767,6 @@ QDF_STATUS if_mgr_validate_candidate(struct wlan_objmgr_vdev *vdev,
 	if (!psoc)
 		return QDF_STATUS_E_FAILURE;
 
-	if_mgr_update_candidate(psoc, candidate_info);
 	/*
 	 * Do not allow STA to connect on 6Ghz or indoor channel for non dbs
 	 * hardware if SAP and skip_6g_and_indoor_freq_scan ini are present
@@ -883,15 +808,9 @@ QDF_STATUS if_mgr_validate_candidate(struct wlan_objmgr_vdev *vdev,
 
 	/* If concurrency is not allowed select next bss */
 	conc_ext_flags = if_mgr_get_conc_ext_flags(vdev, candidate_info);
-	/*
-	 * Apply concurrency check only for non ML and ML assoc links only
-	 * For non-assoc ML link if concurrency check fails its will be forced
-	 * disabled in peer assoc.
-	 */
-	if (!wlan_vdev_mlme_is_mlo_link_vdev(vdev) &&
-	    !policy_mgr_is_concurrency_allowed(psoc, mode, chan_freq,
-					       HW_MODE_20_MHZ, conc_ext_flags,
-					       NULL)) {
+	if (!policy_mgr_is_concurrency_allowed(psoc, mode, chan_freq,
+					       HW_MODE_20_MHZ,
+					       conc_ext_flags)) {
 		ifmgr_info("Concurrency not allowed for this channel freq %d bssid "QDF_MAC_ADDR_FMT", selecting next",
 			   chan_freq,
 			   QDF_MAC_ADDR_REF(bssid_arg.peer_addr.bytes));
@@ -939,14 +858,6 @@ QDF_STATUS if_mgr_validate_candidate(struct wlan_objmgr_vdev *vdev,
 
 	if (conc_freq)
 		return QDF_STATUS_E_INVAL;
-
-	/* Check low latency SAP and STA/GC concurrency are valid or not */
-	if (!policy_mgr_is_ll_sap_concurrency_valid(psoc, chan_freq, mode)) {
-		ifmgr_debug("STA connection not allowed on bssid: "QDF_MAC_ADDR_FMT" with freq: %d due to LL SAP present",
-			    QDF_MAC_ADDR_REF(candidate_info->peer_addr.bytes),
-			    chan_freq);
-		return QDF_STATUS_E_INVAL;
-	}
 
 	return QDF_STATUS_SUCCESS;
 }

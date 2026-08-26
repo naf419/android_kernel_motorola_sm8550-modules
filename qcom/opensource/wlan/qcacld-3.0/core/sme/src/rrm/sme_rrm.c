@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -35,7 +34,7 @@
 #include "csr_inside_api.h"
 
 #include "rrm_global.h"
-#include <wlan_scan_api.h>
+#include <wlan_scan_ucfg_api.h>
 #include <wlan_scan_utils_api.h>
 #include <wlan_reg_services_api.h>
 #include <wlan_utility.h>
@@ -397,7 +396,8 @@ static QDF_STATUS sme_ese_send_beacon_req_scan_results(
 
 		roam_info->pEseBcnReportRsp = bcn_report;
 		status = csr_roam_call_callback(mac_ctx, session_id, roam_info,
-						eCSR_ROAM_ESE_BCN_REPORT_IND, 0);
+						0, eCSR_ROAM_ESE_BCN_REPORT_IND,
+						0);
 
 		/* Free the memory allocated to IE */
 		for (i = 0; i < j; i++)
@@ -441,13 +441,14 @@ static QDF_STATUS sme_rrm_send_scan_result(struct mac_context *mac_ctx,
 					   uint32_t *freq_list,
 					   uint8_t measurementdone)
 {
+	mac_handle_t mac_handle = MAC_HANDLE(mac_ctx);
 	struct scan_filter *filter;
 	tScanResultHandle result_handle;
 	tCsrScanResultInfo *scan_results, *next_result;
 	tCsrScanResultInfo **scanresults_arr = NULL;
 	struct scan_result_list *result_list;
 	QDF_STATUS status;
-	uint32_t num_scan_results, counter = 0;
+	uint8_t num_scan_results, counter = 0;
 	tpRrmSMEContext rrm_ctx =
 		&mac_ctx->rrm.rrmSmeContext[measurement_index];
 	uint32_t session_id;
@@ -506,7 +507,8 @@ static QDF_STATUS sme_rrm_send_scan_result(struct mac_context *mac_ctx,
 		sme_debug("BSSID mismatch, using current session_id");
 		session_id = mac_ctx->roam.roamSession->vdev_id;
 	}
-	status = csr_scan_get_result(mac_ctx, filter, &result_handle);
+	status = sme_scan_get_result(mac_handle, (uint8_t)session_id,
+				     filter, &result_handle);
 	qdf_mem_free(filter);
 
 	sme_debug("RRM Measurement Done %d for index:%d",
@@ -517,7 +519,7 @@ static QDF_STATUS sme_rrm_send_scan_result(struct mac_context *mac_ctx,
 		 * Spec. doesn't say anything about such condition
 		 * Since section 7.4.6.2 (IEEE802.11k-2008) says-rrm report
 		 * frame should contain one or more report IEs. It probably
-		 * means dont send any response if no matching BSS found.
+		 * means dont send any respose if no matching BSS found.
 		 * Moreover, there is no flag or field in measurement report
 		 * IE(7.3.2.22) OR beacon report IE(7.3.2.22.6) that can be set
 		 * to indicate no BSS found on a given channel. If we finished
@@ -540,7 +542,7 @@ static QDF_STATUS sme_rrm_send_scan_result(struct mac_context *mac_ctx,
 							measurementdone, 0);
 		return status;
 	}
-	scan_results = csr_scan_result_get_first(mac_ctx, result_handle);
+	scan_results = sme_scan_result_get_first(mac_handle, result_handle);
 	if (!scan_results && measurementdone) {
 #ifdef FEATURE_WLAN_ESE
 		if (eRRM_MSG_SOURCE_ESE_UPLOAD == rrm_ctx->msgSource) {
@@ -568,21 +570,21 @@ static QDF_STATUS sme_rrm_send_scan_result(struct mac_context *mac_ctx,
 					 sizeof(next_result));
 	if (!scanresults_arr) {
 		status = QDF_STATUS_E_NOMEM;
-		goto send_scan_results;
+		goto rrm_send_scan_results_done;
 	}
 
 	status = wlan_mlme_get_bssid_vdev_id(mac_ctx->pdev, session_id,
 					     &bss_peer_mac);
 	if (QDF_IS_STATUS_ERROR(status)) {
-		sme_err("BSSID not found for vdev: %d", session_id);
+		sme_err("Invaild session %d", session_id);
 		status = QDF_STATUS_E_FAILURE;
-		goto send_scan_results;
+		goto rrm_send_scan_results_done;
 	}
 
 	if (!cm_is_vdevid_connected(mac_ctx->pdev, session_id)) {
-		sme_err("vdev:%d is not connected", session_id);
+		sme_err("Invaild session");
 		status = QDF_STATUS_E_FAILURE;
-		goto send_scan_results;
+		goto rrm_send_scan_results_done;
 	}
 
 	while (scan_results) {
@@ -612,7 +614,7 @@ static QDF_STATUS sme_rrm_send_scan_result(struct mac_context *mac_ctx,
 				sme_debug("Non Tx BSS of Conn AP in results");
 			}
 		}
-		next_result = csr_scan_result_get_next(mac_ctx,
+		next_result = sme_scan_result_get_next(mac_handle,
 						       result_handle);
 		sme_debug("Scan res timer:%lu, rrm scan timer:%llu",
 				scan_results->timer, rrm_scan_timer);
@@ -623,8 +625,6 @@ static QDF_STATUS sme_rrm_send_scan_result(struct mac_context *mac_ctx,
 		if (counter >= num_scan_results)
 			break;
 	}
-
-send_scan_results:
 	/*
 	 * The beacon report should be sent whether the counter is zero or
 	 * non-zero. There might be a few scan results in the cache but not
@@ -653,7 +653,7 @@ send_scan_results:
 rrm_send_scan_results_done:
 	if (scanresults_arr)
 		qdf_mem_free(scanresults_arr);
-	csr_scan_result_purge(mac_ctx, result_handle);
+	sme_scan_result_purge(result_handle);
 
 	return status;
 }
@@ -683,7 +683,7 @@ static QDF_STATUS sme_rrm_scan_request_callback(struct mac_context *mac,
 	QDF_STATUS qdf_status = QDF_STATUS_SUCCESS;
 
 	/*
-	 * Even if RRM scan response is received after roaming to different AP
+	 * Even if RRM scan response is recevied after roaming to different AP
 	 * the messege shall be posted to PE for rrm cleanup.
 	 */
 
@@ -823,8 +823,8 @@ QDF_STATUS sme_rrm_issue_scan_req(struct mac_context *mac_ctx, uint8_t idx)
 			qdf_mem_free(req);
 			goto send_ind;
 		}
-		wlan_scan_init_default_params(vdev, req);
-		req->scan_req.scan_id = wlan_scan_get_scan_id(mac_ctx->psoc);
+		ucfg_scan_init_default_params(vdev, req);
+		req->scan_req.scan_id = ucfg_scan_get_scan_id(mac_ctx->psoc);
 		sme_rrm_ctx->scan_id = req->scan_req.scan_id;
 
 		sme_debug("RRM_SCN: rrm_idx:%d scan_id:%d",
@@ -947,7 +947,7 @@ QDF_STATUS sme_rrm_issue_scan_req(struct mac_context *mac_ctx, uint8_t idx)
 		 */
 		req->scan_req.scan_type = SCAN_TYPE_RRM;
 
-		status = wlan_scan_start(req);
+		status = ucfg_scan_start(req);
 		wlan_objmgr_vdev_release_ref(vdev, WLAN_LEGACY_SME_ID);
 		if (QDF_IS_STATUS_ERROR(status))
 			goto send_ind;
@@ -1701,10 +1701,10 @@ static void rrm_change_default_config_param(struct mac_context *mac)
 }
 
 /**
- * rrm_open() - Initialize all RRM module
+ * rrm_open() - Initialze all RRM module
  * @ mac: The handle returned by mac_open.
  *
- * Initialize all RRM module.
+ * Initialze all RRM module.
  *
  * Return: QDF_STATUS
  */
@@ -1809,7 +1809,7 @@ QDF_STATUS rrm_start(struct mac_context *mac_ctx)
 
 
 	/* Register with scan component */
-	req_id = wlan_scan_register_requester(mac_ctx->psoc,
+	req_id = ucfg_scan_register_requester(mac_ctx->psoc,
 					      "RRM",
 					      sme_rrm_scan_event_callback,
 					      mac_ctx);
@@ -1834,7 +1834,8 @@ QDF_STATUS rrm_stop(struct mac_context *mac_ctx)
 		smerrmctx->req_id = 0;
 	}
 
-	wlan_scan_unregister_requester(mac_ctx->psoc, req_id);
+	ucfg_scan_unregister_requester(mac_ctx->psoc,
+				       req_id);
 
 	return QDF_STATUS_SUCCESS;
 }

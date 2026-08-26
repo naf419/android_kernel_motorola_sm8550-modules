@@ -33,12 +33,6 @@
 	RXPCU_PPDU_END_INFO_9_RX_PPDU_DURATION_MASK
 #define UNIFIED_RXPCU_PPDU_END_INFO_8_RX_PPDU_DURATION_LSB \
 	RXPCU_PPDU_END_INFO_9_RX_PPDU_DURATION_LSB
-#define UNIFIED_RXPCU_PPDU_END_INFO_11_PHYRX_ABORT_REQUEST_INFO_DETAILS_PHYRX_ABORT_REASON_OFFSET \
-	RXPCU_PPDU_END_INFO_11_PHYRX_ABORT_REQUEST_INFO_DETAILS_PHYRX_ABORT_REASON_OFFSET
-#define UNIFIED_RXPCU_PPDU_END_INFO_11_PHYRX_ABORT_REQUEST_INFO_DETAILS_PHYRX_ABORT_REASON_MASK \
-	RXPCU_PPDU_END_INFO_11_PHYRX_ABORT_REQUEST_INFO_DETAILS_PHYRX_ABORT_REASON_MASK
-#define UNIFIED_RXPCU_PPDU_END_INFO_11_PHYRX_ABORT_REQUEST_INFO_DETAILS_PHYRX_ABORT_REASON_LSB \
-	RXPCU_PPDU_END_INFO_11_PHYRX_ABORT_REQUEST_INFO_DETAILS_PHYRX_ABORT_REASON_LSB
 #define UNIFIED_PHYRX_HT_SIG_0_HT_SIG_INFO_PHYRX_HT_SIG_INFO_DETAILS_OFFSET \
 	PHYRX_HT_SIG_0_PHYRX_HT_SIG_INFO_DETAILS_MCS_OFFSET
 #define UNIFIED_PHYRX_L_SIG_B_0_L_SIG_B_INFO_PHYRX_L_SIG_B_INFO_DETAILS_OFFSET \
@@ -203,25 +197,6 @@ static uint32_t hal_rx_msdu_start_nss_get_6122(uint8_t *buf)
 }
 
 /**
- * hal_rx_msdu_start_get_len_6122(): API to get the MSDU length
- * from rx_msdu_start TLV
- *
- * @ buf: pointer to the start of RX PKT TLV headers
- * Return: (uint32_t)msdu length
- */
-static uint32_t hal_rx_msdu_start_get_len_6122(uint8_t *buf)
-{
-	struct rx_pkt_tlvs *pkt_tlvs = (struct rx_pkt_tlvs *)buf;
-	struct rx_msdu_start *msdu_start =
-				&pkt_tlvs->msdu_start_tlv.rx_msdu_start;
-	uint32_t msdu_len;
-
-	msdu_len = HAL_RX_MSDU_START_MSDU_LEN_GET(msdu_start);
-
-	return msdu_len;
-}
-
-/**
  * hal_rx_mon_hw_desc_get_mpdu_status_6122(): Retrieve MPDU status
  *
  * @ hw_desc_addr: Start address of Rx HW TLVs
@@ -285,7 +260,7 @@ static uint8_t hal_rx_get_tlv_6122(void *rx_tlv)
  *
  *@rx_tlv_hdr: start address of rx_pkt_tlvs
  *
- * Return: true if RX_MPDU_START is valid, else false.
+ * Return: true if RX_MPDU_START is valied, else false.
  */
 uint8_t hal_rx_mpdu_start_tlv_tag_valid_6122(void *rx_tlv_hdr)
 {
@@ -881,25 +856,6 @@ static uint8_t hal_rx_get_mpdu_frame_control_valid_6122(uint8_t *buf)
 	struct rx_mpdu_info *rx_mpdu_info = hal_rx_get_mpdu_info(pkt_tlvs);
 
 	return HAL_RX_MPDU_GET_FRAME_CONTROL_VALID(rx_mpdu_info);
-}
-
-/**
- * hal_rx_get_mpdu_frame_control_field_6122(): Function to
- * retrieve frame control field
- *
- * @nbuf: Network buffer
- * Returns: value of frame control field
- *
- */
-static uint16_t hal_rx_get_mpdu_frame_control_field_6122(uint8_t *buf)
-{
-	struct rx_pkt_tlvs *pkt_tlvs = hal_rx_get_pkt_tlvs(buf);
-	struct rx_mpdu_info *rx_mpdu_info = hal_rx_get_mpdu_info(pkt_tlvs);
-	uint16_t frame_ctrl = 0;
-
-	frame_ctrl = HAL_RX_MPDU_GET_FRAME_CONTROL_FIELD(rx_mpdu_info);
-
-	return frame_ctrl;
 }
 
 /*
@@ -1856,14 +1812,12 @@ static void hal_hw_txrx_ops_attach_qcn6122(struct hal_soc *hal_soc)
 					hal_rx_get_mpdu_mac_ad4_valid_6122;
 	hal_soc->ops->hal_rx_mpdu_start_sw_peer_id_get =
 		hal_rx_mpdu_start_sw_peer_id_get_6122;
-	hal_soc->ops->hal_rx_tlv_peer_meta_data_get =
+	hal_soc->ops->hal_rx_mpdu_peer_meta_data_get =
 		hal_rx_mpdu_peer_meta_data_get_li;
 	hal_soc->ops->hal_rx_mpdu_get_to_ds = hal_rx_mpdu_get_to_ds_6122;
 	hal_soc->ops->hal_rx_mpdu_get_fr_ds = hal_rx_mpdu_get_fr_ds_6122;
 	hal_soc->ops->hal_rx_get_mpdu_frame_control_valid =
 		hal_rx_get_mpdu_frame_control_valid_6122;
-	hal_soc->ops->hal_rx_get_frame_ctrl_field =
-		hal_rx_get_mpdu_frame_control_field_6122;
 	hal_soc->ops->hal_rx_mpdu_get_addr1 = hal_rx_mpdu_get_addr1_6122;
 	hal_soc->ops->hal_rx_mpdu_get_addr2 = hal_rx_mpdu_get_addr2_6122;
 	hal_soc->ops->hal_rx_mpdu_get_addr3 = hal_rx_mpdu_get_addr3_6122;
@@ -1937,18 +1891,11 @@ static void hal_hw_txrx_ops_attach_qcn6122(struct hal_soc *hal_soc)
 					hal_rx_pkt_tlv_offset_get_generic;
 #endif
 	hal_soc->ops->hal_rx_flow_setup_fse = hal_rx_flow_setup_fse_6122;
-	hal_soc->ops->hal_rx_flow_get_tuple_info =
-					hal_rx_flow_get_tuple_info_li;
-	 hal_soc->ops->hal_rx_flow_delete_entry =
-					hal_rx_flow_delete_entry_li;
-	hal_soc->ops->hal_rx_fst_get_fse_size = hal_rx_fst_get_fse_size_li;
 	hal_soc->ops->hal_compute_reo_remap_ix2_ix3 =
 					hal_compute_reo_remap_ix2_ix3_6122;
 	hal_soc->ops->hal_setup_link_idle_list =
 				hal_setup_link_idle_list_generic_li;
 	hal_soc->ops->hal_compute_reo_remap_ix0 = NULL;
-	hal_soc->ops->hal_rx_tlv_msdu_len_get =
-				hal_rx_msdu_start_get_len_6122;
 };
 
 struct hal_hw_srng_config hw_srng_table_6122[] = {
@@ -2234,7 +2181,7 @@ struct hal_hw_srng_config hw_srng_table_6122[] = {
 	},
 	{ /* WBM2SW_RELEASE */
 		.start_ring_id = HAL_SRNG_WBM2SW0_RELEASE,
-		.max_rings = 5,
+		.max_rings = 4,
 		.entry_size = sizeof(struct wbm_release_ring) >> 2,
 		.lmac_ring = FALSE,
 		.ring_dir = HAL_SRNG_DST_RING,

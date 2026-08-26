@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ *
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -28,8 +28,6 @@
 #ifdef CONFIG_AFC_SUPPORT
 #include <wlan_reg_afc.h>
 #endif
-
-#define OPCLS_132 132
 
 #ifdef HOST_OPCLASS
 /**
@@ -126,27 +124,6 @@ QDF_STATUS reg_get_opclass_details(struct wlan_objmgr_pdev *pdev,
 				   uint8_t max_supp_op_class,
 				   bool global_tbl_lookup);
 
-/**
- * reg_get_opclass_for_cur_hwmode() - Get details about the opclasses for
- * the current hwmode.
- * @pdev: Pointer to pdev.
- * @reg_ap_cap: Pointer to reg_ap_cap.
- * @n_opclasses: Pointer to number of opclasses.
- * @max_supp_op_class: Maximum number of operating classes supported.
- * @global_tbl_lookup: Whether to lookup global op class table.
- * @max_chwidth: Max channel width supported by cur hwmode
- * @is_80p80_supp: Bool to indicate if 80p80 is supported
- *
- * Return: QDF_STATUS_SUCCESS if success, else return QDF_STATUS_FAILURE.
- */
-QDF_STATUS
-reg_get_opclass_for_cur_hwmode(struct wlan_objmgr_pdev *pdev,
-			       struct regdmn_ap_cap_opclass_t *reg_ap_cap,
-			       uint8_t *n_opclasses,
-			       uint8_t max_supp_op_class,
-			       bool global_tbl_lookup,
-			       enum phy_ch_width max_chwidth,
-			       bool is_80p80_supp);
 /**
  * reg_is_5ghz_op_class() - Check if the input opclass is a 5GHz opclass.
  * @country: Country code.
@@ -280,27 +257,6 @@ qdf_freq_t reg_country_chan_opclass_to_freq(struct wlan_objmgr_pdev *pdev,
 					    const uint8_t country[3],
 					    uint8_t chan, uint8_t op_class,
 					    bool strict);
-
-/**
- * reg_chan_opclass_to_freq_prefer_global() - API to find the operating
- * channel freq from chan num and opclass.
- * @pdev: PDEV object manager pointer
- * @country: Two byte CC pointer
- * @chan_num: Channel index number.
- * @opclass: Operating class
- *
- * The API will check the global operating class table to convert the opclass
- * chan_num tuple to channel frequency and if there is not entry in global
- * opclass table for this tuple and if @country is not %NULL, then attempts to
- * convert the opclass and chan_num to channel frequency using the country
- * specific opclass table.
- *
- * Return: Valid channel frequency if success else zero
- */
-qdf_freq_t
-reg_chan_opclass_to_freq_prefer_global(struct wlan_objmgr_pdev *pdev,
-				       const uint8_t *country, uint8_t chan_num,
-				       uint8_t opclass);
 #endif
 
 /**
@@ -397,18 +353,6 @@ bool reg_is_2ghz_op_class(const uint8_t *country, uint8_t op_class)
 	return false;
 }
 
-static inline QDF_STATUS
-reg_get_opclass_for_cur_hwmode(struct wlan_objmgr_pdev *pdev,
-			       struct regdmn_ap_cap_opclass_t *reg_ap_cap,
-			       uint8_t *n_opclasses,
-			       uint8_t max_supp_op_class,
-			       bool global_tbl_lookup,
-			       enum phy_ch_width max_ch_width,
-			       bool is_80p80_supp)
-{
-	return QDF_STATUS_E_FAILURE;
-}
-
 #ifdef CONFIG_CHAN_FREQ_API
 
 static inline void
@@ -470,14 +414,6 @@ qdf_freq_t reg_country_chan_opclass_to_freq(struct wlan_objmgr_pdev *pdev,
 {
 	return 0;
 }
-
-static inline qdf_freq_t
-reg_chan_opclass_to_freq_prefer_global(struct wlan_objmgr_pdev *pdev,
-				       const uint8_t *country, uint8_t chan_num,
-				       uint8_t opclass)
-{
-	return 0;
-}
 #endif
 
 static inline uint16_t
@@ -517,7 +453,7 @@ uint16_t reg_dmn_get_chanwidth_from_opclass_auto(uint8_t *country,
  * reg_dmn_get_6g_opclasses_and_channels()- Get the following from the
  * operating class table for 6Ghz band: number of operating classes, list of
  * opclasses, list channel sizes, list of channel lists.
- * @p_frange_lst: Pointer to frequency range list (AFC)
+ * @p_frange_lst: Pointer to frequencey range list (AFC)
  * @pdev: Pointer to pdev.
  * @num_opclasses: Pointer to number of operating classes. This is the number
  * of elements in the list array arguments

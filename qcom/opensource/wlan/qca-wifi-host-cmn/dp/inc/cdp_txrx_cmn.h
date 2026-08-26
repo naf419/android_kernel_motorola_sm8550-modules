@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -89,7 +89,7 @@ enum verbose_debug_module {
 #define dp_nofl_warn(params...) \
 	QDF_TRACE_WARN_NO_FL(QDF_MODULE_ID_DP, params)
 #define dp_nofl_info(params...) \
-	QDF_TRACE_INFO_NO_FL(QDF_MODULE_ID_DP, params)
+	QDF_TRACE_DEBUG_NO_FL(QDF_MODULE_ID_DP, params)
 #define dp_nofl_debug(params...) \
 	QDF_TRACE_DEBUG_NO_FL(QDF_MODULE_ID_DP, params)
 
@@ -116,16 +116,6 @@ enum verbose_debug_module {
 #define dp_cdp_nofl_debug(params...) \
 	QDF_TRACE_DEBUG_NO_FL(QDF_MODULE_ID_DP_CDP, params)
 
-#define DP_PEER_INFO_PARAMS_INIT(peer_info, _vdev_id, \
-				_peer_mac, _addr_align, _peer_type) \
-({	typeof(peer_info) _peer_info = (peer_info); \
-	do {								\
-		(_peer_info)->vdev_id = (_vdev_id);			\
-		(_peer_info)->mac_addr = (_peer_mac);			\
-		(_peer_info)->mac_addr_is_aligned = (_addr_align);	\
-		(_peer_info)->peer_type = (_peer_type);			\
-	} while (0); })
-
 /**
  * @enum vdev_host_stats_id:
  * host stats update from CDP have to set one of the following stats ID
@@ -137,25 +127,6 @@ enum {
 	DP_VDEV_STATS_PKT_CNT_ONLY,
 	DP_VDEV_STATS_TX_ME,
 };
-
-/*
- * BW types used for RX PPDU
- */
-enum rx_tlv_bw {
-	RX_TLV_BW_20MHZ,
-	RX_TLV_BW_40MHZ,
-	RX_TLV_BW_80MHZ,
-	RX_TLV_BW_160MHZ,
-	RX_TLV_BW_320MHZ,
-	RX_TLV_BW_240MHZ,
-	RX_TLV_BW_CNT,
-};
-
-/*
- * typedef ipa_uc_op_cb_type - Register OP handler function
- */
-typedef void (*ipa_uc_op_cb_type)(uint8_t *op_msg,
-				  void *osif_ctxt);
 
 static inline QDF_STATUS
 cdp_soc_attach_target(ol_txrx_soc_handle soc)
@@ -264,28 +235,6 @@ cdp_vdev_detach(ol_txrx_soc_handle soc, uint8_t vdev_id,
 	return soc->ops->cmn_drv_ops->txrx_vdev_detach(soc, vdev_id,
 						       callback, cb_context);
 }
-
-#if defined(WLAN_FEATURE_11BE_MLO) && defined(WLAN_MLO_MULTI_CHIP)
-static inline void
-cdp_vdev_recovery_flush_peers(ol_txrx_soc_handle soc,
-			      uint8_t vdev_id,
-			      bool mlo_peers_only)
-{
-	if (!soc || !soc->ops) {
-		dp_cdp_debug("Invalid Instance:");
-		QDF_BUG(0);
-		return;
-	}
-
-	if (!soc->ops->cmn_drv_ops ||
-	    !soc->ops->cmn_drv_ops->txrx_recovery_vdev_flush_peers)
-		return;
-
-	soc->ops->cmn_drv_ops->txrx_recovery_vdev_flush_peers(soc,
-							      vdev_id,
-							      mlo_peers_only);
-}
-#endif
 
 static inline int
 cdp_pdev_attach_target(ol_txrx_soc_handle soc, uint8_t pdev_id)
@@ -423,22 +372,22 @@ static inline QDF_STATUS cdp_peer_create
 			peer_mac_addr, CDP_LINK_PEER_TYPE);
 }
 
-static inline  QDF_STATUS cdp_peer_setup
+static inline void cdp_peer_setup
 	(ol_txrx_soc_handle soc, uint8_t vdev_id, uint8_t *peer_mac,
 	 struct cdp_peer_setup_info *setup_info)
 {
 	if (!soc || !soc->ops) {
 		dp_cdp_debug("Invalid Instance:");
 		QDF_BUG(0);
-		return  QDF_STATUS_E_FAILURE;
+		return;
 	}
 
 	if (!soc->ops->cmn_drv_ops ||
 	    !soc->ops->cmn_drv_ops->txrx_peer_setup)
-		return QDF_STATUS_E_FAILURE;
+		return;
 
-	return soc->ops->cmn_drv_ops->txrx_peer_setup(soc, vdev_id,
-						      peer_mac, setup_info);
+	soc->ops->cmn_drv_ops->txrx_peer_setup(soc, vdev_id,
+			peer_mac, setup_info);
 }
 
 /*
@@ -732,8 +681,7 @@ cdp_peer_delete(ol_txrx_soc_handle soc, uint8_t vdev_id,
 	    !soc->ops->cmn_drv_ops->txrx_peer_delete)
 		return;
 
-	soc->ops->cmn_drv_ops->txrx_peer_delete(soc, vdev_id, peer_mac,
-						bitmap, CDP_LINK_PEER_TYPE);
+	soc->ops->cmn_drv_ops->txrx_peer_delete(soc, vdev_id, peer_mac, bitmap);
 }
 
 #ifdef DP_RX_UDP_OVER_PEER_ROAM
@@ -1718,44 +1666,6 @@ static inline void cdp_txrx_intr_detach(ol_txrx_soc_handle soc)
 }
 
 /**
- * cdp_txrx_ppeds_stop(): function to stop ppeds
- * @soc: soc handle
- */
-static inline void cdp_txrx_ppeds_stop(ol_txrx_soc_handle soc)
-{
-	if (!soc || !soc->ops) {
-		dp_cdp_debug("Invalid Instance:");
-		QDF_BUG(0);
-		return;
-	}
-
-	if (!soc->ops->cmn_drv_ops ||
-	    !soc->ops->cmn_drv_ops->txrx_ppeds_stop)
-		return;
-
-	soc->ops->cmn_drv_ops->txrx_ppeds_stop(soc);
-}
-
-/**
- * cdp_txrx_umac_reset_deinit(): De-initialize UMAC HW reset module
- * @soc: soc handle
- */
-static inline void cdp_txrx_umac_reset_deinit(ol_txrx_soc_handle soc)
-{
-	if (!soc || !soc->ops) {
-		dp_cdp_debug("Invalid Instance:");
-		QDF_BUG(0);
-		return;
-	}
-
-	if (!soc->ops->cmn_drv_ops ||
-	    !soc->ops->cmn_drv_ops->txrx_umac_reset_deinit)
-		return;
-
-	soc->ops->cmn_drv_ops->txrx_umac_reset_deinit(soc);
-}
-
-/**
  * cdp_display_stats(): function to map to dump stats
  * @soc: soc handle
  * @value: statistics option
@@ -2390,8 +2300,6 @@ cdp_get_dp_capabilities(struct cdp_soc_t *soc, enum cdp_capabilities dp_caps)
 	if (soc && soc->ops && soc->ops->cmn_drv_ops &&
 	    soc->ops->cmn_drv_ops->get_dp_capabilities)
 		return soc->ops->cmn_drv_ops->get_dp_capabilities(soc, dp_caps);
-
-	qdf_err("invalid instance");
 	return false;
 }
 
@@ -2582,14 +2490,14 @@ cdp_peer_flush_rate_stats(ol_txrx_soc_handle soc, uint8_t pdev_id,
 }
 
 /**
- * cdp_peer_get_peerstats_ctx() - get peer stats context
+ * cdp_peer_get_rdkstats_ctx() - get RDK stats context
  * @soc: opaque soc handle
  * @vdev_id: id of vdev handle
  * @mac: peer mac address
  */
 static inline void
-*cdp_peer_get_peerstats_ctx(ol_txrx_soc_handle soc, uint8_t vdev_id,
-			    uint8_t *mac_addr)
+*cdp_peer_get_rdkstats_ctx(ol_txrx_soc_handle soc, uint8_t vdev_id,
+			  uint8_t *mac_addr)
 {
 	if (!soc || !soc->ops) {
 		dp_cdp_debug("Invalid Instance:");
@@ -2598,12 +2506,12 @@ static inline void
 	}
 
 	if (!soc->ops->cmn_drv_ops ||
-	    !soc->ops->cmn_drv_ops->txrx_peer_get_peerstats_ctx)
+	    !soc->ops->cmn_drv_ops->txrx_peer_get_rdkstats_ctx)
 		return NULL;
 
-	return soc->ops->cmn_drv_ops->txrx_peer_get_peerstats_ctx(soc,
-								  vdev_id,
-								  mac_addr);
+	return soc->ops->cmn_drv_ops->txrx_peer_get_rdkstats_ctx(soc,
+								   vdev_id,
+								   mac_addr);
 }
 
 /**
@@ -2763,8 +2671,9 @@ cdp_rx_get_pending(ol_txrx_soc_handle soc)
 		return 0;
 }
 
+#ifdef QCA_SUPPORT_WDS_EXTENDED
 static inline uint16_t
-cdp_get_peer_id(ol_txrx_soc_handle soc, uint8_t vdev_id, uint8_t *mac)
+cdp_wds_ext_get_peer_id(ol_txrx_soc_handle soc, uint8_t vdev_id, uint8_t *mac)
 {
 	if (!soc || !soc->ops) {
 		dp_cdp_debug("Invalid Instance");
@@ -2773,14 +2682,13 @@ cdp_get_peer_id(ol_txrx_soc_handle soc, uint8_t vdev_id, uint8_t *mac)
 	}
 
 	if (!soc->ops->cmn_drv_ops ||
-	    !soc->ops->cmn_drv_ops->get_peer_id)
+	    !soc->ops->cmn_drv_ops->get_wds_ext_peer_id)
 		return 0;
 
-	return soc->ops->cmn_drv_ops->get_peer_id
+	return soc->ops->cmn_drv_ops->get_wds_ext_peer_id
 			(soc, vdev_id, mac);
 }
 
-#ifdef QCA_SUPPORT_WDS_EXTENDED
 static inline QDF_STATUS
 cdp_wds_ext_set_peer_rx(ol_txrx_soc_handle soc, uint8_t vdev_id,
 			uint8_t *mac, ol_txrx_rx_fp rx,
@@ -2920,98 +2828,4 @@ void cdp_set_rtpm_tput_policy_requirement(ol_txrx_soc_handle soc,
 
 #endif /* FEATURE_RUNTIME_PM */
 
-/**
- * cdp_enable_mon_reap_timer() - enable/disable reap timer
- * @soc: Datapath soc handle
- * @pdev_id: id of objmgr pdev
- * @enable: enable/disable reap timer of monitor status ring
- *
- * Return: true if timer start/stop is performed, false otherwise.
- */
-static inline bool
-cdp_enable_mon_reap_timer(ol_txrx_soc_handle soc,
-			  enum cdp_mon_reap_source source,
-			  bool enable)
-{
-	if (!soc || !soc->ops) {
-		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_FATAL,
-			  "%s invalid instance", __func__);
-		QDF_BUG(0);
-		return false;
-	}
-
-	if (!soc->ops->mon_ops ||
-	    !soc->ops->mon_ops->txrx_enable_mon_reap_timer)
-		return false;
-
-	return soc->ops->mon_ops->txrx_enable_mon_reap_timer(soc, source,
-							     enable);
-}
-
-/**
- * cdp_get_tsf_time() - get tsf time
- * @soc: Datapath soc handle
- * @mac_id: mac_id
- * @tsf: pointer to update tsf value
- * @tsf_sync_soc_time: pointer to update tsf sync time
- *
- * Return: None.
- */
-static inline void
-cdp_get_tsf_time(ol_txrx_soc_handle soc, uint32_t tsf_id, uint32_t mac_id,
-		 uint64_t *tsf, uint64_t *tsf_sync_soc_time)
-{
-	if (!soc) {
-		dp_cdp_debug("Invalid Instance");
-		return;
-	}
-	if (!soc->ops->cmn_drv_ops || !soc->ops->cmn_drv_ops->txrx_get_tsf_time)
-		return;
-
-	soc->ops->cmn_drv_ops->txrx_get_tsf_time(soc, tsf_id, mac_id, tsf,
-						 tsf_sync_soc_time);
-}
-
-/**
- * cdp_get_tsf2_offset() - get tsf2 offset
- * @soc: Datapath soc handle
- * @mac_id: mac_id
- * @value: pointer to update tsf2 value
- *
- * Return: None.
- */
-static inline void
-cdp_get_tsf2_offset(ol_txrx_soc_handle soc, uint8_t mac_id, uint64_t *value)
-{
-	if (!soc) {
-		dp_cdp_debug("Invalid Instance");
-		return;
-	}
-	if (!soc->ops->cmn_drv_ops ||
-	    !soc->ops->cmn_drv_ops->txrx_get_tsf2_offset)
-		return;
-
-	soc->ops->cmn_drv_ops->txrx_get_tsf2_offset(soc, mac_id, value);
-}
-
-/**
- * cdp_get_tqm_offset() - get tqm offset
- * @soc: Datapath soc handle
- * @value: pointer to update tqm value
- *
- * Return: None.
- */
-static inline void
-cdp_get_tqm_offset(ol_txrx_soc_handle soc, uint64_t *value)
-{
-	if (!soc) {
-		dp_cdp_debug("Invalid Instance");
-		return;
-	}
-	if (!soc->ops->cmn_drv_ops ||
-	    !soc->ops->cmn_drv_ops->txrx_get_tqm_offset)
-		return;
-
-	soc->ops->cmn_drv_ops->txrx_get_tqm_offset(soc, value);
-}
 #endif /* _CDP_TXRX_CMN_H_ */

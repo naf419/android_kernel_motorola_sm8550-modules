@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -485,7 +485,7 @@ static int pld_ipci_set_thermal_state(struct device *dev,
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
 static struct device_info pld_ipci_dev_info[] = {
 	{ "wcn6750", WCN6750_DEVICE_ID },
-	{ { 0 } }
+	{ 0 }
 };
 #endif
 
@@ -607,25 +607,6 @@ int pld_ipci_wlan_disable(struct device *dev, enum pld_driver_mode mode)
 	return icnss_wlan_disable(dev, ICNSS_OFF);
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
-static void pld_ipci_populate_hw_cap_info(struct icnss_soc_info *icnss_info,
-					  struct pld_soc_info *info)
-{
-	/*WLAN HW cap info*/
-	info->hw_cap_info.nss =
-		(enum pld_wlan_hw_nss_info)icnss_info->rd_card_chain_cap;
-	info->hw_cap_info.bw =
-	(enum pld_wlan_hw_channel_bw_info)icnss_info->phy_he_channel_width_cap;
-	info->hw_cap_info.qam =
-		(enum pld_wlan_hw_qam_info)icnss_info->phy_qam_cap;
-}
-#else
-static void pld_ipci_populate_hw_cap_info(struct icnss_soc_info *icnss_info,
-					  struct pld_soc_info *info)
-{
-}
-#endif
-
 /**
  * pld_ipci_get_soc_info() - Get SOC information
  * @dev: device
@@ -657,8 +638,8 @@ int pld_ipci_get_soc_info(struct device *dev, struct pld_soc_info *info)
 	info->fw_version = icnss_info.fw_version;
 	strlcpy(info->fw_build_timestamp, icnss_info.fw_build_timestamp,
 		sizeof(info->fw_build_timestamp));
-
-	pld_ipci_populate_hw_cap_info(&icnss_info, info);
+	strlcpy(info->fw_build_id, icnss_info.fw_build_id,
+		sizeof(info->fw_build_id));
 
 	return 0;
 }

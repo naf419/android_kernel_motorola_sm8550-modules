@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  *
  * Permission to use, copy, modify, and/or distribute this software for
@@ -214,26 +213,6 @@ static bool target_if_dfs_offload(struct wlan_objmgr_psoc *psoc)
 				   wmi_service_dfs_phyerr_offload);
 }
 
-/**
- * target_if_dfs_bangradar_320_supp: Check the service of
- * 'wmi_service_bang_radar_320_support' whether the bang radar 320 is
- * supported or not. If the service is enabled, then it returns true.
- */
-
-static bool target_if_dfs_bangradar_320_supp(struct wlan_objmgr_psoc *psoc)
-{
-	wmi_unified_t wmi_handle;
-
-	wmi_handle = get_wmi_unified_hdl_from_psoc(psoc);
-	if (!wmi_handle) {
-		target_if_err("null wmi_handle");
-		return false;
-	}
-
-	return wmi_service_enabled(wmi_handle,
-				   wmi_service_bang_radar_320_support);
-}
-
 #ifdef WLAN_FEATURE_11BE
 /**
  * target_if_dfs_is_radar_found_chan_freq_eq_center_freq: Check whether the
@@ -252,9 +231,14 @@ target_if_dfs_is_radar_found_chan_freq_eq_center_freq(
 		target_if_err("null wmi_handle");
 		return false;
 	}
-	return wmi_service_enabled
-		(wmi_handle,
-		 wmi_service_radar_found_chan_freq_eq_center_freq);
+
+	/*
+	 * Uncomment the following service as soon as it is ready.
+	 *
+	 * return wmi_service_enabled(wmi_handle,
+	 * wmi_is_radar_found_chan_freq_eq_center_freq);
+	 */
+	return false;
 }
 #else
 static bool
@@ -425,20 +409,6 @@ static QDF_STATUS target_send_dfs_offload_enable_cmd(
 	return status;
 }
 
-#if defined(WLAN_DFS_PARTIAL_OFFLOAD) && defined(HOST_DFS_SPOOF_TEST)
-static void target_if_register_dfs_tx_ops_send_avg(
-		struct wlan_lmac_if_dfs_tx_ops *dfs_tx_ops)
-{
-	dfs_tx_ops->dfs_send_avg_radar_params_to_fw =
-		&target_if_dfs_send_avg_params_to_fw;
-}
-#else
-static inline void target_if_register_dfs_tx_ops_send_avg(
-		struct wlan_lmac_if_dfs_tx_ops *dfs_tx_ops)
-{
-}
-#endif
-
 QDF_STATUS target_if_register_dfs_tx_ops(struct wlan_lmac_if_tx_ops *tx_ops)
 {
 	struct wlan_lmac_if_dfs_tx_ops *dfs_tx_ops;
@@ -465,12 +435,9 @@ QDF_STATUS target_if_register_dfs_tx_ops(struct wlan_lmac_if_tx_ops *tx_ops)
 				&target_if_dfs_set_phyerr_filter_offload;
 
 	dfs_tx_ops->dfs_get_caps = &target_if_dfs_get_caps;
-
-	target_if_register_dfs_tx_ops_send_avg(dfs_tx_ops);
-
+	dfs_tx_ops->dfs_send_avg_radar_params_to_fw =
+		&target_if_dfs_send_avg_params_to_fw;
 	dfs_tx_ops->dfs_is_tgt_offload = &target_if_dfs_offload;
-	dfs_tx_ops->dfs_is_tgt_bangradar_320_supp =
-				&target_if_dfs_bangradar_320_supp;
 	dfs_tx_ops->dfs_is_tgt_radar_found_chan_freq_eq_center_freq =
 		&target_if_dfs_is_radar_found_chan_freq_eq_center_freq;
 

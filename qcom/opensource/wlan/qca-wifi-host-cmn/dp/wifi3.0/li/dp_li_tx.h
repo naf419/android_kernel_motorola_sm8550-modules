@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -79,7 +79,7 @@ void dp_tx_process_htt_completion_li(struct dp_soc *soc,
  * Return: QDF_STATUS_SUCCESS - success, others - failure
  */
 QDF_STATUS dp_tx_desc_pool_init_li(struct dp_soc *soc,
-				   uint32_t num_elem,
+				   uint16_t num_elem,
 				   uint8_t pool_id);
 
 /**
@@ -93,18 +93,4 @@ QDF_STATUS dp_tx_desc_pool_init_li(struct dp_soc *soc,
 void dp_tx_desc_pool_deinit_li(struct dp_soc *soc,
 			       struct dp_tx_desc_pool_s *tx_desc_pool,
 			       uint8_t pool_id);
-
-/**
- * dp_tx_compute_tx_delay_li() - Compute HW Tx completion delay
- * @soc: Handle to DP Soc structure
- * @vdev: vdev
- * @ts: Tx completion status
- * @delay_us: Delay to be calculated in microseconds
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS dp_tx_compute_tx_delay_li(struct dp_soc *soc,
-				     struct dp_vdev *vdev,
-				     struct hal_tx_completion_status *ts,
-				     uint32_t *delay_us);
 #endif

@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -104,7 +103,7 @@ end:
  * @hdd_ctx: hdd context
  * @adapter: pointer to adapter
  *
- * Return: Pointer to struct wmi_roam_scan_stats_res which contains response
+ * Return: Pointer to struct wmi_roam_scan_stats_res which conatins response
  * from firmware
  */
 static struct
@@ -206,7 +205,7 @@ static char *hdd_roam_scan_trigger_to_str(uint32_t roam_scan_trigger)
 	case WMI_ROAM_TRIGGER_REASON_BTM:
 		return "BTM TRIGGER";
 	case WMI_ROAM_TRIGGER_REASON_UNIT_TEST:
-		return "TEST COMMAND";
+		return "TEST COMMMAND";
 	default:
 		return "UNKNOWN REASON";
 	}
@@ -214,10 +213,10 @@ static char *hdd_roam_scan_trigger_to_str(uint32_t roam_scan_trigger)
 }
 
 /**
- * hdd_roam_scan_trigger_value() - Get trigger value string for
+ * hdd_roam_scan_trigger_value_to_str() - Get trigger value string for
  * enum WMI_ROAM_TRIGGER_REASON_ID
  * @roam_scan_trigger: roam scan trigger ID
- * @print: output pointer to hold whether to print trigger value
+ * @bool: output pointer to hold whether to print trigger value
  *
  * Return: Meaningful string from trigger value
  */
@@ -244,7 +243,7 @@ static char *hdd_roam_scan_trigger_value(uint32_t roam_scan_trigger,
 }
 
 /**
- * hdd_client_id_to_str() - Helper func to get meaningful string from client id
+ * hdd_client_id_to_str() - Helper func to get meaninful string from client id
  * @client_id: Id of the client which triggered roam scan in firmware
  *
  * Return: Meaningful string from enum WMI_SCAN_CLIENT_ID
@@ -372,7 +371,7 @@ hdd_roam_scan_chan(struct wmi_roam_scan_stats_params *scan,
  * @hdd_ctx: hdd context
  * @adapter: pointer to adapter
  * @buf: buffer to hold the stats
- * @buf_avail_len: maximum available length in response buffer
+ * @len: maximum available length in response buffer
  *
  * Return: Size of formatted roam scan response stats
  */

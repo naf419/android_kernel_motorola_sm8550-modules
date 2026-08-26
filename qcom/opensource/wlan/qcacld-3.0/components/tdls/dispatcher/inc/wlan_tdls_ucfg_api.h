@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -75,31 +75,10 @@ QDF_STATUS ucfg_tdls_psoc_close(struct wlan_objmgr_psoc *psoc);
 QDF_STATUS ucfg_tdls_update_config(struct wlan_objmgr_psoc *psoc,
 				   struct tdls_start_params *req);
 
-/**
- * ucfg_tdls_update_fw_wideband_capability() - Update FW TDLS wideband
- *                                             capability in TDLS component
- *
- * @psoc: psoc object
- * @is_fw_tdls_wideband_capable: if fw is tdls wideband capable then it is true
- *
- * Return: void
- */
-void ucfg_tdls_update_fw_wideband_capability(struct wlan_objmgr_psoc *psoc,
-					     bool is_fw_tdls_wideband_capable);
-
-/**
- * ucfg_tdls_is_fw_wideband_capable() - Get FW TDLS wideband capability from
- *                                      TDLS component.
- * @psoc: psoc object
- *
- * Return: true if fw supports tdls wideband
- */
-bool ucfg_tdls_is_fw_wideband_capable(struct wlan_objmgr_psoc *psoc);
-
 #ifdef WLAN_FEATURE_11AX
 /**
- * ucfg_tdls_update_fw_11ax_capability() - Update FW TDLS 11ax capability in
- *                                      TDLS Component
+ * ucfg_tdls_update_fw_11ax_support() - Update FW TDLS 11ax capability in TLDS
+ *                                      Component
  * @psoc: psoc object
  * @is_fw_tdls_11ax_capable: bool if fw is tdls 11ax capable then it is true
  *
@@ -107,17 +86,6 @@ bool ucfg_tdls_is_fw_wideband_capable(struct wlan_objmgr_psoc *psoc);
  */
 void ucfg_tdls_update_fw_11ax_capability(struct wlan_objmgr_psoc *psoc,
 					 bool is_fw_tdls_11ax_capable);
-
-/**
- * ucfg_update_fw_tdls_6g_capability() - Update FW TDLS 6g capability in TDLS
- *                                    Component
- * @psoc: psoc object
- * @is_fw_tdls_6g_capable: set to true if firmware supports TDLS on 6G band
- *
- * Return: void
- */
-void ucfg_update_fw_tdls_6g_capability(struct wlan_objmgr_psoc *psoc,
-				       bool is_fw_tdls_6g_capable);
 
 /**
  * ucfg_tdls_is_fw_11ax_supported() - Get FW TDLS 11ax capability from TLDS
@@ -128,15 +96,6 @@ void ucfg_update_fw_tdls_6g_capability(struct wlan_objmgr_psoc *psoc,
  */
 bool ucfg_tdls_is_fw_11ax_capable(struct wlan_objmgr_psoc *psoc);
 
-/**
- * ucfg_tdls_is_fw_6g_capable() - Get FW TDLS 6g capability from TLDS
- *                                component.
- * @psoc: psoc object
- *
- * Return: true if fw supports tdls on 6ghz band
- */
-bool ucfg_tdls_is_fw_6g_capable(struct wlan_objmgr_psoc *psoc);
-
 #else
 static inline
 void ucfg_tdls_update_fw_11ax_capability(struct wlan_objmgr_psoc *psoc,
@@ -146,18 +105,6 @@ void ucfg_tdls_update_fw_11ax_capability(struct wlan_objmgr_psoc *psoc,
 
 static inline
 bool  ucfg_tdls_is_fw_11ax_capable(struct wlan_objmgr_psoc *psoc)
-{
-return false;
-}
-
-static inline
-void ucfg_update_fw_tdls_6g_capability(struct wlan_objmgr_psoc *psoc,
-				       bool is_fw_tdls_6g_capable)
-{
-}
-
-static inline
-bool  ucfg_tdls_is_fw_6g_capable(struct wlan_objmgr_psoc *psoc)
 {
 return false;
 }
@@ -172,7 +119,7 @@ return false;
 QDF_STATUS ucfg_tdls_psoc_enable(struct wlan_objmgr_psoc *psoc);
 
 /**
- * ucfg_tdls_psoc_disable() - TDLS module disable API
+ * ucfg_tdls_psoc_disable() - TDLS moudle disable API
  * @psoc: psoc object
  *
  * Return: QDF_STATUS
@@ -263,37 +210,6 @@ void ucfg_tdls_teardown_links_sync(struct wlan_objmgr_psoc *psoc);
  * Return: QDF_STATUS
  */
 QDF_STATUS ucfg_tdls_notify_reset_adapter(struct wlan_objmgr_vdev *vdev);
-
-/**
- * ucfg_tdls_notify_sta_connect() - notify sta connect to TDLS
- * @vdev_id: pointer to soc object
- * @tdls_chan_swit_prohibited: indicates channel switch capability
- * @tdls_prohibited: indicates tdls allowed or not
- * @vdev: vdev object manager
- *
- * Notify sta connect event to TDLS component
- *
- * Return: None
- */
-void ucfg_tdls_notify_sta_connect(uint8_t vdev_id,
-				  bool tdls_chan_swit_prohibited,
-				  bool tdls_prohibited,
-				  struct wlan_objmgr_vdev *vdev);
-
-/**
- * ucfg_tdls_notify_sta_disconnect() - notify sta disconnect
- * @vdev_id: pointer to soc object
- * @lfr_roam: indicate, whether disconnect due to lfr roam
- * @bool user_disconnect: disconnect from user space
- * @vdev: vdev object manager
- *
- * Notify sta disconnect event to TDLS component
- *
- * Return: None
- */
-void ucfg_tdls_notify_sta_disconnect(uint8_t vdev_id,
-				     bool lfr_roam, bool user_disconnect,
-				     struct wlan_objmgr_vdev *vdev);
 
 /**
  * ucfg_tdls_set_operating_mode() - set operating mode
@@ -391,15 +307,6 @@ QDF_STATUS ucfg_tdls_set_rssi(struct wlan_objmgr_vdev *vdev,
 void ucfg_tdls_notify_connect_failure(struct wlan_objmgr_psoc *psoc);
 
 /**
- * ucfg_get_tdls_conn_peer_count() - This api is called to get number of
- *                                    connected TDLS peer
- * @vdev: vdev object
- *
- * Return: tdls connected peer count
- */
-uint16_t ucfg_get_tdls_conn_peer_count(struct wlan_objmgr_vdev *vdev);
-
-/**
  * ucfg_get_tdls_vdev() - Ucfg api to get tdls specific vdev object
  * @psoc: wlan psoc object manager
  * @dbg_id: debug id
@@ -485,20 +392,6 @@ static inline
 void ucfg_tdls_notify_connect_failure(struct wlan_objmgr_psoc *psoc)
 {
 }
-
-static inline
-void ucfg_tdls_notify_sta_connect(uint8_t vdev_id,
-				  bool tdls_chan_swit_prohibited,
-				  bool tdls_prohibited,
-				  struct wlan_objmgr_vdev *vdev)
-{
-}
-
-static inline
-void ucfg_tdls_notify_sta_disconnect(uint8_t vdev_id,
-				     bool lfr_roam, bool user_disconnect,
-				     struct wlan_objmgr_vdev *vdev)
-{}
 
 static inline
 struct wlan_objmgr_vdev *ucfg_get_tdls_vdev(struct wlan_objmgr_psoc *psoc,

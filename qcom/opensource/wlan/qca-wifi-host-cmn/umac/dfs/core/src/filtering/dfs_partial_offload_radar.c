@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2011, Atheros Communications Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -406,7 +405,8 @@ static inline void dfs_assign_fcc_pulse_table(
 		rinfo->numradars = QDF_ARRAY_SIZE(dfs_fcc_radars);
 	}
 
-	if (tx_ops->tgt_is_tgt_type_ar900b(target_type)) {
+	if (tx_ops->tgt_is_tgt_type_ar900b(target_type) ||
+			tx_ops->tgt_is_tgt_type_ipq4019(target_type)) {
 		rinfo->b5pulses = dfs_fcc_bin5pulses_ar900b;
 		rinfo->numb5radars = QDF_ARRAY_SIZE(dfs_fcc_bin5pulses_ar900b);
 	} else if (tx_ops->tgt_is_tgt_type_qca9984(target_type) ||
@@ -520,7 +520,8 @@ dfs_assign_mkk_bin5_radars(struct wlan_dfs_radar_tab_info *rinfo,
 			   uint32_t target_type,
 			   struct wlan_lmac_if_target_tx_ops *tgt_tx_ops)
 {
-	if (tgt_tx_ops->tgt_is_tgt_type_ar900b(target_type)) {
+	if (tgt_tx_ops->tgt_is_tgt_type_ar900b(target_type) ||
+	    tgt_tx_ops->tgt_is_tgt_type_ipq4019(target_type)) {
 		rinfo->b5pulses = dfs_jpn_bin5pulses_ar900b;
 		rinfo->numb5radars = QDF_ARRAY_SIZE(
 				dfs_jpn_bin5pulses_ar900b);
@@ -698,10 +699,11 @@ void dfs_get_po_radars(struct wlan_dfs *dfs)
 	}
 
 	if (tgt_tx_ops->tgt_is_tgt_type_ar900b(target_type) ||
+			tgt_tx_ops->tgt_is_tgt_type_ipq4019(target_type) ||
 			tgt_tx_ops->tgt_is_tgt_type_qca9984(target_type) ||
 			tgt_tx_ops->tgt_is_tgt_type_qca9888(target_type)) {
 		/* Beeliner WAR: lower RSSI threshold to improve detection of
-		 * certain radar types
+		 * certian radar types
 		 */
 		/* Cascade WAR:
 		 * Cascade can report lower RSSI near the channel boundary then
@@ -817,20 +819,12 @@ void dfs_extract_radar_found_params(struct wlan_dfs *dfs,
 
 	/* Bangradar will not populate any of these average
 	 * parameters as pulse is not received. If these variables
-	 * are not reset here, these go as radar_found params
+	 * are not resetted here, these go as radar_found params
 	 * for bangradar if bangradar is issued after real radar.
 	 */
 	dfs->dfs_average_sidx = 0;
 	dfs->dfs_average_duration = 0;
 	dfs->dfs_average_pri = 0;
-}
-
-void
-dfs_disable_radar_and_flush_pulses(struct wlan_dfs *dfs)
-{
-	dfs_radar_disable(dfs);
-	dfs_second_segment_radar_disable(dfs);
-	dfs_flush_additional_pulses(dfs);
 }
 
 void dfs_radarfound_action_fcc(struct wlan_dfs *dfs, uint8_t seg_id)
@@ -847,7 +841,6 @@ void dfs_radarfound_action_fcc(struct wlan_dfs *dfs, uint8_t seg_id)
 		      dfs->dfs_status_timeout_override);
 	dfs->dfs_seg_id = seg_id;
 	dfs_send_avg_params_to_fw(dfs, &params);
-	dfs_disable_radar_and_flush_pulses(dfs);
 }
 
 void dfs_host_wait_timer_reset(struct wlan_dfs *dfs)
@@ -863,10 +856,6 @@ void dfs_host_wait_timer_reset(struct wlan_dfs *dfs)
 static void dfs_action_on_spoof_success(struct wlan_dfs *dfs)
 {
 	dfs->dfs_spoof_test_done = 1;
-
-	/* On spoof success, enable the radar detection flags */
-	dfs_radar_enable(dfs, 0, 0);
-
 	if (dfs->dfs_radar_found_chan.dfs_ch_freq ==
 			dfs->dfs_curchan->dfs_ch_freq) {
 		dfs_debug(dfs, WLAN_DEBUG_DFS_ALWAYS,

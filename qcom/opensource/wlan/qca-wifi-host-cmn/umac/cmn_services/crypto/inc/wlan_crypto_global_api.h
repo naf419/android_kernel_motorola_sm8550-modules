@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -99,20 +99,6 @@ uint8_t wlan_crypto_is_htallowed(struct wlan_objmgr_vdev *vdev,
  */
 QDF_STATUS wlan_crypto_setkey(struct wlan_objmgr_vdev *vdev,
 					struct wlan_crypto_req_key *req_key);
-
-/**
- * store_def_keyix_peer - called by wlan_crypto_setkey
- *                   to store default key index for each peer in the vdev.
- * @vdev: vdev
- * @object: Peer object
- * @arg: Argument passed by caller
- *
- * This function gets called from wlan_crypto_setkey
- *
- * Return: None
- */
-void store_def_keyix_peer(struct wlan_objmgr_vdev *vdev, void *object,
-			  void *arg);
 
 /**
  * wlan_crypto_getkey - called by ucfg to get key
@@ -452,7 +438,7 @@ QDF_STATUS wlan_crypto_set_peer_wep_keys(struct wlan_objmgr_vdev *vdev,
  * wlan_crypto_register_crypto_rx_ops - set crypto_rx_ops
  * @crypto_rx_ops: crypto_rx_ops
  *
- * This function gets called by object manager to register crypto rx ops.
+ * This function gets called by object manger to register crypto rx ops.
  *
  * Return: QDF_STATUS
  */
@@ -848,17 +834,6 @@ enum wlan_crypto_cipher_type
 wlan_crypto_get_cipher(struct wlan_objmgr_vdev *vdev,
 		       bool pairwise, uint8_t key_index);
 
-/**
- * wlan_crypto_get_secure_akm_available() - Search the AKM bitmap to
- * find the most secure AKM.
- * @akm: Bitmap of available AKMs.
- *
- * Search in the decreasing order of AKM security and return the
- * first matching AKM available in @akm bitmap.
- *
- * Return: enum wlan_crypto_key_mgmt
- */
-wlan_crypto_key_mgmt wlan_crypto_get_secure_akm_available(uint32_t akm);
 #ifdef CRYPTO_SET_KEY_CONVERGED
 /**
  * wlan_crypto_update_set_key_peer() - Update the peer for set key
@@ -979,19 +954,6 @@ static inline void wlan_crypto_reset_vdev_prarams(struct wlan_objmgr_vdev *vdev)
 #endif /* CRYPTO_SET_KEY_CONVERGED */
 
 /**
- * wlan_crypto_vdev_set_param() - Send vdev set param to firmware.
- * @psoc: Pointer to PSOC object
- * @vdev_id: vdev id
- * @param_id: Param id
- * @param_value: Param value
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-wlan_crypto_vdev_set_param(struct wlan_objmgr_psoc *psoc, uint32_t vdev_id,
-			   uint32_t param_id, uint32_t param_value);
-
-/**
  * wlan_crypto_get_peer_pmksa() - called to get pmksa based on pmksa parameter
  * @vdev: vdev
  * @pmksa: bssid
@@ -1084,7 +1046,7 @@ wlan_crypto_selective_clear_sae_single_pmk_entries(
 		struct wlan_objmgr_vdev *vdev, struct qdf_mac_addr *conn_bssid);
 
 /**
- * wlan_crypto_set_sae_single_pmk_bss_cap - Set the peer SAE single pmk
+ * wlan_crypto_set_sae_single_pmk_bss_cap - Set the peer SAE sinlge pmk
  * feature supported status
  * @vdev: Vdev
  * @bssid: BSSID for which the flag is to be set
@@ -1096,7 +1058,7 @@ void wlan_crypto_set_sae_single_pmk_bss_cap(struct wlan_objmgr_vdev *vdev,
 					    bool single_pmk_capable_bss);
 
 /**
- * wlan_crypto_set_sae_single_pmk_bss_cap - Set the peer SAE single pmk info
+ * wlan_crypto_set_sae_single_pmk_bss_cap - Set the peer SAE sinlge pmk info
  * @vdev: Vdev
  * @roam_sync_pmksa: pmk info for roamed AP
  */
@@ -1122,19 +1084,6 @@ static inline void
 wlan_crypto_set_sae_single_pmk_info(struct wlan_objmgr_vdev *vdev,
 				    struct wlan_crypto_pmksa *roam_sync_pmksa)
 {
-}
-#endif
-
-#if defined(WIFI_POS_CONVERGED) && defined(WLAN_FEATURE_RTT_11AZ_SUPPORT)
-QDF_STATUS
-wlan_crypto_set_ltf_keyseed(struct wlan_objmgr_psoc *psoc,
-			    struct wlan_crypto_ltf_keyseed_data *data);
-#else
-static inline QDF_STATUS
-wlan_crypto_set_ltf_keyseed(struct wlan_objmgr_psoc *psoc,
-			    struct wlan_crypto_ltf_keyseed_data *data)
-{
-	return QDF_STATUS_SUCCESS;
 }
 #endif
 

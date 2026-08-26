@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -107,37 +107,6 @@ void wlan_cfg80211_mc_infra_cp_stats_dealloc(void *priv)
 #endif /* WLAN_SUPPORT_INFRA_CTRL_PATH_STATS */
 
 /**
- * wlan_cfg80211_mc_cp_stats_free_peer_stats_info_ext() - API to free peer stats
- * info ext structure
- * @ev: structure from where peer stats info ext needs to be freed
- *
- * Return: none
- */
-static void wlan_cfg80211_mc_cp_stats_free_peer_stats_info_ext(
-							struct stats_event *ev)
-{
-	struct peer_stats_info_ext_event *peer_stats_info =
-							ev->peer_stats_info_ext;
-	uint16_t i;
-
-	if (!ev->peer_stats_info_ext) {
-		ev->num_peer_stats_info_ext = 0;
-		return;
-	}
-	for (i = 0; i < ev->num_peer_stats_info_ext; i++) {
-		qdf_mem_free(peer_stats_info->tx_pkt_per_mcs);
-		peer_stats_info->tx_pkt_per_mcs = NULL;
-		qdf_mem_free(peer_stats_info->rx_pkt_per_mcs);
-		peer_stats_info->tx_pkt_per_mcs = NULL;
-		peer_stats_info++;
-	}
-
-	qdf_mem_free(ev->peer_stats_info_ext);
-	ev->peer_stats_info_ext = NULL;
-	ev->num_peer_stats_info_ext = 0;
-}
-
-/**
  * wlan_cfg80211_mc_cp_stats_dealloc() - callback to free priv
  * allocations for stats
  * @priv: Pointer to priv data statucture
@@ -154,13 +123,12 @@ static void wlan_cfg80211_mc_cp_stats_dealloc(void *priv)
 	}
 
 	qdf_mem_free(stats->pdev_stats);
-	qdf_mem_free(stats->pdev_extd_stats);
 	qdf_mem_free(stats->peer_stats);
 	qdf_mem_free(stats->cca_stats);
 	qdf_mem_free(stats->vdev_summary_stats);
 	qdf_mem_free(stats->vdev_chain_rssi);
 	qdf_mem_free(stats->peer_adv_stats);
-	wlan_cfg80211_mc_cp_stats_free_peer_stats_info_ext(stats);
+	qdf_mem_free(stats->peer_stats_info_ext);
 	wlan_free_mib_stats(stats);
 }
 
@@ -449,11 +417,6 @@ static void get_peer_rssi_cb(struct stats_event *ev, void *cookie)
 	if (!request) {
 		osif_err("Obsolete request");
 		return;
-	}
-
-	if (!ev->peer_stats) {
-		osif_err("no peer stats");
-		goto get_peer_rssi_cb_fail;
 	}
 
 	priv = osif_request_priv(request);
@@ -787,15 +750,15 @@ wlan_cfg80211_mc_twt_get_infra_cp_stats(struct wlan_objmgr_vdev *vdev,
 	out->twt_infra_cp_stats =
 			qdf_mem_malloc(sizeof(*out->twt_infra_cp_stats));
 	if (!out->twt_infra_cp_stats) {
-		qdf_mem_free(out);
 		*errno = -ENOMEM;
 		return NULL;
 	}
 
 	request = osif_request_alloc(&params);
 	if (!request) {
+		qdf_mem_free(out);
 		*errno = -ENOMEM;
-		goto free_stats_event;
+		return NULL;
 	}
 
 	cookie = osif_request_cookie(request);
@@ -805,7 +768,7 @@ wlan_cfg80211_mc_twt_get_infra_cp_stats(struct wlan_objmgr_vdev *vdev,
 			qdf_mem_malloc(sizeof(*priv->twt_infra_cp_stats));
 	if (!priv->twt_infra_cp_stats) {
 		*errno = -ENOMEM;
-		goto get_twt_stats_fail;
+		return NULL;
 	}
 	twt_event = priv->twt_infra_cp_stats;
 
@@ -874,8 +837,6 @@ wlan_cfg80211_mc_twt_get_infra_cp_stats(struct wlan_objmgr_vdev *vdev,
 
 get_twt_stats_fail:
 	osif_request_put(request);
-
-free_stats_event:
 	wlan_cfg80211_mc_infra_cp_stats_free_stats_event(out);
 
 	osif_debug("Exit");
@@ -914,7 +875,7 @@ static void infra_cp_stats_reset_cb(struct infra_cp_stats_event *ev,
 }
 
 /**
- * wlan_cfg80211_mc_twt_clear_infra_cp_stats() - send clear twt statistics
+ * @wlan_cfg80211_mc_twt_clear_infra_cp_stats() - send clear twt statistics
  * request to firmware
  * @vdev: vdev id
  * @dialog_id: dialog id of the twt session.
@@ -1332,81 +1293,6 @@ get_mib_stats_fail:
 #endif
 
 /**
- * copy_peer_stats_info_ext - Copy peer ext stats info from stats event to
- * destination peer stats info
- * @dst_peer_stats_info: Destination peer ext stats pointer where peer ext info
- * needs to be copied.
- * @ev: Stats event pointer from where peers stats info needs to be copied
- *
- * Return: Void
- */
-static void
-copy_peer_stats_info_ext(struct peer_stats_info_ext_event *dst_peer_stats_info,
-			 struct stats_event *ev)
-{
-	uint32_t i, j;
-	struct peer_stats_info_ext_event *src_peer_stats_info =
-							ev->peer_stats_info_ext;
-	struct peer_stats_info_ext_event *peer_stats_info = dst_peer_stats_info;
-
-	for (i = 0; i < ev->num_peer_stats_info_ext; i++) {
-		qdf_mem_copy(&peer_stats_info->peer_macaddr,
-			     &src_peer_stats_info->peer_macaddr,
-			     sizeof(peer_stats_info->peer_macaddr));
-		peer_stats_info->tx_packets = src_peer_stats_info->tx_packets;
-		peer_stats_info->tx_bytes = src_peer_stats_info->tx_bytes;
-		peer_stats_info->rx_packets = src_peer_stats_info->rx_packets;
-		peer_stats_info->rx_bytes = src_peer_stats_info->rx_bytes;
-		peer_stats_info->tx_retries = src_peer_stats_info->tx_retries;
-		peer_stats_info->tx_failed = src_peer_stats_info->tx_failed;
-		peer_stats_info->tx_succeed = src_peer_stats_info->tx_succeed;
-		peer_stats_info->rssi = src_peer_stats_info->rssi;
-		peer_stats_info->tx_rate = src_peer_stats_info->tx_rate;
-		peer_stats_info->tx_rate_code =
-					src_peer_stats_info->tx_rate_code;
-		peer_stats_info->rx_rate = src_peer_stats_info->rx_rate;
-		peer_stats_info->rx_rate_code =
-					src_peer_stats_info->rx_rate_code;
-		for (j = 0; j < WMI_MAX_CHAINS; j++)
-			peer_stats_info->peer_rssi_per_chain[j] =
-				src_peer_stats_info->peer_rssi_per_chain[j];
-
-		if (src_peer_stats_info->num_tx_rate_counts) {
-			peer_stats_info->tx_pkt_per_mcs =
-				qdf_mem_malloc(
-				src_peer_stats_info->num_tx_rate_counts *
-				sizeof(uint32_t));
-			if (!peer_stats_info->tx_pkt_per_mcs)
-				return;
-
-			peer_stats_info->num_tx_rate_counts =
-					src_peer_stats_info->num_tx_rate_counts;
-			qdf_mem_copy(peer_stats_info->tx_pkt_per_mcs,
-				     src_peer_stats_info->tx_pkt_per_mcs,
-				     peer_stats_info->num_tx_rate_counts *
-				     sizeof(uint32_t));
-		}
-		if (src_peer_stats_info->num_rx_rate_counts) {
-			peer_stats_info->rx_pkt_per_mcs =
-				qdf_mem_malloc(
-				src_peer_stats_info->num_rx_rate_counts *
-				sizeof(uint32_t));
-			if (!peer_stats_info->rx_pkt_per_mcs)
-				return;
-
-			peer_stats_info->num_rx_rate_counts =
-					src_peer_stats_info->num_rx_rate_counts;
-			qdf_mem_copy(peer_stats_info->rx_pkt_per_mcs,
-				     src_peer_stats_info->rx_pkt_per_mcs,
-				     peer_stats_info->num_rx_rate_counts *
-				     sizeof(uint32_t));
-		}
-		src_peer_stats_info++;
-		peer_stats_info++;
-	}
-}
-
-/**
  * get_peer_stats_cb() - get_peer_stats_cb callback function
  * @ev: peer stats buffer
  * @cookie: a cookie for the request context
@@ -1439,8 +1325,8 @@ static void get_peer_stats_cb(struct stats_event *ev, void *cookie)
 	if (!priv->peer_stats_info_ext)
 		goto peer_stats_cb_fail;
 
-	copy_peer_stats_info_ext(priv->peer_stats_info_ext, ev);
-
+	qdf_mem_copy(priv->peer_stats_info_ext, ev->peer_stats_info_ext,
+		     peer_stats_info_size);
 	priv->num_peer_stats_info_ext = ev->num_peer_stats_info_ext;
 
 peer_stats_cb_fail:
@@ -1489,40 +1375,6 @@ station_adv_stats_cb_fail:
 	osif_request_complete(request);
 	osif_request_put(request);
 }
-
-#ifdef WLAN_FEATURE_11BE_MLO
-static QDF_STATUS
-wlan_cfg80211_get_mlstats_vdev_params(struct wlan_objmgr_vdev *vdev,
-				      struct request_info *info)
-{
-	struct wlan_objmgr_psoc *psoc;
-	bool is_mlo_vdev;
-	QDF_STATUS status;
-
-	psoc = wlan_vdev_get_psoc(vdev);
-	if (!psoc)
-		return QDF_STATUS_E_INVAL;
-
-	is_mlo_vdev = wlan_vdev_mlme_get_is_mlo_vdev(psoc, info->vdev_id);
-	if (is_mlo_vdev) {
-		status = mlo_get_mlstats_vdev_params(psoc, &info->ml_vdev_info,
-						     info->vdev_id);
-		if (QDF_IS_STATUS_ERROR(status)) {
-			osif_err("unable to get vdev params for mlo stats");
-			return status;
-		}
-	}
-
-	return QDF_STATUS_SUCCESS;
-}
-#else
-static QDF_STATUS
-wlan_cfg80211_get_mlstats_vdev_params(struct wlan_objmgr_vdev *vdev,
-				      struct request_info *info)
-{
-	return QDF_STATUS_SUCCESS;
-}
-#endif
 
 struct stats_event *
 wlan_cfg80211_mc_cp_stats_get_peer_stats(struct wlan_objmgr_vdev *vdev,
@@ -1602,13 +1454,6 @@ wlan_cfg80211_mc_cp_stats_get_peer_stats(struct wlan_objmgr_vdev *vdev,
 	priv = osif_request_priv(request);
 	info.cookie = cookie;
 	info.u.get_station_stats_cb = get_station_adv_stats_cb;
-
-	status = wlan_cfg80211_get_mlstats_vdev_params(vdev, &info);
-	if (QDF_IS_STATUS_ERROR(status)) {
-		*errno = qdf_status_to_os_return(status);
-		goto get_peer_stats_fail;
-	}
-
 	status = ucfg_mc_cp_stats_send_stats_request(vdev, TYPE_STATION_STATS,
 						     &info);
 	if (QDF_IS_STATUS_ERROR(status)) {
@@ -1655,7 +1500,7 @@ void wlan_cfg80211_mc_cp_stats_free_stats_event(struct stats_event *stats)
 	qdf_mem_free(stats->vdev_chain_rssi);
 	qdf_mem_free(stats->peer_adv_stats);
 	wlan_free_mib_stats(stats);
-	wlan_cfg80211_mc_cp_stats_free_peer_stats_info_ext(stats);
+	qdf_mem_free(stats->peer_stats_info_ext);
 	qdf_mem_free(stats);
 }
 
@@ -1750,8 +1595,7 @@ void infra_cp_stats_bmiss_response_cb(struct infra_cp_stats_event *ev,
 
 struct infra_cp_stats_event *
 wlan_cfg80211_mc_bmiss_get_infra_cp_stats(struct wlan_objmgr_vdev *vdev,
-					  uint8_t mac[QDF_MAC_ADDR_SIZE],
-					  int *errno)
+					  uint8_t *bmiss_peer_mac, int *errno)
 {
 	void *cookie;
 	int idx = 0;
@@ -1812,7 +1656,7 @@ wlan_cfg80211_mc_bmiss_get_infra_cp_stats(struct wlan_objmgr_vdev *vdev,
 	info.num_mac_addr_list = MAX_TWT_STAT_MAC_ADDR_ENTRIES;
 	info.num_pdev_ids = 0;
 
-	qdf_mem_copy(&info.peer_mac_addr[0], mac, QDF_MAC_ADDR_SIZE);
+	qdf_mem_copy(&info.peer_mac_addr[0], bmiss_peer_mac, QDF_MAC_ADDR_SIZE);
 	status = ucfg_infra_cp_stats_register_resp_cb(wlan_vdev_get_psoc(vdev),
 						      &info);
 	if (QDF_IS_STATUS_ERROR(status)) {
@@ -1864,7 +1708,7 @@ wlan_cfg80211_mc_bmiss_get_infra_cp_stats(struct wlan_objmgr_vdev *vdev,
 	out->bmiss_infra_cp_stats->cons_bmiss_stats.num_bcn_hist_lost =
 			bmiss_event->cons_bmiss_stats.num_bcn_hist_lost;
 
-	qdf_mem_copy(&out->bmiss_infra_cp_stats->peer_macaddr, mac,
+	qdf_mem_copy(&out->bmiss_infra_cp_stats->peer_macaddr, bmiss_peer_mac,
 		     QDF_MAC_ADDR_SIZE);
 	osif_request_put(request);
 	osif_debug("Exit");

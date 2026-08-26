@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -85,12 +85,6 @@
 #include <wlan_hdd_sysfs_bmiss.h>
 #include <wlan_hdd_sysfs_get_freq_for_pwr.h>
 #include <wlan_hdd_sysfs_dp_tx_delay_stats.h>
-#include <wlan_hdd_sysfs_wifi_features.h>
-#include <wlan_hdd_sysfs_dp_traffic_end_indication.h>
-#include <wlan_hdd_sysfs_eht_rate.h>
-#include <wlan_hdd_sysfs_direct_link_ut_cmd.h>
-#include <wlan_hdd_sysfs_bitrates.h>
-#include <wlan_hdd_sysfs_rf_test_mode.h>
 
 #define MAX_PSOC_ID_SIZE 10
 
@@ -104,7 +98,6 @@ static struct kobject *wlan_kobject;
 static struct kobject *driver_kobject;
 static struct kobject *fw_kobject;
 static struct kobject *psoc_kobject;
-static struct kobject *wifi_kobject;
 
 int
 hdd_sysfs_validate_and_copy_buf(char *dest_buf, size_t dest_buf_size,
@@ -694,48 +687,6 @@ static void hdd_sysfs_destroy_driver_root_obj(void)
 	}
 }
 
-void hdd_sysfs_create_wifi_root_obj(void)
-{
-	if (wifi_kobject) {
-		hdd_debug("wifi kobj already created");
-		return;
-	}
-	wifi_kobject = pld_get_wifi_kobj(NULL);
-	if (wifi_kobject) {
-		hdd_debug("wifi_kobject created by platform");
-		return;
-	}
-	wifi_kobject = kobject_create_and_add("wifi", NULL);
-	if (!wifi_kobject)
-		hdd_err("could not allocate wifi kobject");
-}
-
-void hdd_sysfs_destroy_wifi_root_obj(void)
-{
-	if (pld_get_wifi_kobj(NULL)) {
-		hdd_debug("wifi_kobject created by platform");
-		wifi_kobject = NULL;
-		return;
-	}
-
-	if (!wifi_kobject) {
-		hdd_err("could not get wifi kobject!");
-		return;
-	}
-	kobject_put(wifi_kobject);
-	wifi_kobject = NULL;
-}
-
-void hdd_create_wifi_feature_interface_sysfs_file(void)
-{
-	hdd_sysfs_create_wifi_feature_interface(wifi_kobject);
-}
-
-void hdd_destroy_wifi_feature_interface_sysfs_file(void)
-{
-	hdd_sysfs_destroy_wifi_feature_interface(wifi_kobject);
-}
-
 #ifdef WLAN_FEATURE_BEACON_RECEPTION_STATS
 static int hdd_sysfs_create_bcn_reception_interface(struct hdd_adapter
 						     *adapter)
@@ -785,13 +736,11 @@ hdd_sysfs_create_sta_adapter_root_obj(struct hdd_adapter *adapter)
 	hdd_sysfs_11be_rate_create(adapter);
 	hdd_sysfs_bmiss_create(adapter);
 	hdd_sysfs_dp_tx_delay_stats_create(adapter);
-	hdd_sysfs_sta_bitrates_create(adapter);
 }
 
 static void
 hdd_sysfs_destroy_sta_adapter_root_obj(struct hdd_adapter *adapter)
 {
-	hdd_sysfs_sta_bitrates_destroy(adapter);
 	hdd_sysfs_dp_tx_delay_stats_destroy(adapter);
 	hdd_sysfs_bmiss_destroy(adapter);
 	hdd_sysfs_11be_rate_destroy(adapter);
@@ -846,17 +795,11 @@ hdd_sysfs_create_sap_adapter_root_obj(struct hdd_adapter *adapter)
 	hdd_sysfs_dl_modes_create(adapter);
 	hdd_sysfs_11be_rate_create(adapter);
 	hdd_sysfs_dp_tx_delay_stats_create(adapter);
-	hdd_sysfs_dp_traffic_end_indication_create(adapter);
-	hdd_sysfs_direct_link_ut_cmd_create(adapter);
-	hdd_sysfs_sap_bitrates_create(adapter);
 }
 
 static void
 hdd_sysfs_destroy_sap_adapter_root_obj(struct hdd_adapter *adapter)
 {
-	hdd_sysfs_sap_bitrates_destroy(adapter);
-	hdd_sysfs_direct_link_ut_destroy(adapter);
-	hdd_sysfs_dp_traffic_end_indication_destroy(adapter);
 	hdd_sysfs_dp_tx_delay_stats_destroy(adapter);
 	hdd_sysfs_11be_rate_destroy(adapter);
 	hdd_sysfs_dl_modes_destroy(adapter);
@@ -900,9 +843,10 @@ void hdd_create_sysfs_files(struct hdd_context *hdd_ctx)
 	hdd_sysfs_create_driver_root_obj();
 	hdd_sysfs_create_version_interface(hdd_ctx->psoc);
 	hdd_sysfs_mem_stats_create(wlan_kobject);
+	hdd_sysfs_create_wifi_root_obj();
 	if  (QDF_GLOBAL_MISSION_MODE == hdd_get_conparam()) {
 		hdd_sysfs_create_powerstats_interface();
-		hdd_sysfs_create_dump_in_progress_interface(wifi_kobject);
+		hdd_sysfs_create_dump_in_progress_interface();
 		hdd_sysfs_fw_mode_config_create(driver_kobject);
 		hdd_sysfs_scan_disable_create(driver_kobject);
 		hdd_sysfs_wow_ito_create(driver_kobject);
@@ -913,26 +857,26 @@ void hdd_create_sysfs_files(struct hdd_context *hdd_ctx)
 		hdd_sysfs_pktlog_create(driver_kobject);
 		hdd_sysfs_pm_cinfo_create(driver_kobject);
 		hdd_sysfs_pm_pcl_create(driver_kobject);
+		hdd_sysfs_pm_dbs_create(driver_kobject);
 		hdd_sysfs_dp_aggregation_create(driver_kobject);
 		hdd_sysfs_dp_swlm_create(driver_kobject);
 		hdd_sysfs_create_wakeup_logs_to_console();
 		hdd_sysfs_dp_txrx_stats_sysfs_create(driver_kobject);
 		hdd_sysfs_get_valid_freq_for_power_create(driver_kobject);
 		hdd_sysfs_dp_pkt_add_ts_create(driver_kobject);
-		hdd_sysfs_rf_test_mode_create(driver_kobject);
 	}
 }
 
 void hdd_destroy_sysfs_files(void)
 {
 	if  (QDF_GLOBAL_MISSION_MODE == hdd_get_conparam()) {
-		hdd_sysfs_rf_test_mode_destroy(driver_kobject);
 		hdd_sysfs_dp_pkt_add_ts_destroy(driver_kobject);
 		hdd_sysfs_get_valid_freq_for_power_destroy(driver_kobject);
 		hdd_sysfs_dp_txrx_stats_sysfs_destroy(driver_kobject);
 		hdd_sysfs_destroy_wakeup_logs_to_console();
 		hdd_sysfs_dp_swlm_destroy(driver_kobject);
 		hdd_sysfs_dp_aggregation_destroy(driver_kobject);
+		hdd_sysfs_pm_dbs_destroy(driver_kobject);
 		hdd_sysfs_pm_pcl_destroy(driver_kobject);
 		hdd_sysfs_pm_cinfo_destroy(driver_kobject);
 		hdd_sysfs_pktlog_destroy(driver_kobject);
@@ -943,9 +887,10 @@ void hdd_destroy_sysfs_files(void)
 		hdd_sysfs_wow_ito_destroy(driver_kobject);
 		hdd_sysfs_scan_disable_destroy(driver_kobject);
 		hdd_sysfs_fw_mode_config_destroy(driver_kobject);
-		hdd_sysfs_destroy_dump_in_progress_interface(wifi_kobject);
+		hdd_sysfs_destroy_dump_in_progress_interface();
 		hdd_sysfs_destroy_powerstats_interface();
 	}
+	hdd_sysfs_destroy_wifi_root_obj();
 	hdd_sysfs_mem_stats_destroy(wlan_kobject);
 	hdd_sysfs_destroy_version_interface();
 	hdd_sysfs_destroy_driver_root_obj();
@@ -964,10 +909,9 @@ void hdd_create_adapter_sysfs_files(struct hdd_adapter *adapter)
 	case QDF_STA_MODE:
 	case QDF_P2P_DEVICE_MODE:
 	case QDF_P2P_CLIENT_MODE:
-		hdd_sysfs_create_sta_adapter_root_obj(adapter);
+			hdd_sysfs_create_sta_adapter_root_obj(adapter);
 		break;
 	case QDF_SAP_MODE:
-	case QDF_P2P_GO_MODE:
 		hdd_sysfs_create_sap_adapter_root_obj(adapter);
 		break;
 	case QDF_MONITOR_MODE:
@@ -990,11 +934,10 @@ void hdd_destroy_adapter_sysfs_files(struct hdd_adapter *adapter)
 	case QDF_STA_MODE:
 	case QDF_P2P_DEVICE_MODE:
 	case QDF_P2P_CLIENT_MODE:
-		hdd_sysfs_destroy_sta_adapter_root_obj(adapter);
+			hdd_sysfs_destroy_sta_adapter_root_obj(adapter);
 		break;
 	case QDF_SAP_MODE:
-	case QDF_P2P_GO_MODE:
-		hdd_sysfs_destroy_sap_adapter_root_obj(adapter);
+			hdd_sysfs_destroy_sap_adapter_root_obj(adapter);
 		break;
 	case QDF_MONITOR_MODE:
 		hdd_sysfs_destroy_monitor_adapter_root_obj(adapter);

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2018, 2020-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -188,7 +188,7 @@ void hif_bus_close(struct hif_softc *hif_sc)
  * @hif_ctx: hif context
  * @flag: true = keep bus alive false = let bus go to sleep
  *
- * Keeps the bus awake during suspend.
+ * Keeps the bus awake durring suspend.
  */
 void hif_bus_prevent_linkdown(struct hif_softc *hif_sc, bool flag)
 {
@@ -276,6 +276,18 @@ void hif_disable_bus(struct hif_softc *hif_sc)
 {
 	hif_sc->bus_ops.hif_disable_bus(hif_sc);
 }
+
+#ifdef FEATURE_RUNTIME_PM
+struct hif_runtime_pm_ctx *hif_bus_get_rpm_ctx(struct hif_softc *hif_sc)
+{
+	return hif_sc->bus_ops.hif_bus_get_rpm_ctx(hif_sc);
+}
+
+struct device *hif_bus_get_dev(struct hif_softc *hif_sc)
+{
+	return hif_sc->bus_ops.hif_bus_get_dev(hif_sc);
+}
+#endif
 
 int hif_bus_configure(struct hif_softc *hif_sc)
 {
@@ -471,9 +483,6 @@ int hif_apps_irqs_disable(struct hif_opaque_softc *hif_ctx)
 	if (!scn)
 		return -EINVAL;
 
-	if (pld_is_one_msi(scn->qdf_dev->dev))
-		return 0;
-
 	/* if the wake_irq is shared, don't disable it twice */
 	for (i = 0; i < scn->ce_count; ++i) {
 		int irq = scn->bus_ops.hif_map_ce_to_irq(scn, i);
@@ -494,9 +503,6 @@ int hif_apps_irqs_enable(struct hif_opaque_softc *hif_ctx)
 	scn = HIF_GET_SOFTC(hif_ctx);
 	if (!scn)
 		return -EINVAL;
-
-	if (pld_is_one_msi(scn->qdf_dev->dev))
-		return 0;
 
 	/* if the wake_irq is shared, don't enable it twice */
 	for (i = 0; i < scn->ce_count; ++i) {

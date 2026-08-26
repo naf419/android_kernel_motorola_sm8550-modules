@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -63,14 +63,6 @@ extern "C" {
 #define       SAP_MAX_NUM_SESSION          5
 #define       SAP_MAX_OBSS_STA_CNT         1    /* max # of OBSS STA */
 #define       SAP_ACS_WEIGHT_MAX           (26664)
-/* ACS will mark non ACS channels(filtered by PCL) or channels not in
- * ACS scan list to SAP_ACS_WEIGHT_MAX.
- * But the filtered channel still need a reasonable weight to
- * calculate the combined weight for ACS bw 40/80/160/320.
- * Assign SAP_ACS_WEIGHT_ADJUSTABLE to such channels and update it
- * with reasonable weight after all channels weight are computed.
- */
-#define       SAP_ACS_WEIGHT_ADJUSTABLE    (SAP_ACS_WEIGHT_MAX - 1)
 
 #define SAP_DEFAULT_24GHZ_CHANNEL     (6)
 #define SAP_DEFAULT_5GHZ_CHANNEL      (40)
@@ -120,8 +112,8 @@ typedef enum {
 } eSapMacAddrACL;
 
 typedef enum {
-	SAP_DENY_LIST = 0,   /* List of mac addresses NOT allowed to assoc */
-	SAP_ALLOW_LIST = 1,   /* List of mac addresses allowed to assoc */
+	eSAP_BLACK_LIST = 0,   /* List of mac addresses NOT allowed to assoc */
+	eSAP_WHITE_LIST = 1,   /* List of mac addresses allowed to assoc */
 } eSapACLType;
 
 typedef enum {
@@ -135,12 +127,12 @@ typedef enum {
 	eSAP_STA_ASSOC_IND,           /* Indicate assoc req to upper layers */
 	/*
 	 * Event sent when we have successfully associated a station and
-	 * upper layer needs to allocate a context
+	 * upper layer neeeds to allocate a context
 	 */
 	eSAP_STA_ASSOC_EVENT,
 	/*
 	 * Event sent when we have successfully reassociated a station and
-	 * upper layer needs to allocate a context
+	 * upper layer neeeds to allocate a context
 	 */
 	eSAP_STA_REASSOC_EVENT,
 	/*
@@ -157,7 +149,7 @@ typedef enum {
 	eSAP_DISCONNECT_ALL_P2P_CLIENT,
 	eSAP_MAC_TRIG_STOP_BSS_EVENT,
 	/*
-	 * Event send when a STA in neither allow list or deny list tries to
+	 * Event send when a STA in neither white list or black list tries to
 	 * associate in softap mode
 	 */
 	eSAP_UNKNOWN_STA_JOIN,
@@ -169,7 +161,9 @@ typedef enum {
 	eSAP_DFS_CAC_START,
 	eSAP_DFS_CAC_INTERRUPTED,
 	eSAP_DFS_CAC_END,
+	eSAP_DFS_PRE_CAC_END,
 	eSAP_DFS_RADAR_DETECT,
+	eSAP_DFS_RADAR_DETECT_DURING_PRE_CAC,
 	/* No ch available after DFS RADAR detect */
 	eSAP_DFS_NO_AVAILABLE_CHANNEL,
 	eSAP_STOP_BSS_DUE_TO_NO_CHNL,
@@ -188,10 +182,10 @@ typedef enum {
 } eSapAuthType;
 
 typedef enum {
-	/* Disassociation was internally initiated from CORE stack */
+	/* Disassociation was internally initated from CORE stack */
 	eSAP_MAC_INITATED_DISASSOC = 0x10000,
 	/*
-	 * Disassociation was internally initiated from host by
+	 * Disassociation was internally initated from host by
 	 * invoking wlansap_disassoc_sta call
 	 */
 	eSAP_USR_INITATED_DISASSOC
@@ -281,12 +275,9 @@ typedef struct sap_StationAssocReassocCompleteEvent_s {
 	uint8_t max_supp_idx;
 	uint8_t max_ext_idx;
 	uint8_t max_mcs_idx;
-	uint8_t max_real_mcs_idx;
 	uint8_t rx_mcs_map;
 	uint8_t tx_mcs_map;
 	uint8_t ecsa_capable;
-	uint32_t ext_cap;
-	uint8_t supported_band;
 	tDot11fIEHTCaps ht_caps;
 	tDot11fIEVHTCaps vht_caps;
 	tSirMacCapabilityInfo capability_info;
@@ -433,24 +424,6 @@ typedef struct sap_SSIDInfo {
 	uint8_t ssidHidden;
 } qdf_packed tSap_SSIDInfo_t;
 
-/**
- * struct master_acs - acs attributes received from userspace
- * @hw_mode: hw mode
- * @ht: ht flag
- * @ht40: ht40 flag
- * @vht: vht flag
- * @eht: eht flag
- * @ch_width: channel bandwidth
- */
-struct master_acs {
-	uint8_t    hw_mode;
-	uint8_t    ht;
-	uint8_t    ht40;
-	uint8_t    vht;
-	uint8_t    eht;
-	uint16_t   ch_width;
-};
-
 struct sap_acs_cfg {
 	/* ACS Algo Input */
 	uint8_t    acs_mode;
@@ -485,9 +458,6 @@ struct sap_acs_cfg {
 	bool       is_eht_enabled;
 	uint16_t   acs_puncture_bitmap;
 #endif
-	bool       skip_acs_scan;
-	uint32_t   last_scan_ageout_time;
-	struct master_acs master_acs_cfg;
 };
 
 /*
@@ -515,7 +485,7 @@ struct sap_config {
 	uint32_t chan_freq;          /* Operation channel frequency */
 	uint32_t sec_ch_freq;
 	struct ch_params ch_params;
-	enum phy_ch_width ch_width_orig;
+	uint32_t ch_width_orig;
 	uint8_t dtim_period;      /* dtim interval */
 	uint16_t num_accept_mac;
 	uint16_t num_deny_mac;
@@ -524,6 +494,7 @@ struct sap_config {
 	eSapAuthType authType;
 	tCsrAuthList akm_list;
 	bool privacy;
+	bool fwdWPSPBCProbeReq;
 	/* 0 - disabled, 1 - not configured , 2 - configured */
 	uint8_t wps_state;
 	uint16_t RSNWPAReqIELength;     /* The byte count in the pWPAReqIE */
@@ -592,6 +563,7 @@ typedef struct sSapDfsInfo {
 	 */
 	uint32_t target_chan_freq;
 	uint8_t ignore_cac;
+	eSapDfsCACState_t cac_state;
 	uint32_t user_provided_target_chan_freq;
 
 	/*
@@ -719,6 +691,7 @@ struct sap_context;
  * wlansap_roam_callback() - API to get the events for SAP persona
  * @ctx: callback context registered with SME (sap context is registered)
  * @csr_roam_info: pointer to SME CSR roam info structure
+ * @roam_id: roam id being used
  * @roam_status: status of the event reported by SME to SAP
  * @roam_result: result of the event reported by SME to SAP
  *
@@ -730,6 +703,7 @@ struct sap_context;
  */
 QDF_STATUS wlansap_roam_callback(void *ctx,
 				 struct csr_roam_info *csr_roam_info,
+				 uint32_t roam_id,
 				 eRoamCmdStatus roam_status,
 				 eCsrRoamResult roam_result);
 
@@ -784,7 +758,7 @@ QDF_STATUS sap_init_ctx(struct sap_context *sap_ctx,
  *
  * When SAP session is about to close, this API needs to be called
  * to de-initialize all the members of sap context structure, so that
- * nobody can accidentally start using the sap context.
+ * nobody can accidently start using the sap context.
  *
  * Return: The result code associated with performing the operation
  *         QDF_STATUS_E_FAULT: BSS could not be stopped
@@ -880,6 +854,68 @@ QDF_STATUS wlan_sap_update_next_channel(struct sap_context *sap_ctx,
 					uint8_t channel,
 					enum phy_ch_width chan_bw);
 
+#ifdef FEATURE_SAP_COND_CHAN_SWITCH
+/**
+ * wlan_sap_set_pre_cac_status() - Set the pre cac status
+ * @sap_ctx: SAP context
+ * @status: Status of pre cac
+ *
+ * Updates the state of pre cac in the SAP context
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS wlan_sap_set_pre_cac_status(struct sap_context *sap_ctx,
+				       bool status);
+
+/**
+ * wlan_sap_set_chan_freq_before_pre_cac() - Save the channel before pre cac
+ * @sap_ctx: SAP context
+ * @freq_before_pre_cac: Channel frequency before pre cac
+ *
+ * Saves the channel frequency that was in use before pre cac operation
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+wlan_sap_set_chan_freq_before_pre_cac(struct sap_context *sap_ctx,
+				      qdf_freq_t freq_before_pre_cac);
+#else
+static inline QDF_STATUS
+wlan_sap_set_pre_cac_status(struct sap_context *sap_ctx, bool status)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline QDF_STATUS
+wlan_sap_set_chan_freq_before_pre_cac(struct sap_context *sap_ctx,
+				      qdf_freq_t freq_before_pre_cac)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
+/**
+ * wlan_sap_set_pre_cac_complete_status() - Sets pre cac complete status
+ * @sap_ctx: SAP context
+ * @status: Status of pre cac complete
+ *
+ * Sets the status of pre cac i.e., whether pre cac is complete or not
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS wlan_sap_set_pre_cac_complete_status(struct sap_context *sap_ctx,
+						bool status);
+
+/**
+ * wlan_sap_is_pre_cac_context() - checks if @context is for a pre-cac adapter
+ * @context: the SAP context to check
+ *
+ * Return: true if @context is for a pre-cac adapter
+ */
+bool wlan_sap_is_pre_cac_context(struct sap_context *context);
+
+bool wlan_sap_is_pre_cac_active(mac_handle_t handle);
+QDF_STATUS wlan_sap_get_pre_cac_vdev_id(mac_handle_t handle, uint8_t *vdev_id);
 #ifdef FEATURE_WLAN_MCC_TO_SCC_SWITCH
 /**
  * wlansap_check_cc_intf() - Get interfering concurrent channel
@@ -937,7 +973,7 @@ QDF_STATUS wlansap_deauth_sta(struct sap_context *sap_ctx,
 /**
  * wlansap_set_channel_change_with_csa() - Set channel change with CSA
  * @sap_ctx: Pointer to SAP context
- * @target_chan_freq: Target channel frequency
+ * @target_chan_freq: Target channel frequncy
  * @target_bw: Target bandwidth
  * @strict: if true switch to the requested channel always, fail
  *        otherwise
@@ -1040,11 +1076,11 @@ QDF_STATUS wlansap_get_acl_mode(struct sap_context *sap_ctx,
  * wlansap_modify_acl() - Update ACL entries
  * @sap_ctx: Pointer to the SAP context
  * @peer_sta_mac: peer sta mac to be updated.
- * @list_type: allow/Deny list type.
+ * @list_type: white/Black list type.
  * @cmd: command to be executed on ACL.
  *
  * This function is called when a peer needs to be added or deleted from the
- * allow/deny ACL
+ * white/black ACL
  *
  * Return: Status
  */
@@ -1144,16 +1180,14 @@ QDF_STATUS wlansap_set_dfs_ignore_cac(mac_handle_t mac_handle,
 /**
  * wlansap_get_dfs_cac_state() - Get cac_state value
  * @mac_handle: Opaque handle to the global MAC context
- * @sap_context: sap adapter context
  * @cac_state: Location to store cac_state value
  *
- * This API is used to Get the value of current cac state
+ * This API is used to Get the value of ignore_cac value
  *
  * Return: The QDF_STATUS code associated with performing the operation
  */
 QDF_STATUS wlansap_get_dfs_cac_state(mac_handle_t mac_handle,
-				     struct sap_context *sap_context,
-				     bool *cac_state);
+				     eSapDfsCACState_t *cac_state);
 
 /**
  * wlansap_get_csa_chanwidth_from_phymode() - function to populate
@@ -1296,24 +1330,6 @@ void wlansap_extend_to_acs_range(mac_handle_t mac_handle,
 				 uint32_t *end_ch_freq,
 				 uint32_t *bandStartChannel,
 				 uint32_t *bandEndChannel);
-
-#ifdef WLAN_FEATURE_SON
-/**
- * wlansap_son_update_sap_config_phymode() - update sap config according to
- *                                           phy_mode. This API is for son,
- *                                           There is no band switching when
- *                                           son phy mode is changed.
- * @sap_ctx:  Pointer to Sap Context
- * @sap_config:  Pointer to sap config
- * @phy_mode: pointer to phy mode
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-wlansap_son_update_sap_config_phymode(struct wlan_objmgr_vdev *vdev,
-				      struct sap_config *config,
-				      enum qca_wlan_vendor_phy_mode phy_mode);
-#endif
 
 /**
  * wlansap_set_dfs_nol() - Set dfs nol
@@ -1510,20 +1526,6 @@ QDF_STATUS wlansap_update_owe_info(struct sap_context *sap_ctx,
 				   uint32_t ie_len, uint16_t owe_status);
 
 /**
- * wlansap_update_ft_info() - Update FT info
- * @sap_ctx: sap context
- * @peer: peer mac
- * @ie: IE from hostapd
- * @ie_len: IE length
- * @ft_status: wlan status codes
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS wlansap_update_ft_info(struct sap_context *sap_ctx,
-				  uint8_t *peer, const uint8_t *ie,
-				  uint32_t ie_len, uint16_t ft_status);
-
-/**
  * wlansap_filter_ch_based_acs() -filter out channel based on acs
  * @sap_ctx: sap context
  * @ch_freq_list: pointer to channel frequency list
@@ -1587,35 +1589,6 @@ uint32_t wlansap_get_safe_channel_from_pcl_for_sap(struct sap_context *sap_ctx);
  */
 qdf_freq_t wlansap_get_chan_band_restrict(struct sap_context *sap_ctx,
 					  enum sap_csa_reason_code *csa_reason);
-
-/**
- * wlansap_override_csa_strict_for_sap() - check user CSA strict or not
- * @mac: mac ctx
- * @sap_ctx: sap context
- * @target_chan_freq: target channel frequency in MHz
- * @strict: CSA strict flag
- *
- * If force SCC enabled, user trigger SAP CSA and target channel
- * doesn't cause MCC with existing STA/CLI, then override strict flag to
- * true, so that driver can skip the overlap interference check and
- * allow the CSA go through. This is to allow SAP/GO force SCC in
- * same band.
- *
- * Return: true if CSA is strict, otherwise false
- */
-bool
-wlansap_override_csa_strict_for_sap(mac_handle_t mac_handle,
-				    struct sap_context *sap_ctx,
-				    uint32_t target_chan_freq,
-				    bool strict);
-
-/**
- * sap_get_csa_reason_str() - Get csa reason in string
- * @reason: sap reason enum value
- *
- * Return: string reason
- */
-const char *sap_get_csa_reason_str(enum sap_csa_reason_code reason);
 
 #ifdef FEATURE_RADAR_HISTORY
 /**
@@ -1804,24 +1777,6 @@ void sap_dump_acs_channel(struct sap_acs_cfg *acs_cfg);
  */
 void sap_release_vdev_ref(struct sap_context *sap_ctx);
 
-#ifdef CONFIG_AFC_SUPPORT
-/**
- * sap_afc_dcs_sel_chan() - API to select best SAP best channel/bandwidth with
- *                          channel ACS weighted algorithm
- * @sap_ctx: SAP context handle
- * @cur_freq: SAP current home channel frequency
- * @cur_bw: SAP current channel bandwidth
- * @pref_bw: pointer to channel bandwidth prefer to set as input, and target
- *           channel bandwidth can set as output
- *
- * Return: target home channel frequency selected
- */
-qdf_freq_t sap_afc_dcs_sel_chan(struct sap_context *sap_ctx,
-				qdf_freq_t cur_freq,
-				enum phy_ch_width cur_bw,
-				enum phy_ch_width *pref_bw);
-#endif
-
 #ifdef WLAN_FEATURE_11BE
 /**
  * sap_phymode_is_eht() - Is sap phymode EHT
@@ -1866,49 +1821,6 @@ static inline void sap_acs_set_puncture_support(struct sap_context *sap_ctx,
 {
 }
 #endif /* WLAN_FEATURE_11BE */
-
-#ifdef PRE_CAC_SUPPORT
-/**
- * sap_cac_end_notify() - Notify CAC end to HDD
- * @mac_handle: Opaque handle to the global MAC context
- *
- * Function will be called to notify eSAP_DFS_CAC_END event to HDD
- *
- * Return: QDF_STATUS_SUCCESS if the notification was sent, otherwise
- *         an appropriate QDF_STATUS error
- */
-QDF_STATUS sap_cac_end_notify(mac_handle_t mac_handle,
-			      struct csr_roam_info *roamInfo);
-#else
-static inline QDF_STATUS
-sap_cac_end_notify(mac_handle_t mac_handle,
-		   struct csr_roam_info *roamInfo)
-{
-	return QDF_STATUS_SUCCESS;
-}
-#endif /* PRE_CAC_SUPPORT */
-
-#ifdef WLAN_FEATURE_SAP_ACS_OPTIMIZE
-static inline bool sap_is_acs_scan_optimize_enable(void)
-{
-	return true;
-}
-
-void wlansap_process_chan_info_event(struct sap_context *sap_ctx,
-				     struct csr_roam_info *roam_info);
-#else
-static inline bool sap_is_acs_scan_optimize_enable(void)
-{
-	return false;
-}
-
-static inline
-void wlansap_process_chan_info_event(struct sap_context *sap_ctx,
-				     struct csr_roam_info *roam_info)
-{
-}
-#endif
-
 #ifdef __cplusplus
 }
 #endif

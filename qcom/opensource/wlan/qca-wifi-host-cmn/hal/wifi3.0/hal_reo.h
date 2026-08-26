@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2017-2019, 2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -174,7 +173,7 @@ struct hal_reo_cmd_params_std {
 /**
  * struct hal_reo_cmd_get_queue_stats_params: Parameters to
  *	CMD_GET_QUEUE_STATScommand
- * @clear: Clear stats after retrieving
+ * @clear: Clear stats after retreiving
  */
 struct hal_reo_cmd_get_queue_stats_params {
 	bool clear;
@@ -321,8 +320,8 @@ struct hal_reo_cmd_update_queue_params {
 		pn_uneven:1,
 		pn_hand_enab:1,
 		ignore_ampdu:1;
-	uint32_t ba_window_size:15,
-		pn_size:2,
+	uint32_t ba_window_size:9,
+		pn_size:8,
 		svld:1,
 		ssn:12,
 		seq_2k_err_detect:1,
@@ -375,7 +374,7 @@ struct hal_reo_status_header {
  * @last_rx_deq_tstamp: Last dequeue timestamp
  * @rx_bitmap_31_0, rx_bitmap_63_32, rx_bitmap_95_64
  * @rx_bitmap_127_96, rx_bitmap_159_128, rx_bitmap_191_160
- * @rx_bitmap_223_192, rx_bitmap_255_224: Each bit corresponds to a frame
+ * @rx_bitmap_223_192, rx_bitmap_255_224: Each bit corresonds to a frame
  *	held in re-order queue
  * @curr_mpdu_cnt, curr_msdu_cnt: Number of MPDUs and MSDUs in the queue
  * @fwd_timeout_cnt: Frames forwarded due to timeout
@@ -441,7 +440,7 @@ struct hal_reo_flush_cache_status {
  * struct hal_reo_unblk_cache_status: UNBLOCK_CACHE status structure
  * @header: Common REO status header
  * @error: error detected
- * unblock_type: resource or cache
+ * unblock_type: resoure or cache
  */
 struct hal_reo_unblk_cache_status {
 	struct hal_reo_status_header header;
@@ -551,7 +550,7 @@ static inline uint8_t hal_find_zero_bit(uint8_t x)
 /* REO command ring routines */
 
 /**
- * hal_uniform_desc_hdr_setup - setup reo_queue_ext descriptor
+ * hal_uniform_desc_hdr_setup - setup reo_queue_ext descritpro
  * @owner - owner info
  * @buffer_type - buffer type
  */
@@ -567,7 +566,7 @@ hal_uniform_desc_hdr_setup(uint32_t *desc, uint32_t owner, uint32_t buffer_type)
 /**
  * hal_reo_send_cmd() - Send reo cmd using the params provided.
  * @hal_soc_hdl: HAL soc handle
- * @hal_ring_hdl: srng handle
+ * @hal_soc_hdl: srng handle
  * @cmd: cmd ID
  * @cmd_params: command params
  *
@@ -593,61 +592,6 @@ hal_reo_send_cmd(hal_soc_handle_t hal_soc_hdl,
 
 	return -EINVAL;
 }
-
-#ifdef DP_UMAC_HW_RESET_SUPPORT
-/**
- * hal_register_reo_send_cmd() - Register Reo send command callback.
- * @hal_soc_hdl: HAL soc handle
- *
- * Return: void
- */
-static inline void hal_register_reo_send_cmd(hal_soc_handle_t hal_soc_hdl)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	if (!hal_soc || !hal_soc->ops) {
-		hal_err("hal handle is NULL");
-		QDF_BUG(0);
-		return;
-	}
-
-	if (hal_soc->ops->hal_register_reo_send_cmd)
-		hal_soc->ops->hal_register_reo_send_cmd(hal_soc);
-}
-
-/**
- * hal_unregister_reo_send_cmd() - Unregister Reo send command callback.
- * @hal_soc_hdl: HAL soc handle
- *
- * Return: void
- */
-static inline void
-hal_unregister_reo_send_cmd(hal_soc_handle_t hal_soc_hdl)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	if (!hal_soc || !hal_soc->ops) {
-		hal_err("hal handle is NULL");
-		QDF_BUG(0);
-		return;
-	}
-
-	if (hal_soc->ops->hal_unregister_reo_send_cmd)
-		return hal_soc->ops->hal_unregister_reo_send_cmd(hal_soc);
-}
-
-static inline void
-hal_reset_rx_reo_tid_queue(hal_soc_handle_t hal_soc_hdl, void *hw_qdesc_vaddr,
-			   uint32_t size)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	if (hal_soc->ops->hal_reset_rx_reo_tid_q)
-		hal_soc->ops->hal_reset_rx_reo_tid_q(hal_soc, hw_qdesc_vaddr,
-						     size);
-}
-
-#endif
 
 static inline QDF_STATUS
 hal_reo_status_update(hal_soc_handle_t hal_soc_hdl,
@@ -772,53 +716,4 @@ hal_get_tlv_hdr_size(hal_soc_handle_t hal_soc_hdl)
  */
 void hal_reo_init_cmd_ring(hal_soc_handle_t hal_soc_hdl,
 			   hal_ring_handle_t hal_ring_hdl);
-
-#ifdef REO_SHARED_QREF_TABLE_EN
-/**
- * hal_reo_shared_qaddr_setup(): Setup reo qref LUT
- * @hal_soc: Hal soc pointer
- *
- * Allocate MLO and Non MLO table for storing REO queue
- * reference pointers
- *
- * Return: QDF_STATUS_SUCCESS on success else a QDF error.
- */
-static inline QDF_STATUS
-hal_reo_shared_qaddr_setup(hal_soc_handle_t hal_soc_hdl)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	if (hal_soc->ops->hal_reo_shared_qaddr_setup)
-		return hal_soc->ops->hal_reo_shared_qaddr_setup(hal_soc_hdl);
-
-	return QDF_STATUS_SUCCESS;
-}
-
-/**
- * hal_reo_shared_qaddr_detach(): Detach reo qref LUT
- * @hal_soc: Hal soc pointer
- *
- * Detach MLO and Non MLO table start addr to HW reg
- *
- * Return: void
- */
-static inline void
-hal_reo_shared_qaddr_detach(hal_soc_handle_t hal_soc_hdl)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	if (hal_soc->ops->hal_reo_shared_qaddr_detach)
-		return hal_soc->ops->hal_reo_shared_qaddr_detach(hal_soc_hdl);
-}
-
-#else
-static inline QDF_STATUS
-hal_reo_shared_qaddr_setup(hal_soc_handle_t hal_soc_hdl)
-{
-	return QDF_STATUS_SUCCESS;
-}
-
-static inline void
-hal_reo_shared_qaddr_detach(hal_soc_handle_t hal_soc_hdl) {}
-#endif /* REO_SHARED_QREF_TABLE_EN */
 #endif /* _HAL_REO_H */

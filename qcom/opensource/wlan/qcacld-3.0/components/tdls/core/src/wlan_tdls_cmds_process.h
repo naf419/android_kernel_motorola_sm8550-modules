@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -128,7 +127,7 @@ void tdls_reset_nss(struct tdls_soc_priv_obj *tdls_soc,
 
 /**
  * tdls_release_serialization_command() - TDLS wrapper to
- * releases serialization command.
+ * relases serialization command.
  * @vdev: Object manager vdev
  * @type: command to release.
  *
@@ -138,14 +137,6 @@ void tdls_reset_nss(struct tdls_soc_priv_obj *tdls_soc,
 void
 tdls_release_serialization_command(struct wlan_objmgr_vdev *vdev,
 				   enum wlan_serialization_cmd_type type);
-
-/**
- * tdls_get_connected_peer_count_from_vdev() -  Get TDLS connected peer count
- * @tdls_vdev: Pointer to vdev obj
- *
- * Return: Connected peer count
- */
-uint16_t tdls_get_connected_peer_count_from_vdev(struct wlan_objmgr_vdev *vdev);
 
 /**
  * tdls_set_cap() - set TDLS capability type
@@ -231,15 +222,13 @@ int tdls_set_responder(struct tdls_set_responder_req *set_req);
 
 /**
  * tdls_decrement_peer_count() - decrement connected TDLS peer counter
- * @vdev: vdev obj mgr
  * @soc_obj: TDLS soc object
  *
  * Used in scheduler thread context, no lock needed.
  *
  * Return: None.
  */
-void tdls_decrement_peer_count(struct wlan_objmgr_vdev *vdev,
-			       struct tdls_soc_priv_obj *soc_obj);
+void tdls_decrement_peer_count(struct tdls_soc_priv_obj *soc_obj);
 
 /**
  * wlan_tdls_offchan_parms_callback() - Callback to release ref count

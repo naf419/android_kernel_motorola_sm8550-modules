@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -154,7 +153,7 @@ void hal_reo_qdesc_setup_be(hal_soc_handle_t hal_soc_hdl, int tid,
 
 	/* TODO: HW queue descriptors are currently allocated for max BA
 	 * window size for all QOS TIDs so that same descriptor can be used
-	 * later when ADDBA request is received. This should be changed to
+	 * later when ADDBA request is recevied. This should be changed to
 	 * allocate HW queue descriptors based on BA window size being
 	 * negotiated (0 for non BA cases), and reallocate when BA window
 	 * size changes and also send WMI message to FW to change the REO
@@ -199,7 +198,92 @@ void hal_reo_qdesc_setup_be(hal_soc_handle_t hal_soc_hdl, int tid,
 
 qdf_export_symbol(hal_reo_qdesc_setup_be);
 
-static void
+/**
+ * hal_get_ba_aging_timeout_be - Get BA Aging timeout
+ *
+ * @hal_soc: Opaque HAL SOC handle
+ * @ac: Access category
+ * @value: window size to get
+ */
+void hal_get_ba_aging_timeout_be(hal_soc_handle_t hal_soc_hdl, uint8_t ac,
+				 uint32_t *value)
+{
+	struct hal_soc *soc = (struct hal_soc *)hal_soc_hdl;
+
+	switch (ac) {
+	case WME_AC_BE:
+		*value = HAL_REG_READ(soc,
+				      HWIO_REO_R0_AGING_THRESHOLD_IX_0_ADDR(
+				      REO_REG_REG_BASE)) / 1000;
+		break;
+	case WME_AC_BK:
+		*value = HAL_REG_READ(soc,
+				      HWIO_REO_R0_AGING_THRESHOLD_IX_1_ADDR(
+				      REO_REG_REG_BASE)) / 1000;
+		break;
+	case WME_AC_VI:
+		*value = HAL_REG_READ(soc,
+				      HWIO_REO_R0_AGING_THRESHOLD_IX_2_ADDR(
+				      REO_REG_REG_BASE)) / 1000;
+		break;
+	case WME_AC_VO:
+		*value = HAL_REG_READ(soc,
+				      HWIO_REO_R0_AGING_THRESHOLD_IX_3_ADDR(
+				      REO_REG_REG_BASE)) / 1000;
+		break;
+	default:
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
+			  "Invalid AC: %d\n", ac);
+	}
+}
+qdf_export_symbol(hal_get_ba_aging_timeout_be);
+
+/**
+ * hal_set_ba_aging_timeout_be - Set BA Aging timeout
+ *
+ * @hal_soc: Opaque HAL SOC handle
+ * @ac: Access category
+ * ac: 0 - Background, 1 - Best Effort, 2 - Video, 3 - Voice
+ * @value: Input value to set
+ */
+void hal_set_ba_aging_timeout_be(hal_soc_handle_t hal_soc_hdl, uint8_t ac,
+				 uint32_t value)
+{
+	struct hal_soc *soc = (struct hal_soc *)hal_soc_hdl;
+
+	switch (ac) {
+	case WME_AC_BE:
+		HAL_REG_WRITE(soc,
+			      HWIO_REO_R0_AGING_THRESHOLD_IX_0_ADDR(
+			      REO_REG_REG_BASE),
+			      value * 1000);
+		break;
+	case WME_AC_BK:
+		HAL_REG_WRITE(soc,
+			      HWIO_REO_R0_AGING_THRESHOLD_IX_1_ADDR(
+			      REO_REG_REG_BASE),
+			      value * 1000);
+		break;
+	case WME_AC_VI:
+		HAL_REG_WRITE(soc,
+			      HWIO_REO_R0_AGING_THRESHOLD_IX_2_ADDR(
+			      REO_REG_REG_BASE),
+			      value * 1000);
+		break;
+	case WME_AC_VO:
+		HAL_REG_WRITE(soc,
+			      HWIO_REO_R0_AGING_THRESHOLD_IX_3_ADDR(
+			      REO_REG_REG_BASE),
+			      value * 1000);
+		break;
+	default:
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_ERROR,
+			  "Invalid AC: %d\n", ac);
+	}
+}
+qdf_export_symbol(hal_set_ba_aging_timeout_be);
+
+static inline void
 hal_reo_cmd_set_descr_addr_be(uint32_t *reo_desc,
 			      enum hal_reo_cmd_type type,
 			      uint32_t paddr_lo,
@@ -237,7 +321,7 @@ hal_reo_cmd_set_descr_addr_be(uint32_t *reo_desc,
 	}
 }
 
-static int
+static inline int
 hal_reo_cmd_queue_stats_be(hal_ring_handle_t  hal_ring_hdl,
 			   hal_soc_handle_t hal_soc_hdl,
 			   struct hal_reo_cmd_params *cmd)
@@ -248,8 +332,9 @@ hal_reo_cmd_queue_stats_be(hal_ring_handle_t  hal_ring_hdl,
 	hal_srng_access_start(hal_soc_hdl, hal_ring_hdl);
 	reo_desc = hal_srng_src_get_next(hal_soc, hal_ring_hdl);
 	if (!reo_desc) {
-		hal_srng_access_end_reap(hal_soc, hal_ring_hdl);
-		hal_warn_rl("Out of cmd ring entries");
+		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_DEBUG,
+			  "%s: Out of cmd ring entries", __func__);
+		hal_srng_access_end(hal_soc, hal_ring_hdl);
 		return -EBUSY;
 	}
 
@@ -275,15 +360,23 @@ hal_reo_cmd_queue_stats_be(hal_ring_handle_t  hal_ring_hdl,
 	HAL_DESC_64_SET_FIELD(reo_desc, REO_GET_QUEUE_STATS, CLEAR_STATS,
 			      cmd->u.stats_params.clear);
 
-	hal_srng_access_end_v1(hal_soc_hdl, hal_ring_hdl,
-			       HIF_RTPM_ID_HAL_REO_CMD);
+	if (hif_pm_runtime_get(hal_soc->hif_handle,
+			       RTPM_ID_HAL_REO_CMD, true) == 0) {
+		hal_srng_access_end(hal_soc_hdl, hal_ring_hdl);
+		hif_pm_runtime_put(hal_soc->hif_handle,
+				   RTPM_ID_HAL_REO_CMD);
+	} else {
+		hal_srng_access_end_reap(hal_soc_hdl, hal_ring_hdl);
+		hal_srng_set_event(hal_ring_hdl, HAL_SRNG_FLUSH_EVENT);
+		hal_srng_inc_flush_cnt(hal_ring_hdl);
+	}
 
 	val = reo_desc[CMD_HEADER_DW_OFFSET];
 	return HAL_GET_FIELD(UNIFORM_REO_CMD_HEADER, REO_CMD_NUMBER,
 				     val);
 }
 
-static int
+static inline int
 hal_reo_cmd_flush_queue_be(hal_ring_handle_t hal_ring_hdl,
 			   hal_soc_handle_t hal_soc_hdl,
 			   struct hal_reo_cmd_params *cmd)
@@ -294,8 +387,9 @@ hal_reo_cmd_flush_queue_be(hal_ring_handle_t hal_ring_hdl,
 	hal_srng_access_start(hal_soc_hdl, hal_ring_hdl);
 	reo_desc = hal_srng_src_get_next(hal_soc, hal_ring_hdl);
 	if (!reo_desc) {
-		hal_srng_access_end_reap(hal_soc, hal_ring_hdl);
-		hal_warn_rl("Out of cmd ring entries");
+		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_DEBUG,
+			  "%s: Out of cmd ring entries", __func__);
+		hal_srng_access_end(hal_soc, hal_ring_hdl);
 		return -EBUSY;
 	}
 
@@ -327,15 +421,13 @@ hal_reo_cmd_flush_queue_be(hal_ring_handle_t hal_ring_hdl,
 				      cmd->u.fl_queue_params.index);
 	}
 
-	hal_srng_access_end_v1(hal_soc_hdl, hal_ring_hdl,
-			       HIF_RTPM_ID_HAL_REO_CMD);
-
+	hal_srng_access_end(hal_soc, hal_ring_hdl);
 	val = reo_desc[CMD_HEADER_DW_OFFSET];
 	return HAL_GET_FIELD(UNIFORM_REO_CMD_HEADER, REO_CMD_NUMBER,
 				     val);
 }
 
-static int
+static inline int
 hal_reo_cmd_flush_cache_be(hal_ring_handle_t hal_ring_hdl,
 			   hal_soc_handle_t hal_soc_hdl,
 			   struct hal_reo_cmd_params *cmd)
@@ -356,8 +448,8 @@ hal_reo_cmd_flush_cache_be(hal_ring_handle_t hal_ring_hdl,
 	if (cp->block_use_after_flush) {
 		index = hal_find_zero_bit(hal_soc->reo_res_bitmap);
 		if (index > 3) {
-			hal_srng_access_end_reap(hal_soc, hal_ring_hdl);
-			hal_warn_rl("No blocking resource available!");
+			qdf_print("No blocking resource available!");
+			hal_srng_access_end(hal_soc, hal_ring_hdl);
 			return -EBUSY;
 		}
 		hal_soc->index = index;
@@ -365,7 +457,7 @@ hal_reo_cmd_flush_cache_be(hal_ring_handle_t hal_ring_hdl,
 
 	reo_desc = hal_srng_src_get_next(hal_soc, hal_ring_hdl);
 	if (!reo_desc) {
-		hal_srng_access_end_reap(hal_soc, hal_ring_hdl);
+		hal_srng_access_end(hal_soc, hal_ring_hdl);
 		hal_srng_dump(hal_ring_handle_to_hal_srng(hal_ring_hdl));
 		return -EBUSY;
 	}
@@ -412,15 +504,23 @@ hal_reo_cmd_flush_cache_be(hal_ring_handle_t hal_ring_hdl,
 	HAL_DESC_64_SET_FIELD(reo_desc, REO_FLUSH_CACHE, FLUSH_ENTIRE_CACHE,
 			      cp->flush_entire_cache);
 
-	hal_srng_access_end_v1(hal_soc_hdl, hal_ring_hdl,
-			       HIF_RTPM_ID_HAL_REO_CMD);
+	if (hif_pm_runtime_get(hal_soc->hif_handle,
+			       RTPM_ID_HAL_REO_CMD, true) == 0) {
+		hal_srng_access_end(hal_soc_hdl, hal_ring_hdl);
+		hif_pm_runtime_put(hal_soc->hif_handle,
+				   RTPM_ID_HAL_REO_CMD);
+	} else {
+		hal_srng_access_end_reap(hal_soc_hdl, hal_ring_hdl);
+		hal_srng_set_event(hal_ring_hdl, HAL_SRNG_FLUSH_EVENT);
+		hal_srng_inc_flush_cnt(hal_ring_hdl);
+	}
 
 	val = reo_desc[CMD_HEADER_DW_OFFSET];
 	return HAL_GET_FIELD(UNIFORM_REO_CMD_HEADER, REO_CMD_NUMBER,
 				     val);
 }
 
-static int
+static inline int
 hal_reo_cmd_unblock_cache_be(hal_ring_handle_t hal_ring_hdl,
 			     hal_soc_handle_t hal_soc_hdl,
 			     struct hal_reo_cmd_params *cmd)
@@ -443,8 +543,9 @@ hal_reo_cmd_unblock_cache_be(hal_ring_handle_t hal_ring_hdl,
 
 	reo_desc = hal_srng_src_get_next(hal_soc, hal_ring_hdl);
 	if (!reo_desc) {
-		hal_srng_access_end_reap(hal_soc, hal_ring_hdl);
-		hal_warn_rl("Out of cmd ring entries");
+		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_DEBUG,
+			  "%s: Out of cmd ring entries", __func__);
+		hal_srng_access_end(hal_soc, hal_ring_hdl);
 		return -EBUSY;
 	}
 
@@ -478,7 +579,7 @@ hal_reo_cmd_unblock_cache_be(hal_ring_handle_t hal_ring_hdl,
 				     val);
 }
 
-static int
+static inline int
 hal_reo_cmd_flush_timeout_list_be(hal_ring_handle_t hal_ring_hdl,
 				  hal_soc_handle_t hal_soc_hdl,
 				  struct hal_reo_cmd_params *cmd)
@@ -489,8 +590,9 @@ hal_reo_cmd_flush_timeout_list_be(hal_ring_handle_t hal_ring_hdl,
 	hal_srng_access_start(hal_soc_hdl, hal_ring_hdl);
 	reo_desc = hal_srng_src_get_next(hal_soc, hal_ring_hdl);
 	if (!reo_desc) {
-		hal_srng_access_end_reap(hal_soc, hal_ring_hdl);
-		hal_warn_rl("Out of cmd ring entries");
+		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_DEBUG,
+			  "%s: Out of cmd ring entries", __func__);
+		hal_srng_access_end(hal_soc, hal_ring_hdl);
 		return -EBUSY;
 	}
 
@@ -526,7 +628,7 @@ hal_reo_cmd_flush_timeout_list_be(hal_ring_handle_t hal_ring_hdl,
 				     val);
 }
 
-static int
+static inline int
 hal_reo_cmd_update_rx_queue_be(hal_ring_handle_t hal_ring_hdl,
 			       hal_soc_handle_t hal_soc_hdl,
 			       struct hal_reo_cmd_params *cmd)
@@ -540,8 +642,9 @@ hal_reo_cmd_update_rx_queue_be(hal_ring_handle_t hal_ring_hdl,
 	hal_srng_access_start(hal_soc_hdl, hal_ring_hdl);
 	reo_desc = hal_srng_src_get_next(hal_soc, hal_ring_hdl);
 	if (!reo_desc) {
-		hal_srng_access_end_reap(hal_soc, hal_ring_hdl);
-		hal_warn_rl("Out of cmd ring entries");
+		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_DEBUG,
+			  "%s: Out of cmd ring entries", __func__);
+		hal_srng_access_end(hal_soc, hal_ring_hdl);
 		return -EBUSY;
 	}
 
@@ -701,6 +804,13 @@ hal_reo_cmd_update_rx_queue_be(hal_ring_handle_t hal_ring_hdl,
 	HAL_DESC_64_SET_FIELD(reo_desc, REO_UPDATE_RX_REO_QUEUE,
 			      BA_WINDOW_SIZE, p->ba_window_size - 1);
 
+	if (p->pn_size == 24)
+		p->pn_size = PN_SIZE_24;
+	else if (p->pn_size == 48)
+		p->pn_size = PN_SIZE_48;
+	else if (p->pn_size == 128)
+		p->pn_size = PN_SIZE_128;
+
 	HAL_DESC_64_SET_FIELD(reo_desc, REO_UPDATE_RX_REO_QUEUE,
 			      PN_SIZE, p->pn_size);
 
@@ -728,8 +838,16 @@ hal_reo_cmd_update_rx_queue_be(hal_ring_handle_t hal_ring_hdl,
 	HAL_DESC_64_SET_FIELD(reo_desc, REO_UPDATE_RX_REO_QUEUE,
 			      PN_127_96, p->pn_127_96);
 
-	hal_srng_access_end_v1(hal_soc_hdl, hal_ring_hdl,
-			       HIF_RTPM_ID_HAL_REO_CMD);
+	if (hif_pm_runtime_get(hal_soc->hif_handle,
+			       RTPM_ID_HAL_REO_CMD, false) == 0) {
+		hal_srng_access_end(hal_soc_hdl, hal_ring_hdl);
+		hif_pm_runtime_put(hal_soc->hif_handle,
+				   RTPM_ID_HAL_REO_CMD);
+	} else {
+		hal_srng_access_end_reap(hal_soc_hdl, hal_ring_hdl);
+		hal_srng_set_event(hal_ring_hdl, HAL_SRNG_FLUSH_EVENT);
+		hal_srng_inc_flush_cnt(hal_ring_hdl);
+	}
 
 	val = reo_desc[CMD_HEADER_DW_OFFSET];
 	return HAL_GET_FIELD(UNIFORM_REO_CMD_HEADER, REO_CMD_NUMBER,

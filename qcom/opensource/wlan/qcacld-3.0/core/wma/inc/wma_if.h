@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -59,9 +58,6 @@
 #define STA_ENTRY_PEER              STA_ENTRY_OTHER
 #ifdef FEATURE_WLAN_TDLS
 #define STA_ENTRY_TDLS_PEER         4
-#define IS_TDLS_PEER(type) ((type) == STA_ENTRY_TDLS_PEER)
-#else /* !FEATURE_WLAN_TDLS */
-#define IS_TDLS_PEER(type) false
 #endif /* FEATURE_WLAN_TDLS */
 #define STA_ENTRY_NDI_PEER          5
 
@@ -124,18 +120,6 @@ struct sAniProbeRspStruct {
 } qdf_packed;
 
 /**
- * med_sync_delay - medium sync delay info
- * @med_sync_duration: medium sync duration
- * @med_sync_ofdm_ed_thresh: medium sync OFDM ED threshold
- * @med_sync_max_txop_num: medium sync max txop num
- */
-struct med_sync_delay {
-	uint16_t med_sync_duration:8;
-	uint16_t med_sync_ofdm_ed_thresh:4;
-	uint16_t med_sync_max_txop_num:4;
-};
-
-/**
  * struct tAddStaParams - add sta related parameters
  * @bssId: bssid of sta
  * @assocId: associd
@@ -188,10 +172,6 @@ struct med_sync_delay {
  * @eht_op: EHT operation
  * @mld_mac_addr: mld mac address
  * @is_assoc_peer: is assoc peer or not
- * @emlsr_support: is EMLSR mode supported or not
- * @msd_caps_present: is MSD capability present in MLO IE or not
- * @link_id: per link id
- * @emlsr_trans_timeout: EMLSR transition timeout value
  *
  * This structure contains parameter required for
  * add sta request of upper layer.
@@ -278,14 +258,9 @@ typedef struct {
 	tDot11fIEeht_cap eht_config;
 	tDot11fIEeht_op eht_op;
 #endif
-	struct med_sync_delay msd_caps;
 #ifdef WLAN_FEATURE_11BE_MLO
 	uint8_t mld_mac_addr[QDF_MAC_ADDR_SIZE];
 	bool is_assoc_peer;
-	bool emlsr_support;
-	bool msd_caps_present;
-	uint8_t link_id;
-	uint16_t emlsr_trans_timeout;
 #endif
 } tAddStaParams, *tpAddStaParams;
 
@@ -324,7 +299,7 @@ typedef struct {
  *
  * This is used by PE to configure the key information on a given station.
  * When the secType is WEP40 or WEP104, the defWEPIdx is used to locate
- * a preconfigured key from a BSS the station associated with; otherwise
+ * a preconfigured key from a BSS the station assoicated with; otherwise
  * a new key descriptor is created based on the key field.
  */
 typedef struct {
@@ -373,7 +348,7 @@ typedef struct sLimMlmSetKeysReq {
  * @updateBss: update the existing BSS entry, if this flag is set
  * @maxTxPower: max power to be used after applying the power constraint
  * @bSpectrumMgtEnabled: Spectrum Management Capability, 1:Enabled, 0:Disabled.
- * @vhtCapable: VHT capability
+ * @vhtCapable: VHT capablity
  * @ch_width: VHT tx channel width
  * @he_capable: HE Capability
  * @no_ptk_4_way: Do not need 4-way handshake
@@ -390,7 +365,7 @@ struct bss_params {
 	uint8_t rmfEnabled;
 	tAddStaParams staContext;
 	/* HAL should update the existing BSS entry, if this flag is set.
-	 * PE will set this flag in case of reassoc, where we want to reuse the
+	 * PE will set this flag in case of reassoc, where we want to resue the
 	 * the old bssID and still return success.
 	 */
 	uint8_t updateBss;
@@ -608,7 +583,7 @@ typedef struct {
 } tUpdateRxNss, *tpUpdateRxNss;
 
 /**
- * struct tUpdateMembership - update membership parameters
+ * struct tUpdateMembership - update membership parmaters
  * @membership: membership value
  * @staId: station id
  * @smesessionId: SME session id
@@ -621,7 +596,7 @@ typedef struct {
 } tUpdateMembership, *tpUpdateMembership;
 
 /**
- * struct tUpdateUserPos - update user position parameters
+ * struct tUpdateUserPos - update user position parmeters
  * @userPos: user position
  * @staId: station id
  * @smesessionId: sme session id

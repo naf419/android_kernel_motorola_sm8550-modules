@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -115,7 +115,7 @@
 #define WLAN_VDEV_FEXT_WAPI                 0x00000010
 		/* 802.11h enabled */
 #define WLAN_VDEV_FEXT_DOTH                 0x00000020
-	/* if the vap has wds independence set */
+	/* if the vap has wds independance set */
 #define WLAN_VDEV_FEXT_VAPIND               0x00000040
 	/* QBSS load IE enabled */
 #define WLAN_VDEV_FEXT_BSSLOAD              0x00000080
@@ -166,8 +166,6 @@
 #define WLAN_VDEV_FEXT2_MLO_STA_LINK        0x00000002
 	/* VDEV is MLO mcast primary*/
 #define WLAN_VDEV_FEXT2_MLO_MCAST           0x00000004
-	/* 20TU BCAST PROBE RESP on 6G SAP*/
-#define WLAN_VDEV_FEXT2_20TU_PRB_RESP       0x00000008
 
 /* VDEV OP flags  */
   /* if the vap destroyed by user */
@@ -199,7 +197,7 @@
 /*For wakeup AP VAP when wds-sta connect to the AP only use when
 	export (UMAC_REPEATER_DELAYED_BRINGUP || DBDC_REPEATER_SUPPORT)=1*/
 #define WLAN_VDEV_OP_KEYFLAG                0x00002000
-  /* if performed the iwlist scanning */
+  /* if performe the iwlist scanning */
 #define WLAN_VDEV_OP_LIST_SCANNING          0x00004000
    /*Set when VAP down*/
 #define WLAN_VDEV_OP_IS_DOWN                0x00008000
@@ -209,33 +207,6 @@
 #define WLAN_VDEV_OP_BLOCK_TX_TRAFFIC       0x00020000
   /* for mbo functionality */
 #define WLAN_VDEV_OP_MBO                    0x00040000
-/* VDEV Critical update category-1
- * Inclusion of Critical Update IES flag
- * This includes: CSA, ECSA, Quiet
- * Quiet channel, Max Ch Switch Time IEs.
- */
-#define WLAN_VDEV_OP_CU_CAT1                0x00080000
-/* VDEV Critical update category-2
- * Modification of Critical Update IES flag
- * This includes: DSSS Param, HT Operation element
- * VHT Operation element, HE Operation element
- * EHT Operation element, MU EDCA Param, EDCA param
- * UORA Param, BSS Color Change Announcement element
- * Spatial Reuse Param Set element
- * Operating Mode Notification element
- * Wide Bandwidth Channel Switch element
- * Broadcast TWT element
- */
-#define WLAN_VDEV_OP_CU_CAT2                0x00100000
-  /* for mlo reconfig link removal functionality */
-#define WLAN_VDEV_OP_MLO_STOP_LINK_DEL      0x00200000
-  /* for mlo reconfig link add functionality */
-#define WLAN_VDEV_OP_MLO_LINK_ADD           0x00400000
-  /* for mlo reconfig link removal TBTT complete */
-#define WLAN_VDEV_OP_MLO_LINK_TBTT_COMPLETE 0x00800000
-
-/* MLO link removal is in progress on this VDEV */
-#define WLAN_VDEV_OP_MLO_LINK_REMOVAL_IN_PROGRESS 0x01000000
 
  /* CAPABILITY: IBSS available */
 #define WLAN_VDEV_C_IBSS                    0x00000001
@@ -257,10 +228,6 @@
 #define WLAN_VDEV_C_BGSCAN               0x00000100
   /* CAPABILITY: Restrict offchannel */
 #define WLAN_VDEV_C_RESTRICT_OFFCHAN     0x00000200
-  /* CAPABILITY: eMLSR capability */
-#define WLAN_VDEV_C_EMLSR_CAP            0x00000400
-  /* CAPABILITY: Exclude per sta profile in unicast Probe req */
-#define WLAN_VDEV_C_EXCL_STA_PROF_PRB_REQ   0x00000800
 
 /* Invalid VDEV identifier */
 #define WLAN_INVALID_VDEV_ID 255
@@ -293,7 +260,7 @@ struct wlan_vdev_create_params {
  * struct wlan_channel - channel structure
  * @ch_freq:      Channel in Mhz.
  * @ch_ieee:      IEEE channel number.
- * @ch_freq_seg1: Channel Center frequency for VHT80/160 and HE80/160.
+ * @ch_freq_seg1: Channel Center frequeny for VHT80/160 and HE80/160.
  * @ch_freq_seg2: Second channel Center frequency applicable for 80+80MHz mode.
  * @ch_maxpower:  Maximum tx power in dBm.
  * @ch_flagext:   Channel extension flags.
@@ -338,10 +305,7 @@ struct wlan_channel {
  *                      net dev address for non-ML connection
  * @mldaddr[]:          MLD address
  * @linkaddr[]:         Link MAC address
- * @mlo_link_id: link id for mlo connection
- * @mlo_external_sae_auth: MLO external SAE auth
- * @wlan_vdev_mlo_lock: lock to protect the set/clear of
- * WLAN_VDEV_FEXT2_MLO feature flag in vdev MLME
+ * @link_id:            link id for mlo connection
  */
 struct wlan_objmgr_vdev_mlme {
 	enum QDF_OPMODE vdev_opmode;
@@ -360,12 +324,6 @@ struct wlan_objmgr_vdev_mlme {
 	uint8_t  linkaddr[QDF_MAC_ADDR_SIZE];
 #ifdef WLAN_FEATURE_11BE_MLO
 	uint8_t  mlo_link_id;
-	bool mlo_external_sae_auth;
-#ifdef WLAN_MLO_USE_SPINLOCK
-	qdf_spinlock_t wlan_vdev_mlo_lock;
-#else
-	qdf_mutex_t wlan_vdev_mlo_lock;
-#endif
 #endif
 };
 
@@ -447,7 +405,7 @@ struct wlan_objmgr_vdev {
  * @pdev: PDEV object on which this vdev gets created
  * @params: VDEV create params from HDD
  *
- * Creates vdev object, initializes with default values
+ * Creates vdev object, intializes with default values
  * Attaches to psoc and pdev objects
  * Invokes the registered notifiers to create component object
  *
@@ -521,7 +479,7 @@ typedef void (*wlan_objmgr_vdev_op_handler)(struct wlan_objmgr_vdev *vdev,
  * @vdev: vdev object
  * @handler: the handler will be called for each object of requested type
  *            the handler should be implemented to perform required operation
- * @arg:     arguments passed by caller
+ * @arg:     agruments passed by caller
  * @dbg_id: id of the caller
  *
  * API to be used for performing the operations on all PEER objects
@@ -939,130 +897,10 @@ static inline void wlan_vdev_set_link_id(struct wlan_objmgr_vdev *vdev,
 {
 	vdev->vdev_mlme.mlo_link_id = link_id;
 }
-
-#ifdef WLAN_MLO_USE_SPINLOCK
-/**
- * wlan_create_vdev_mlo_lock() - API to create spin lock
- * which protects the set/clear of WLAN_VDEV_FEXT2_MLO flag in
- * vdev MLME ext2 feature caps
- * @vdev: VDEV object
- *
- * Return: void
- */
-static inline
-void wlan_create_vdev_mlo_lock(struct wlan_objmgr_vdev *vdev)
-{
-	qdf_spinlock_create(&vdev->vdev_mlme.wlan_vdev_mlo_lock);
-}
-
-/**
- * wlan_destroy_vdev_mlo_lock() - API to destroy spin lock
- * which protects the set/clear of WLAN_VDEV_FEXT2_MLO flag in
- * vdev MLME ext2 feature caps
- * @vdev: VDEV object
- *
- * Return: void
- */
-static inline
-void wlan_destroy_vdev_mlo_lock(struct wlan_objmgr_vdev *vdev)
-{
-	qdf_spinlock_destroy(&vdev->vdev_mlme.wlan_vdev_mlo_lock);
-}
-
-/**
- * wlan_acquire_vdev_mlo_lock() - API to acquire spin lock
- * which protects the set/clear of WLAN_VDEV_FEXT2_MLO flag in
- * vdev MLME ext2 feature caps
- * @vdev: VDEV object
- *
- * Return: void
- */
-static inline
-void wlan_acquire_vdev_mlo_lock(struct wlan_objmgr_vdev *vdev)
-{
-	qdf_spin_lock_bh(&vdev->vdev_mlme.wlan_vdev_mlo_lock);
-}
-
-/**
- * wlan_release_vdev_mlo_lock() - API to release spin lock
- * which protects the set/clear of WLAN_VDEV_FEXT2_MLO flag in
- * vdev MLME ext2 feature caps
- * @vdev: VDEV object
- *
- * Return: void
- */
-static inline
-void wlan_release_vdev_mlo_lock(struct wlan_objmgr_vdev *vdev)
-{
-	qdf_spin_unlock_bh(&vdev->vdev_mlme.wlan_vdev_mlo_lock);
-}
-#else
-/**
- * wlan_create_vdev_mlo_lock() - API to create mutex which protects the
- * set/clear of WLAN_VDEV_FEXT2_MLO flag in vdev MLME ext2 feature caps
- * @vdev: VDEV object
- *
- * Return: void
- */
-static inline
-void wlan_create_vdev_mlo_lock(struct wlan_objmgr_vdev *vdev)
-{
-	qdf_mutex_create(&vdev->vdev_mlme.wlan_vdev_mlo_lock);
-}
-
-/**
- * wlan_destroy_vdev_mlo_lock() - API to destroy mutex which protects the
- * set/clear of WLAN_VDEV_FEXT2_MLO flag in vdev MLME ext2 feature caps
- * @vdev: VDEV object
- *
- * Return: void
- */
-static inline
-void wlan_destroy_vdev_mlo_lock(struct wlan_objmgr_vdev *vdev)
-{
-	qdf_mutex_destroy(&vdev->vdev_mlme.wlan_vdev_mlo_lock);
-}
-
-/**
- * wlan_acquire_vdev_mlo_lock() - API to acquire mutex which protects the
- * set/clear of WLAN_VDEV_FEXT2_MLO flag in vdev MLME ext2 feature caps
- * @vdev: VDEV object
- *
- * Return: void
- */
-static inline
-void wlan_acquire_vdev_mlo_lock(struct wlan_objmgr_vdev *vdev)
-{
-	qdf_mutex_acquire(&vdev->vdev_mlme.wlan_vdev_mlo_lock);
-}
-
-/**
- * wlan_release_vdev_mlo_lock() - API to release mutex which protects the
- * set/clear of WLAN_VDEV_FEXT2_MLO flag in vdev MLME ext2 feature caps
- * @vdev: VDEV object
- *
- * Return: void
- */
-static inline
-void wlan_release_vdev_mlo_lock(struct wlan_objmgr_vdev *vdev)
-{
-	qdf_mutex_release(&vdev->vdev_mlme.wlan_vdev_mlo_lock);
-}
-#endif /* WLAN_MLO_USE_SPINLOCK */
 #else
 static inline uint8_t wlan_vdev_get_link_id(struct wlan_objmgr_vdev *vdev)
 {
 	return WLAN_INVALID_LINK_ID;
-}
-
-static inline
-void wlan_create_vdev_mlo_lock(struct wlan_objmgr_vdev *vdev)
-{
-}
-
-static inline
-void wlan_destroy_vdev_mlo_lock(struct wlan_objmgr_vdev *vdev)
-{
 }
 #endif
 
@@ -1324,55 +1162,6 @@ static inline uint8_t wlan_vdev_mlme_feat_ext2_cap_get(
 }
 
 /**
- * wlan_vdev_mlme_op_flags_set() - set vdev op flag
- * @vdev: VDEV object
- * @flag: vdev op flag to be set
- *
- * API to set the MLME VDEV OP flag
- *
- * Return: void
- */
-static inline void wlan_vdev_mlme_op_flags_set(
-				struct wlan_objmgr_vdev *vdev,
-				uint32_t flag)
-{
-	vdev->vdev_mlme.vdev_op_flags |= flag;
-}
-
-/**
- * wlan_vdev_mlme_op_flags_clear() - clear vdev op flag
- * @vdev: VDEV object
- * @flag: vdev op flag to be cleared
- *
- * API to clear the MLME VDEV OP flag
- *
- * Return: void
- */
-static inline void wlan_vdev_mlme_op_flags_clear(
-				struct wlan_objmgr_vdev *vdev,
-				uint32_t flag)
-{
-	vdev->vdev_mlme.vdev_op_flags &= ~flag;
-}
-
-/**
- * wlan_vdev_mlme_op_flags_get() - get vdev op flag
- * @vdev: VDEV object
- * @flag: vdev op flags to be checked
- *
- * API to know MLME VDEV OP flag is set or not
- *
- * Return: 1 -- if flag is set
- *         0 -- if flag is clear
- */
-static inline uint8_t wlan_vdev_mlme_op_flags_get(
-				struct wlan_objmgr_vdev *vdev,
-				uint32_t flag)
-{
-	return (vdev->vdev_mlme.vdev_op_flags & flag) ? 1 : 0;
-}
-
-/**
  * wlan_vdev_mlme_cap_set() - mlme caps set
  * @vdev: VDEV object
  * @cap: capabilities to be set
@@ -1578,27 +1367,7 @@ static inline uint16_t wlan_vdev_get_peer_count(struct wlan_objmgr_vdev *vdev)
 	return vdev->vdev_objmgr.wlan_peer_count;
 }
 
-/**
- * wlan_vdev_mlme_is_ap() - Check whether @vdev is an AP or not
- * @vdev: VDEV object
- *
- * Return: True if @vdev is ap, otherwise false.
- */
-static inline bool wlan_vdev_mlme_is_ap(struct wlan_objmgr_vdev *vdev)
-{
-	return (wlan_vdev_mlme_get_opmode(vdev) == QDF_SAP_MODE);
-}
-
 #ifdef WLAN_FEATURE_11BE_MLO
-/**
- * wlan_vdev_mlme_is_mlo_vdev() - Determine whether the given vdev is an MLO
- * vdev or not
- * @vdev: VDEV object
- *
- * Return: True if it is MLO, otherwise false.
- */
-bool wlan_vdev_mlme_is_mlo_vdev(struct wlan_objmgr_vdev *vdev);
-
 /**
  * wlan_vdev_mlme_is_mlo_ap() - whether it is mlo ap or not
  * @vdev: VDEV object
@@ -1608,41 +1377,28 @@ bool wlan_vdev_mlme_is_mlo_vdev(struct wlan_objmgr_vdev *vdev);
 static inline bool wlan_vdev_mlme_is_mlo_ap(struct wlan_objmgr_vdev *vdev)
 {
 	return (wlan_vdev_mlme_get_opmode(vdev) == QDF_SAP_MODE) &&
-		wlan_vdev_mlme_is_mlo_vdev(vdev);
+	       wlan_vdev_mlme_feat_ext2_cap_get(vdev, WLAN_VDEV_FEXT2_MLO);
+}
+#else
+static inline bool wlan_vdev_mlme_is_mlo_ap(struct wlan_objmgr_vdev *vdev)
+{
+	return false;
+}
+#endif
+
+#ifdef WLAN_FEATURE_11BE_MLO
+/**
+ * wlan_vdev_mlme_is_mlo_vdev() - whether it is mlo vdev or not
+ * @vdev: VDEV object
+ *
+ * Return: True if it is mlo, otherwise false.
+ */
+static inline
+bool wlan_vdev_mlme_is_mlo_vdev(struct wlan_objmgr_vdev *vdev)
+{
+	return wlan_vdev_mlme_feat_ext2_cap_get(vdev, WLAN_VDEV_FEXT2_MLO);
 }
 
-/**
- * wlan_vdev_mlme_set_mlo_vdev() - Set vdev as an MLO vdev
- * @vdev: VDEV object
- *
- * Return: void
- */
-void wlan_vdev_mlme_set_mlo_vdev(struct wlan_objmgr_vdev *vdev);
-
-/**
- * wlan_vdev_mlme_clear_mlo_vdev() - Mark that the vdev is no longer an MLO vdev
- * @vdev: VDEV object
- *
- * Return: void
- */
-void wlan_vdev_mlme_clear_mlo_vdev(struct wlan_objmgr_vdev *vdev);
-
-/**
- * wlan_vdev_mlme_set_mlo_link_vdev() - Set vdev as an MLO link vdev
- * @vdev: VDEV object
- *
- * Return: void
- */
-void wlan_vdev_mlme_set_mlo_link_vdev(struct wlan_objmgr_vdev *vdev);
-
-/**
- * wlan_vdev_mlme_clear_mlo_link_vdev() - Mark that the vdev is no longer an
- * MLO link vdev
- * @vdev: VDEV object
- *
- * Return: void
- */
-void wlan_vdev_mlme_clear_mlo_link_vdev(struct wlan_objmgr_vdev *vdev);
 #ifdef WLAN_MCAST_MLO
 /**
  * wlan_vdev_mlme_is_mlo_mcast_vdev() - whether it is mlo mcast vdev or not
@@ -1665,7 +1421,7 @@ bool wlan_vdev_mlme_is_mlo_mcast_vdev(struct wlan_objmgr_vdev *vdev)
 #endif
 
 /**
- * wlan_vdev_mlme_is_mlo_link_vdev() - whether it is mlo sta link vdev or not
+ * wlan_vdev_mlme_is_mlo_vdev() - whether it is mlo sta link vdev or not
  * @vdev: VDEV object
  *
  * Return: True if it is mlo sta link, otherwise false.
@@ -1715,35 +1471,11 @@ bool wlan_vdev_mlme_is_link_sta_vdev(struct wlan_objmgr_vdev *vdev)
 	return false;
 }
 #else
+
 static inline
 bool wlan_vdev_mlme_is_mlo_vdev(struct wlan_objmgr_vdev *vdev)
 {
 	return false;
-}
-
-static inline bool wlan_vdev_mlme_is_mlo_ap(struct wlan_objmgr_vdev *vdev)
-{
-	return false;
-}
-
-static inline
-void wlan_vdev_mlme_set_mlo_vdev(struct wlan_objmgr_vdev *vdev)
-{
-}
-
-static inline
-void wlan_vdev_mlme_clear_mlo_vdev(struct wlan_objmgr_vdev *vdev)
-{
-}
-
-static inline
-void wlan_vdev_mlme_set_mlo_link_vdev(struct wlan_objmgr_vdev *vdev)
-{
-}
-
-static inline
-void wlan_vdev_mlme_clear_mlo_link_vdev(struct wlan_objmgr_vdev *vdev)
-{
 }
 
 static inline
@@ -1984,36 +1716,6 @@ static inline uint16_t wlan_vdev_get_max_peer_count(
 	return vdev->vdev_objmgr.max_peer_count;
 }
 
-#ifdef WLAN_FEATURE_11BE_MLO
-/**wlan_vdev_set_mlo_external_sae_auth_conversion() - set MLO external sae auth
- * @vdev: VDEV object
- * @val: true or false
- *
- * API to set mlo external sae auth of VDEV
- *
- * Return: void
- */
-static inline void
-wlan_vdev_set_mlo_external_sae_auth_conversion(struct wlan_objmgr_vdev *vdev,
-					       bool val)
-{
-	vdev->vdev_mlme.mlo_external_sae_auth = val;
-}
-
-/**wlan_vdev_get_mlo_external_sae_auth_conversion() - get MLO external sae auth
- * @vdev: VDEV object
- *
- * API to get mlo external sae auth of VDEV
- *
- * Return: mlo external sae auth of VDEV
- */
-static inline bool
-wlan_vdev_get_mlo_external_sae_auth_conversion(struct wlan_objmgr_vdev *vdev)
-{
-	return vdev->vdev_mlme.mlo_external_sae_auth;
-}
-#endif
-
 /**
  * wlan_print_vdev_info() - print vdev members
  * @vdev: vdev object pointer
@@ -2084,24 +1786,6 @@ wlan_objmgr_vdev_trace_del_ref_list(struct wlan_objmgr_vdev *vdev)
 #endif
 
 /**
- * wlan_vdev_get_bss_peer_mac_for_pmksa() - To get bss peer mac/mld
- * address based on association to cache/retrieve PMK.
- * @vdev: Pointer to vdev
- * @bss_peer_mac: Pointer to BSS peer MAC address.
- *
- * The PMKSA entry for an ML candaidate will be present with MLD
- * address, whereas for non-ML candidate legacy MAC address is used
- * to save the PMKSA. To get the right entry during lookup, this API
- * will return MLD address if the VDEV is MLO VDEV else return
- * MAC address of BSS peer.
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-wlan_vdev_get_bss_peer_mac_for_pmksa(struct wlan_objmgr_vdev *vdev,
-				     struct qdf_mac_addr *bss_peer_mac);
-
-/**
  * wlan_vdev_get_bss_peer_mac() - to get bss peer mac address
  * @vdev: pointer to vdev
  * @bss_peer_mac: pointer to bss_peer_mac_address
@@ -2129,13 +1813,6 @@ QDF_STATUS wlan_vdev_get_bss_peer_mac(struct wlan_objmgr_vdev *vdev,
  */
 QDF_STATUS wlan_vdev_get_bss_peer_mld_mac(struct wlan_objmgr_vdev *vdev,
 					  struct qdf_mac_addr *mld_mac);
-#else
-static inline
-QDF_STATUS wlan_vdev_get_bss_peer_mld_mac(struct wlan_objmgr_vdev *vdev,
-					  struct qdf_mac_addr *mld_mac)
-{
-	return QDF_STATUS_E_INVAL;
-}
 #endif
 
 #endif /* _WLAN_OBJMGR_VDEV_OBJ_H_*/

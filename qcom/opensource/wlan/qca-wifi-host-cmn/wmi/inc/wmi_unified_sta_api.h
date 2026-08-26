@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2013-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -73,10 +72,10 @@ QDF_STATUS
 wmi_unified_vdev_set_gtx_cfg_cmd(wmi_unified_t wmi_handle, uint32_t if_id,
 				 struct wmi_gtx_config *gtx_info);
 
-#if defined(WLAN_FEATURE_ROAM_OFFLOAD) && defined(FEATURE_DENYLIST_MGR)
+#if defined(WLAN_FEATURE_ROAM_OFFLOAD) && defined(FEATURE_BLACKLIST_MGR)
 /**
  * wmi_unified_send_reject_ap_list() - send the reject ap list maintained by
- * DLM to FW for roaming cases.
+ * BLM to FW for roaming cases.
  * @wmi_handle: wmi handle
  * @reject_params: This contains the reject ap list, and the num of BSSIDs.
  *
@@ -287,7 +286,7 @@ QDF_STATUS wmi_unified_del_ts_cmd(wmi_unified_t wmi_handle, uint8_t vdev_id,
  * @aggr_qos_rsp_msg: combined struct for all ADD_TS requests.
  *
  * A function to handle WMI_AGGR_QOS_REQ. This will send out
- * ADD_TS requests to firmware in loop for all the ACs with
+ * ADD_TS requestes to firmware in loop for all the ACs with
  * active flow.
  *
  * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure

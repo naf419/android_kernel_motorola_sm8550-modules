@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -28,8 +27,6 @@
 #include <target_if.h>
 #include "wmi.h"
 #include <osdep.h>
-
-#define MGMT_RX_REO_INVALID_SNAPSHOT_VERSION      (-1)
 
 /**
  * wlan_host_mlo_glb_h_shmem_params - MLO global shared memory parameters
@@ -62,43 +59,11 @@ struct wlan_host_mlo_glb_rx_reo_per_link_info {
  * @num_links: Number of valid links
  * @valid_link_bmap: Valid link bitmap
  * @link_info: pointer to an array of Rx REO per-link information
- * @hw_forwarded_snapshot_ver: HW forwarded snapshot version
- * @fw_forwarded_snapshot_ver: FW forwarded snapshot version
- * @fw_consumed_snapshot_ver: FW consumed snapshot version
  */
 struct wlan_host_mlo_glb_rx_reo_snapshot_info {
 	uint8_t num_links;
 	uint16_t valid_link_bmap;
 	struct wlan_host_mlo_glb_rx_reo_per_link_info *link_info;
-	uint8_t hw_forwarded_snapshot_ver;
-	uint8_t fw_forwarded_snapshot_ver;
-	uint8_t fw_consumed_snapshot_ver;
-};
-
-/**
- * wlan_host_mlo_glb_per_chip_crash_info - per chip crash information in MLO
- * global shared memory
- * @chip_id: MLO Chip ID
- * @crash_reason: Address of the crash_reason corresponding to chip_id
- */
-struct wlan_host_mlo_glb_per_chip_crash_info {
-	uint8_t chip_id;
-	void *crash_reason;
-};
-
-/**
- * wlan_host_mlo_glb_chip_crash_info - chip crash information in MLO
- * global shared memory
- * @no_of_chips: No of partner chip to which crash information is shared
- * @valid_chip_bmap: Bitmap to indicate the chip to which the crash information
- * is shared
- * @per_chip_crash_info: pointer to an array of crash information associated
- * with each chip
- */
-struct wlan_host_mlo_glb_chip_crash_info {
-	uint8_t no_of_chips;
-	qdf_bitmap(valid_chip_bmap, QDF_CHAR_BIT);
-	struct wlan_host_mlo_glb_per_chip_crash_info *per_chip_crash_info;
 };
 
 /**
@@ -110,11 +75,9 @@ struct wlan_host_mlo_glb_chip_crash_info {
 struct wlan_host_mlo_glb_h_shmem_arena_ctx {
 	struct wlan_host_mlo_glb_h_shmem_params shmem_params;
 	struct wlan_host_mlo_glb_rx_reo_snapshot_info rx_reo_snapshot_info;
-	struct wlan_host_mlo_glb_chip_crash_info chip_crash_info;
 	qdf_atomic_t init_count;
 };
 
-#ifdef WLAN_MLO_GLOBAL_SHMEM_SUPPORT
 /**
  * mlo_glb_h_shmem_arena_ctx_init() - Initialize MLO Global shared memory arena
  * context on Host
@@ -133,35 +96,6 @@ QDF_STATUS mlo_glb_h_shmem_arena_ctx_init(void *arena_vaddr,
  * Return: QDF_STATUS of operation
  */
 QDF_STATUS mlo_glb_h_shmem_arena_ctx_deinit(void);
-#endif
-
-#ifdef WLAN_MLO_GLOBAL_SHMEM_SUPPORT
-/**
- * mlo_glb_h_shmem_arena_get_crash_reason_address(): get the address of crash
- * reason associated with chip_id
- *
- * Return: Address of crash_reason field from global shmem arena in case of
- * success, else returns NULL
- */
-void *mlo_glb_h_shmem_arena_get_crash_reason_address(uint8_t chip_id);
-
-/**
- * mlo_glb_h_shmem_arena_get_no_of_chips_from_crash_info() - Get number of chips
- * from crash info
- *
- * Return: number of chips participating in MLO from crash info shared by target
- * in case of sccess, else returns 0
- */
-uint8_t mlo_glb_h_shmem_arena_get_no_of_chips_from_crash_info(void);
-#endif
-
-#ifdef WLAN_MGMT_RX_REO_SUPPORT
-/**
- * mgmt_rx_reo_get_valid_link_bitmap() - Get valid link bitmap
- *
- * Return: valid link bitmap
- */
-uint16_t mgmt_rx_reo_get_valid_link_bitmap(void);
 
 /**
  * mgmt_rx_reo_get_num_links() - Get number of links to be used by MGMT Rx REO
@@ -179,14 +113,4 @@ int mgmt_rx_reo_get_num_links(void);
  */
 void *mgmt_rx_reo_get_snapshot_address(
 	uint8_t link_id, enum mgmt_rx_reo_shared_snapshot_id snapshot_id);
-
-/**
- * mgmt_rx_reo_get_snapshot_version() - Get the version of MGMT Rx REO snapshot
- * @snapshot_id: ID of the snapshot
- *
- * Return: Snapshot version
- */
-int8_t mgmt_rx_reo_get_snapshot_version
-			(enum mgmt_rx_reo_shared_snapshot_id snapshot_id);
-#endif /* WLAN_MGMT_RX_REO_SUPPORT */
 #endif

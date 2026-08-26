@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -41,8 +41,6 @@
 #include "wlan_hdd_oemdata.h"
 #include "wlan_osif_request_manager.h"
 #include "wlan_hdd_main.h"
-#include "wlan_hdd_sysfs.h"
-
 #ifdef FEATURE_OEM_DATA_SUPPORT
 #ifdef CNSS_GENL
 #include <net/cnss_nl.h>
@@ -104,11 +102,11 @@ static int populate_oem_data_cap(struct hdd_adapter *adapter,
 	data_cap->allowed_dwell_time_min = neighbor_scan_min_chan_time;
 	data_cap->allowed_dwell_time_max = neighbor_scan_max_chan_time;
 	data_cap->curr_dwell_time_min =
-		ucfg_cm_get_neighbor_scan_min_chan_time(hdd_ctx->psoc,
-							adapter->vdev_id);
+		sme_get_neighbor_scan_min_chan_time(hdd_ctx->mac_handle,
+						    adapter->vdev_id);
 	data_cap->curr_dwell_time_max =
-		ucfg_cm_get_neighbor_scan_max_chan_time(hdd_ctx->psoc,
-							adapter->vdev_id);
+		sme_get_neighbor_scan_max_chan_time(hdd_ctx->mac_handle,
+						    adapter->vdev_id);
 	data_cap->supported_bands = band_capability;
 
 	/* request for max num of channels */
@@ -403,8 +401,8 @@ void hdd_update_channel_bw_info(struct hdd_context *hdd_ctx,
 	/* Passing CH_WIDTH_MAX will give the max bandwidth supported */
 	ch_params.ch_width = CH_WIDTH_MAX;
 
-	wlan_reg_set_channel_params_for_pwrmode(
-		hdd_ctx->pdev, chan_freq, 0, &ch_params, REG_CURRENT_PWR_MODE);
+	wlan_reg_set_channel_params_for_freq(
+		hdd_ctx->pdev, chan_freq, 0, &ch_params);
 	if (ch_params.center_freq_seg0)
 		hdd_chan_info->band_center_freq1 =
 			cds_chan_to_freq(ch_params.center_freq_seg0);
@@ -504,9 +502,8 @@ static int oem_process_channel_info_req_msg(int numOfChannels, char *chanList)
 
 			hddChanInfo.info = 0;
 			if (CHANNEL_STATE_DFS ==
-			    wlan_reg_get_channel_state_for_pwrmode(
-						p_hdd_ctx->pdev, chan_freq,
-						REG_CURRENT_PWR_MODE))
+			    wlan_reg_get_channel_state_for_freq(
+				p_hdd_ctx->pdev, chan_freq))
 				WMI_SET_CHANNEL_FLAG(&hddChanInfo,
 						     WMI_CHAN_FLAG_DFS);
 
@@ -1136,85 +1133,6 @@ oem_data_attr_policy[QCA_WLAN_VENDOR_ATTR_OEM_DATA_PARAMS_MAX + 1] = {
 	[QCA_WLAN_VENDOR_ATTR_OEM_DATA_RESPONSE_EXPECTED] = {.type = NLA_FLAG},
 };
 
-/**
- * hdd_copy_file_name_and_oem_data() - Copy file name and oem data
- * @hdd_ctx: pointer to hdd context
- * @oem_event_data: oem event data param buffe
- *
- * Return: none
- */
-static void hdd_copy_file_name_and_oem_data(
-				struct hdd_context *hdd_ctx,
-				const struct oem_data *oem_event_data)
-{
-	if (!oem_event_data->data_len || !oem_event_data->file_name_len) {
-		hdd_err("Invalid file name or data length");
-		return;
-	}
-
-	if (oem_event_data->data_len > HDD_MAX_OEM_DATA_LEN ||
-	    oem_event_data->file_name_len > HDD_MAX_FILE_NAME_LEN) {
-		hdd_err("Invalid oem data len %zu or file name len %d",
-			oem_event_data->data_len,
-			oem_event_data->file_name_len);
-		return;
-	}
-	qdf_mem_zero(hdd_ctx->oem_data, HDD_MAX_OEM_DATA_LEN);
-	qdf_mem_zero(hdd_ctx->file_name, HDD_MAX_FILE_NAME_LEN);
-
-	qdf_mem_copy(hdd_ctx->oem_data, oem_event_data->data,
-		     oem_event_data->data_len);
-	hdd_ctx->oem_data_len = oem_event_data->data_len;
-
-	qdf_mem_copy(hdd_ctx->file_name, oem_event_data->file_name,
-		     oem_event_data->file_name_len);
-}
-
-void hdd_oem_event_async_cb(const struct oem_data *oem_event_data)
-{
-	struct sk_buff *vendor_event;
-	uint32_t len;
-	int ret;
-	struct hdd_context *hdd_ctx = cds_get_context(QDF_MODULE_ID_HDD);
-	struct hdd_adapter *adapter;
-	struct wireless_dev *wdev = NULL;
-
-	hdd_enter();
-
-	if (!hdd_ctx)
-		return;
-
-	if (oem_event_data->file_name) {
-		hdd_copy_file_name_and_oem_data(hdd_ctx, oem_event_data);
-		return;
-	}
-
-	adapter = hdd_get_adapter_by_vdev(hdd_ctx, oem_event_data->vdev_id);
-	if (adapter)
-		wdev = &(adapter->wdev);
-
-	len = nla_total_size(oem_event_data->data_len) + NLMSG_HDRLEN;
-	vendor_event = cfg80211_vendor_event_alloc(
-				hdd_ctx->wiphy, wdev, len,
-				QCA_NL80211_VENDOR_SUBCMD_OEM_DATA_INDEX,
-				GFP_KERNEL);
-
-	if (!vendor_event) {
-		hdd_err("cfg80211_vendor_event_alloc failed");
-		return;
-	}
-
-	ret = nla_put(vendor_event, QCA_WLAN_VENDOR_ATTR_OEM_DATA_CMD_DATA,
-		      oem_event_data->data_len, oem_event_data->data);
-	if (ret) {
-		hdd_err("OEM event put fails status %d", ret);
-		kfree_skb(vendor_event);
-		return;
-	}
-	cfg80211_vendor_event(vendor_event, GFP_KERNEL);
-	hdd_exit();
-}
-
 void hdd_oem_event_handler_cb(const struct oem_data *oem_event_data,
 			      uint8_t vdev_id)
 {
@@ -1287,7 +1205,6 @@ void hdd_oem_event_handler_cb(const struct oem_data *oem_event_data,
 		}
 		cfg80211_vendor_event(vendor_event, GFP_KERNEL);
 	}
-	sme_oem_event_deinit(hdd_ctx->mac_handle);
 
 	hdd_exit();
 }
@@ -1448,7 +1365,7 @@ __wlan_hdd_cfg80211_oem_data_handler(struct wiphy *wiphy,
 		if (nla_put(skb, QCA_WLAN_VENDOR_ATTR_OEM_DATA_CMD_DATA,
 			    get_oem_data->data_len, get_oem_data->data)) {
 			hdd_err("nla put failure");
-			wlan_cfg80211_vendor_free_skb(skb);
+			kfree_skb(skb);
 			ret =  -EINVAL;
 			goto err;
 		}

@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -43,8 +42,8 @@
 #include <linux/stacktrace.h>
 #include <qdf_defer.h>
 #include <qdf_module.h>
-#include <linux/cpumask.h>
-/* Function declarations and documentation */
+
+/* Function declarations and documenation */
 
 typedef int (*qdf_thread_os_func)(void *data);
 
@@ -305,20 +304,3 @@ void qdf_cpumask_copy(qdf_cpu_mask *dstp,
 }
 
 qdf_export_symbol(qdf_cpumask_copy);
-
-void qdf_cpumask_or(qdf_cpu_mask *dstp, qdf_cpu_mask *src1p,
-		    qdf_cpu_mask *src2p)
-{
-	cpumask_or(dstp, src1p, src2p);
-}
-
-qdf_export_symbol(qdf_cpumask_or);
-
-void
-qdf_thread_cpumap_print_to_pagebuf(bool list, char *new_mask_str,
-				   qdf_cpu_mask *new_mask)
-{
-	cpumap_print_to_pagebuf(list, new_mask_str, new_mask);
-}
-
-qdf_export_symbol(qdf_thread_cpumap_print_to_pagebuf);

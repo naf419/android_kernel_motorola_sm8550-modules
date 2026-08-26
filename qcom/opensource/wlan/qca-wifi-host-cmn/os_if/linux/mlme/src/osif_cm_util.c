@@ -315,121 +315,9 @@ osif_pmksa_candidate_notify_cb(struct wlan_objmgr_vdev *vdev,
 {
 	return osif_pmksa_candidate_notify(vdev, bssid, index, preauth);
 }
-
-/**
- * osif_cm_send_keys_cb() - Send keys callback
- * @vdev: vdev pointer
- *
- * This callback indicates os_if that
- * so that os_if can stop all the activity on this connection
- *
- * Return: QDF_STATUS
- */
-static QDF_STATUS
-osif_cm_send_keys_cb(struct wlan_objmgr_vdev *vdev, uint8_t key_index,
-		     bool pairwise, enum wlan_crypto_cipher_type cipher_type)
-{
-	return osif_cm_send_vdev_keys(vdev,
-				       key_index,
-				       pairwise,
-				       cipher_type);
-}
 #else
 static inline QDF_STATUS
 osif_cm_disable_netif_queue(struct wlan_objmgr_vdev *vdev)
-{
-	return QDF_STATUS_SUCCESS;
-}
-#endif
-
-#if defined(CONN_MGR_ADV_FEATURE) && defined(WLAN_FEATURE_11BE_MLO)
-/**
- * osif_link_reconfig_notify_cb() - Link reconfig notify callback
- * @vdev: vdev pointer
- *
- * Return: QDF_STATUS
- */
-static QDF_STATUS
-osif_link_reconfig_notify_cb(struct wlan_objmgr_vdev *vdev)
-{
-	struct vdev_osif_priv *osif_priv = wlan_vdev_get_ospriv(vdev);
-	struct wireless_dev *wdev;
-	uint8_t link_id;
-	uint16_t link_mask;
-	struct pdev_osif_priv *pdev_osif_priv;
-	struct wlan_objmgr_pdev *pdev;
-	uint32_t data_len;
-	struct sk_buff *vendor_event;
-	struct qdf_mac_addr ap_mld_mac;
-	QDF_STATUS status;
-
-	if (!osif_priv) {
-		osif_err("Invalid vdev osif priv");
-		return QDF_STATUS_E_INVAL;
-	}
-
-	wdev = osif_priv->wdev;
-	if (!wdev) {
-		osif_err("wdev is null");
-		return QDF_STATUS_E_INVAL;
-	}
-	pdev = wlan_vdev_get_pdev(vdev);
-	if (!pdev) {
-		osif_debug("null pdev");
-		return QDF_STATUS_E_INVAL;
-	}
-	pdev_osif_priv = wlan_pdev_get_ospriv(pdev);
-	if (!pdev_osif_priv || !pdev_osif_priv->wiphy) {
-		osif_debug("null wiphy");
-		return QDF_STATUS_E_INVAL;
-	}
-
-	link_id = wlan_vdev_get_link_id(vdev);
-	link_mask = 1 << link_id;
-	osif_debug("link reconfig on vdev %d with link id %d mask 0x%x",
-		   wlan_vdev_get_id(vdev), link_id, link_mask);
-
-	status = wlan_vdev_get_bss_peer_mld_mac(vdev, &ap_mld_mac);
-	if (QDF_IS_STATUS_ERROR(status)) {
-		osif_debug("get peer mld failed, vdev %d",
-			   wlan_vdev_get_id(vdev));
-		return status;
-	}
-	osif_debug("ap mld addr: "QDF_MAC_ADDR_FMT,
-		   QDF_MAC_ADDR_REF(ap_mld_mac.bytes));
-
-	data_len = nla_total_size(QDF_MAC_ADDR_SIZE) +
-		   nla_total_size(sizeof(uint16_t)) +
-		   NLMSG_HDRLEN;
-
-	vendor_event =
-	wlan_cfg80211_vendor_event_alloc(pdev_osif_priv->wiphy,
-					 wdev, data_len,
-					 QCA_NL80211_VENDOR_SUBCMD_LINK_RECONFIG_INDEX,
-					 GFP_KERNEL);
-	if (!vendor_event) {
-		osif_debug("wlan_cfg80211_vendor_event_alloc failed");
-		return QDF_STATUS_E_NOMEM;
-	}
-
-	if (nla_put(vendor_event,
-		    QCA_WLAN_VENDOR_ATTR_LINK_RECONFIG_AP_MLD_ADDR,
-		    QDF_MAC_ADDR_SIZE, &ap_mld_mac.bytes[0]) ||
-	    nla_put_u16(vendor_event,
-			QCA_WLAN_VENDOR_ATTR_LINK_RECONFIG_REMOVED_LINKS,
-			link_mask)) {
-		osif_debug("QCA_WLAN_VENDOR_ATTR put fail");
-		wlan_cfg80211_vendor_free_skb(vendor_event);
-		return QDF_STATUS_E_INVAL;
-	}
-
-	wlan_cfg80211_vendor_event(vendor_event, GFP_KERNEL);
-
-	return QDF_STATUS_SUCCESS;
-}
-#else
-static inline QDF_STATUS
-osif_link_reconfig_notify_cb(struct wlan_objmgr_vdev *vdev)
 {
 	return QDF_STATUS_SUCCESS;
 }
@@ -464,6 +352,7 @@ osif_cm_disconnect_start_cb(struct wlan_objmgr_vdev *vdev)
 static QDF_STATUS
 osif_cm_roam_start_cb(struct wlan_objmgr_vdev *vdev)
 {
+	osif_cm_perfd_set_cpufreq(true);
 	return osif_cm_netif_queue_ind(vdev,
 				       WLAN_STOP_ALL_NETIF_QUEUE,
 				       WLAN_CONTROL_PATH);
@@ -481,6 +370,7 @@ osif_cm_roam_start_cb(struct wlan_objmgr_vdev *vdev)
 static QDF_STATUS
 osif_cm_roam_abort_cb(struct wlan_objmgr_vdev *vdev)
 {
+	osif_cm_perfd_set_cpufreq(false);
 	osif_cm_napi_serialize(false);
 	return osif_cm_netif_queue_ind(vdev,
 				       WLAN_WAKE_ALL_NETIF_QUEUE,
@@ -501,51 +391,28 @@ osif_cm_roam_abort_cb(struct wlan_objmgr_vdev *vdev)
 static QDF_STATUS
 osif_cm_roam_cmpl_cb(struct wlan_objmgr_vdev *vdev)
 {
+	osif_cm_perfd_set_cpufreq(false);
 	return osif_cm_napi_serialize(false);
 }
 
 /**
- * osif_cm_get_scan_ie_params() - Function to get scan ie params
- * @vdev: vdev pointer
- * @scan_ie: Pointer to scan_ie
- * @dot11mode_filter: Pointer to dot11mode_filter
+ * osif_cm_roam_rt_stats_evt_cb() - Roam stats callback
+ * @roam_stats: roam_stats_event pointer
+ * @idx: TLV idx for roam_stats_event
  *
- * Get scan IE params from adapter corresponds to given vdev
+ * This callback indicates os_if that roam stats event is received
+ * so that os_if can send the event
  *
- * Return: QDF_STATUS
- */
-static QDF_STATUS
-osif_cm_get_scan_ie_params(struct wlan_objmgr_vdev *vdev,
-			   struct element_info *scan_ie,
-			   enum dot11_mode_filter *dot11mode_filter)
-{
-	osif_cm_get_scan_ie_params_cb cb = NULL;
-
-	if (osif_cm_legacy_ops)
-		cb = osif_cm_legacy_ops->get_scan_ie_params_cb;
-	if (cb)
-		return cb(vdev, scan_ie, dot11mode_filter);
-
-	return QDF_STATUS_E_FAILURE;
-}
-
-/**
- * osif_cm_get_scan_ie_info_cb() - Roam get scan ie params callback
- * @vdev: vdev pointer
- * @scan_ie: pointer to scan ie
- * @dot11mode_filter: pointer to dot11 mode filter
- *
- * This callback gets scan ie params from os_if
- *
- * Return: QDF_STATUS
+ * Return: void
  */
 
-static QDF_STATUS
-osif_cm_get_scan_ie_info_cb(struct wlan_objmgr_vdev *vdev,
-			    struct element_info *scan_ie,
-			    enum dot11_mode_filter *dot11mode_filter)
+static void
+osif_cm_roam_rt_stats_evt_cb(struct roam_stats_event *roam_stats,
+			     uint8_t idx)
 {
-	return osif_cm_get_scan_ie_params(vdev, scan_ie, dot11mode_filter);
+	if (osif_cm_legacy_ops &&
+	    osif_cm_legacy_ops->roam_rt_stats_event_cb)
+		osif_cm_legacy_ops->roam_rt_stats_event_cb(roam_stats, idx);
 }
 #endif
 
@@ -606,6 +473,20 @@ osif_cm_cckm_preauth_cmpl_cb(struct wlan_objmgr_vdev *vdev,
 #endif
 #endif
 
+#ifdef WLAN_BOOST_CPU_FREQ_IN_ROAM
+/**
+ * osif_cm_perfd_reset_cpufreq_ctrl_cb() - Callback to reset CPU freq
+ *
+ * This callback indicates os_if to reset the request to boost CPU freq
+ *
+ * Return: None
+ */
+static void osif_cm_perfd_reset_cpufreq_ctrl_cb(void)
+{
+	osif_cm_perfd_set_cpufreq(false);
+}
+#endif
+
 static struct mlme_cm_ops cm_ops = {
 	.mlme_cm_connect_complete_cb = osif_cm_connect_complete_cb,
 	.mlme_cm_failed_candidate_cb = osif_cm_failed_candidate_cb,
@@ -615,14 +496,12 @@ static struct mlme_cm_ops cm_ops = {
 #ifdef CONN_MGR_ADV_FEATURE
 	.mlme_cm_roam_sync_cb = osif_cm_roam_sync_cb,
 	.mlme_cm_pmksa_candidate_notify_cb = osif_pmksa_candidate_notify_cb,
-	.mlme_cm_send_keys_cb = osif_cm_send_keys_cb,
-	.mlme_cm_link_reconfig_notify_cb = osif_link_reconfig_notify_cb,
 #endif
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 	.mlme_cm_roam_start_cb = osif_cm_roam_start_cb,
 	.mlme_cm_roam_abort_cb = osif_cm_roam_abort_cb,
 	.mlme_cm_roam_cmpl_cb = osif_cm_roam_cmpl_cb,
-	.mlme_cm_roam_get_scan_ie_cb = osif_cm_get_scan_ie_info_cb,
+	.mlme_cm_roam_rt_stats_cb = osif_cm_roam_rt_stats_evt_cb,
 #endif
 #ifdef WLAN_FEATURE_PREAUTH_ENABLE
 	.mlme_cm_ft_preauth_cmpl_cb = osif_cm_ft_preauth_cmpl_cb,
@@ -630,9 +509,9 @@ static struct mlme_cm_ops cm_ops = {
 	.mlme_cm_cckm_preauth_cmpl_cb = osif_cm_cckm_preauth_cmpl_cb,
 #endif
 #endif
-#ifdef WLAN_VENDOR_HANDOFF_CONTROL
-	.mlme_cm_get_vendor_handoff_params_cb =
-					osif_cm_vendor_handoff_params_cb,
+#ifdef WLAN_BOOST_CPU_FREQ_IN_ROAM
+	.mlme_cm_perfd_reset_cpufreq_ctrl_cb =
+				osif_cm_perfd_reset_cpufreq_ctrl_cb,
 #endif
 };
 
@@ -703,21 +582,6 @@ QDF_STATUS osif_cm_connect_comp_ind(struct wlan_objmgr_vdev *vdev,
 	return ret;
 }
 
-#ifdef WLAN_VENDOR_HANDOFF_CONTROL
-QDF_STATUS osif_cm_vendor_handoff_params_cb(struct wlan_objmgr_psoc *psoc,
-					    void *vendor_handoff_context)
-{
-	osif_cm_get_vendor_handoff_params_cb cb = NULL;
-
-	if (osif_cm_legacy_ops)
-		cb = osif_cm_legacy_ops->vendor_handoff_params_cb;
-	if (cb)
-		return cb(psoc, vendor_handoff_context);
-
-	return QDF_STATUS_E_FAILURE;
-}
-#endif
-
 QDF_STATUS osif_cm_disconnect_comp_ind(struct wlan_objmgr_vdev *vdev,
 				       struct wlan_cm_discon_rsp *rsp,
 				       enum osif_cb_type type)
@@ -775,22 +639,6 @@ QDF_STATUS osif_cm_save_gtk(struct wlan_objmgr_vdev *vdev,
 
 	return ret;
 }
-
-QDF_STATUS
-osif_cm_send_vdev_keys(struct wlan_objmgr_vdev *vdev,
-		       uint8_t key_index,
-		       bool pairwise,
-		       enum wlan_crypto_cipher_type cipher_type)
-{
-	osif_cm_send_vdev_keys_cb cb = NULL;
-
-	if (osif_cm_legacy_ops)
-		cb = osif_cm_legacy_ops->send_vdev_keys_cb;
-	if (cb)
-		return cb(vdev, key_index, pairwise, cipher_type);
-
-	return QDF_STATUS_E_FAILURE;
-}
 #endif
 
 #ifdef WLAN_FEATURE_FILS_SK
@@ -819,3 +667,18 @@ void osif_cm_reset_legacy_cb(void)
 {
 	osif_cm_legacy_ops = NULL;
 }
+
+#ifdef WLAN_BOOST_CPU_FREQ_IN_ROAM
+QDF_STATUS osif_cm_perfd_set_cpufreq(bool action)
+{
+	os_if_cm_perfd_set_cpufreq_ctrl_cb cb = NULL;
+	QDF_STATUS ret = QDF_STATUS_SUCCESS;
+
+	if (osif_cm_legacy_ops)
+		cb = osif_cm_legacy_ops->perfd_set_cpufreq_cb;
+	if (cb)
+		ret = cb(action);
+
+	return ret;
+}
+#endif

@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -119,7 +118,6 @@ struct hif_pci_softc {
 	struct HIF_CE_state ce_sc;
 	void __iomem *mem;      /* PCI address. */
 	void __iomem *mem_ce;   /* PCI address for CE. */
-	void __iomem *mem_cmem;   /* PCI address for CMEM. */
 	size_t mem_len;
 
 	struct device *dev;	/* For efficiency, should be first in struct */
@@ -128,7 +126,7 @@ struct hif_pci_softc {
 	/* 0 --> using legacy PCI line interrupts */
 	struct tasklet_struct intr_tq;  /* tasklet */
 	struct hif_msi_info msi_info;
-	int ce_irq_num[CE_COUNT_MAX];
+	int ce_msi_irq_num[CE_COUNT_MAX];
 	int irq;
 	int irq_event;
 	int cacheline_sz;
@@ -141,6 +139,9 @@ struct hif_pci_softc {
 	qdf_spinlock_t irq_lock;
 	qdf_work_t reschedule_tasklet_work;
 	uint32_t lcr_val;
+#ifdef FEATURE_RUNTIME_PM
+	struct hif_runtime_pm_ctx rpm_ctx;
+#endif
 	int (*hif_enable_pci)(struct hif_pci_softc *sc, struct pci_dev *pdev,
 			      const struct pci_device_id *id);
 	void (*hif_pci_deinit)(struct hif_pci_softc *sc);

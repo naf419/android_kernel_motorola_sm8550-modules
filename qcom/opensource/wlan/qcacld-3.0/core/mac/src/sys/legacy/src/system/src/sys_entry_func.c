@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -100,7 +99,7 @@ QDF_STATUS sys_bbt_process_message_core(struct mac_context *mac_ctx,
 		 */
 		if ((subtype == SIR_MAC_MGMT_BEACON) &&
 		     !GET_LIM_PROCESS_DEFD_MESGS(mac_ctx)) {
-			pe_debug("dropping received beacon in deferred state");
+			pe_debug("dropping received beacon in deffered state");
 			goto fail;
 		}
 

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ *
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -79,7 +79,7 @@ register_dfs_precac_auto_chan_callbacks_freq(struct dfs_to_mlme *mlme_callback)
  * @mlme_callback: Pointer to dfs_to_mlme.
  */
 #ifndef MOBILE_DFS_SUPPORT
-#if defined(QCA_SUPPORT_DFS_CHAN_POSTNOL) || defined(QCA_DFS_BW_EXPAND)
+#ifdef QCA_SUPPORT_DFS_CHAN_POSTNOL
 static inline void
 register_dfs_postnol_csa_callback(struct dfs_to_mlme *mlme_callback)
 {
@@ -120,22 +120,6 @@ register_dfs_callbacks_for_freq(struct dfs_to_mlme *mlme_callback)
 #endif
 #endif
 
-#if defined(WLAN_DFS_PARTIAL_OFFLOAD) && defined(HOST_DFS_SPOOF_TEST)
-static void register_dfs_callbacks_spoof_success_failure(
-		struct dfs_to_mlme *tmp_dfs_to_mlme)
-{
-	tmp_dfs_to_mlme->mlme_rebuild_chan_list_with_non_dfs_channels =
-		mlme_dfs_rebuild_chan_list_with_non_dfs_channels;
-	tmp_dfs_to_mlme->mlme_proc_spoof_success =
-		mlme_dfs_proc_spoof_success;
-}
-#else
-static inline void register_dfs_callbacks_spoof_success_failure(
-		struct dfs_to_mlme *tmp_dfs_to_mlme)
-{
-}
-#endif
-
 #ifndef MOBILE_DFS_SUPPORT
 void register_dfs_callbacks(void)
 {
@@ -159,9 +143,8 @@ void register_dfs_callbacks(void)
 	tmp_dfs_to_mlme->mlme_nol_timeout_notification =
 		mlme_dfs_nol_timeout_notification;
 	tmp_dfs_to_mlme->mlme_clist_update = mlme_dfs_clist_update;
-
-	register_dfs_callbacks_spoof_success_failure(tmp_dfs_to_mlme);
-
+	tmp_dfs_to_mlme->mlme_rebuild_chan_list_with_non_dfs_channels =
+		mlme_dfs_rebuild_chan_list_with_non_dfs_channels;
 	tmp_dfs_to_mlme->mlme_restart_vaps_with_non_dfs_chan =
 		mlme_dfs_restart_vaps_with_non_dfs_chan;
 	tmp_dfs_to_mlme->mlme_is_opmode_sta =
@@ -183,6 +166,8 @@ void register_dfs_callbacks(void)
 		mlme_release_radar_mode_switch_lock;
 	tmp_dfs_to_mlme->mlme_mark_dfs =
 		mlme_dfs_mark_dfs;
+	tmp_dfs_to_mlme->mlme_proc_spoof_success =
+		mlme_dfs_proc_spoof_success;
 	/*
 	 * Register precac auto channel switch feature related callbacks
 	 */
@@ -486,18 +471,6 @@ QDF_STATUS wlan_dfs_pdev_obj_create_notification(struct wlan_objmgr_pdev *pdev,
 	dfs->dfs_is_offload_enabled = dfs_tx_ops->dfs_is_tgt_offload(psoc);
 	dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS, "dfs_offload %d",
 		 dfs->dfs_is_offload_enabled);
-
-	if (!dfs_tx_ops->dfs_is_tgt_bangradar_320_supp) {
-		dfs_err(dfs, WLAN_DEBUG_DFS_ALWAYS,
-			"dfs_is_tgt_bangradar_320_supp is null");
-		dfs_destroy_object(dfs);
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	dfs->dfs_is_bangradar_320_supported =
-				dfs_tx_ops->dfs_is_tgt_bangradar_320_supp(psoc);
-	dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS, "dfs_bangradar_320_support %d",
-		 dfs->dfs_is_bangradar_320_supported);
 
 	if (!dfs_tx_ops->dfs_is_tgt_radar_found_chan_freq_eq_center_freq) {
 		dfs_err(dfs, WLAN_DEBUG_DFS_ALWAYS,

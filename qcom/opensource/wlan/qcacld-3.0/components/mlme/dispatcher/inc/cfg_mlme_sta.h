@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,15 +24,6 @@
 
 #include "wlan_mlme_public_struct.h"
 
-#ifdef CONNECTION_ROAMING_CFG
-# define CONKEEPALIVE_INTERVAL_MIN 0
-# define CONKEEPALIVE_INTERVAL_MAX 120
-# define CONKEEPALIVE_INTERVAL_DEFAULT 30
-#else
-# define CONKEEPALIVE_INTERVAL_MIN 0
-# define CONKEEPALIVE_INTERVAL_MAX 1000
-# define CONKEEPALIVE_INTERVAL_DEFAULT 30
-#endif
 /*
  * <ini>
  * gStaKeepAlivePeriod/ConKeepAlive_Interval - STA keep alive period
@@ -53,32 +44,11 @@
  *
  * </ini>
  */
-
-/*
- * <ini>
- * gStaKeepAlivePeriod/ConKeepAlive_Interval - STA keep alive period
- *
- *
- * @Min: 0
- * @Max: 120
- * @Default: 30
- *
- * This ini is used to control how frequently STA should send NULL frames to AP
- * (period in seconds) to notify AP of its existence.
- *
- * Related: None
- *
- * Supported Feature: STA
- *
- * Usage: Internal/External
- *
- * </ini>
- */
 #define CFG_INFRA_STA_KEEP_ALIVE_PERIOD CFG_INI_UINT( \
 	"gStaKeepAlivePeriod ConKeepAlive_Interval", \
-	CONKEEPALIVE_INTERVAL_MIN, \
-	CONKEEPALIVE_INTERVAL_MAX, \
-	CONKEEPALIVE_INTERVAL_DEFAULT, \
+	0, \
+	1000, \
+	30, \
 	CFG_VALUE_OR_DEFAULT, \
 	"send default NULL frame to AP")
 
@@ -180,14 +150,13 @@
  * <ini>
  * gStaPrefer80MHzOver160MHz - set sta preference to connect in 80HZ/160HZ
  * @Min: 0
- * @Max: 2
+ * @Max: 1
  * @Default: 0
  *
  * This ini is used to set sta preference to connect in 80HZ/160HZ
  *
  * 0 - Connects in 160MHz 1x1 when AP is 160MHz 2x2
  * 1 - Connects in 80MHz 2x2 when AP is 160MHz 2x2
- * 2 - Always Connects in 80MHz when AP is 160MHz
  *
  * Related: NA
  *
@@ -197,12 +166,9 @@
  *
  * </ini>
  */
-#define CFG_STA_PREFER_80MHZ_OVER_160MHZ CFG_INI_UINT( \
+#define CFG_STA_PREFER_80MHZ_OVER_160MHZ CFG_INI_BOOL( \
 	"gStaPrefer80MHzOver160MHz", \
 	0, \
-	2, \
-	0, \
-	CFG_VALUE_OR_DEFAULT, \
 	"Sta preference to connect in 80HZ/160HZ")
 
 /*
@@ -493,8 +459,8 @@
 /*
  * <ini>
  * gStaKeepAliveMethod - Which keepalive method to use
- * @Min: 1
- * @Max: 2
+ * @Min: 0
+ * @Max: 1
  * @Default: 1
  *
  * This ini determines which keepalive method to use for station interfaces
@@ -512,8 +478,8 @@
 #define CFG_STA_KEEPALIVE_METHOD CFG_INI_INT( \
 			"gStaKeepAliveMethod", \
 			MLME_STA_KEEPALIVE_NULL_DATA, \
+			MLME_STA_KEEPALIVE_COUNT - 1, \
 			MLME_STA_KEEPALIVE_GRAT_ARP, \
-			MLME_STA_KEEPALIVE_NULL_DATA, \
 			CFG_VALUE_OR_DEFAULT, \
 			"Which keepalive method to use")
 
@@ -542,66 +508,15 @@
 			CFG_VALUE_OR_DEFAULT, \
 			"Max modulated dtim")
 
-/*
- * <ini>
- * @Min: 0
- * @Max: 2000
- * @Default: 500
- *
- * This ini is used to set default ConDTIMSkipping_MaxTime in ms
- *
- * Related: None
- *
- * Supported Feature: STA
- *
- * Usage: External
- *
- * </ini>
- */
-#define CFG_MAX_LI_MODULATED_DTIM_MS CFG_INI_UINT( \
-			"ConDTIMSkipping_MaxTime", \
-			0, \
-			2000, \
-			500, \
-			CFG_VALUE_OR_DEFAULT, \
-			"DTIM skipping max time")
-
 #ifdef WLAN_FEATURE_11BE_MLO
 /*
  * <cfg>
- * mlo_support_link_num - Set number of link mlo connection supports for sta
- * @Min: 1
- * @Max: 3
- * @Default: 2
- *
- * This cfg is used to configure the number of link mlo connection supports
- *
- * Related: None
- *
- * Supported Feature: STA
- *
- * Usage: Internal
- *
- * </cfg>
- */
-#define CFG_MLO_SUPPORT_LINK_NUM CFG_UINT( \
-			"mlo_support_link_num", \
-			1, \
-			3, \
-			2, \
-			CFG_VALUE_OR_DEFAULT, \
-			"supported mlo link number")
-
-#define CFG_MLO_SUPPORT_LINK_NUM_CFG CFG(CFG_MLO_SUPPORT_LINK_NUM)
-
-/*
- * <cfg>
- * mlo_max_simultaneous_links- Set number of mlo simultaneous links for sta
+ * single_link_mlo_conn - Set single link mlo connection for sta
  * @Min: 0
  * @Max: 1
- * @Default: 1
+ * @Default: 0
  *
- * This cfg is used to configure the mlo max simultaneous links
+ * This cfg is used to enable single link mlo connection
  *
  * Related: None
  *
@@ -611,55 +526,14 @@
  *
  * </cfg>
  */
-#define CFG_MLO_MAX_SIMULTANEOUS_LINKS CFG_UINT( \
-			"mlo_max_simultaneous_links", \
+#define CFG_SINGLE_LINK_MLO_CONN CFG_BOOL( \
+			"single_link_mlo_conn", \
 			0, \
-			1, \
-			1, \
-			CFG_VALUE_OR_DEFAULT, \
-			"mlo max simultaneous links")
+			"Enable single link mlo connection")
 
-#define CFG_MLO_MAX_SIMULTANEOUS_LINKS_CFG CFG(CFG_MLO_MAX_SIMULTANEOUS_LINKS)
-/*
- * <cfg>
- * mlo_support_link_band - Set band bitmap of mlo connection supports for sta
- * @Min: 1
- * @Max: 0x77
- * @Default: 0x77
- *
- * This cfg is used to configure the band bitmap of mlo connection supports
- *
- * Related: None
- *
- * Supported Feature: STA
- *
- * Usage: Internal
- *
- * Supported band of all mlo links
- * bits 0: REG_BAND_2G
- * bits 1: REG_BAND_5G
- * bits 2: REG_BAND_6G
- *
- * Supported band of assoc link
- * bits 4: REG_BAND_2G
- * bits 5: REG_BAND_5G
- * bits 6: REG_BAND_6G
- *
- * </cfg>
- */
-#define CFG_MLO_SUPPORT_LINK_BAND CFG_UINT( \
-			"mlo_support_link_band", \
-			0x1, \
-			0x77, \
-			0x77, \
-			CFG_VALUE_OR_DEFAULT, \
-			"supported mlo link band")
-
-#define CFG_MLO_SUPPORT_LINK_BAND_CFG CFG(CFG_MLO_SUPPORT_LINK_BAND)
+#define CFG_SINGLE_LINK_MLO_CONN_CFG CFG(CFG_SINGLE_LINK_MLO_CONN)
 #else
-#define CFG_MLO_SUPPORT_LINK_NUM_CFG
-#define CFG_MLO_SUPPORT_LINK_BAND_CFG
-#define CFG_MLO_MAX_SIMULTANEOUS_LINKS_CFG
+#define CFG_SINGLE_LINK_MLO_CONN_CFG
 #endif
 
 #define CFG_STA_ALL \
@@ -682,9 +556,6 @@
 	CFG(CFG_WT_CNF_TIMEOUT) \
 	CFG(CFG_CURRENT_RSSI) \
 	CFG(CFG_TX_POWER_CTRL) \
-	CFG(CFG_MAX_LI_MODULATED_DTIM_MS) \
-	CFG_MLO_SUPPORT_LINK_NUM_CFG \
-	CFG_MLO_MAX_SIMULTANEOUS_LINKS_CFG \
-	CFG_MLO_SUPPORT_LINK_BAND_CFG
+	CFG_SINGLE_LINK_MLO_CONN_CFG
 
 #endif /* CFG_MLME_STA_H__ */

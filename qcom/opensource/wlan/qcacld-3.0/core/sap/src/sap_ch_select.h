@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2012-2015, 2017-2019 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -60,9 +59,6 @@
 #define SOFTAP_MIN_TXPWR        (0)
 #define SOFTAP_MAX_TXPWR        (63)
 
-#define REG_MAX_EIRP_POWER 36
-#define REG_MIN_EIRP_POWER 14
-
 #define SOFTAP_HT20_CHANNELWIDTH 0
 /* In HT40/VHT80, Effect of primary Channel RSSi on Subband1 */
 #define SAP_SUBBAND1_RSSI_EFFECT_PRIMARY  (-20)
@@ -111,7 +107,7 @@ typedef struct {
 	uint16_t bssCount;      /* bss found in scanresult for this channel */
 	int32_t rssiAgr;        /* Max value of rssi among all BSS(es) from scanresult for this channel */
 	uint32_t weight;        /* Weightage of this channel */
-	uint32_t weight_copy;   /* copy of the original weight */
+	uint32_t weight_copy;   /* copy of the orignal weight */
 	bool valid;             /* Is this a valid center frequency for regulatory domain */
 	bool weight_calc_done;
 } tSapSpectChInfo;              /* tDfsSpectChInfo; */
@@ -125,4 +121,5 @@ typedef struct {
 	tSapSpectChInfo *pSpectCh;      /* tDfsSpectChInfo *pSpectCh;  // Ptr to the channels in the entire spectrum band */
 	uint8_t numSpectChans;  /* Total num of channels in the spectrum */
 } tSapChSelSpectInfo;           /* tDfsChSelParams; */
+
 #endif /* if !defined __SAP_CH_SELECT_H */

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021, 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -23,13 +23,8 @@
 #include "dp_types.h"
 #include "dp_htt.h"
 
-#include <dp_mon_filter.h>
 #ifdef WLAN_TX_PKT_CAPTURE_ENH
 #include "dp_tx_capture.h"
-#endif
-
-#ifdef QCA_SUPPORT_LITE_MONITOR
-#include "dp_lite_mon.h"
 #endif
 
 #define DP_INTR_POLL_TIMER_MS	5
@@ -41,15 +36,6 @@
 #define DP_MON_REAP_BUDGET 1024
 #define MON_BUF_MIN_ENTRIES 64
 
-/* 40MHZ BW 2 20MHZ sub bands */
-#define SUB40BW 2
-/* 80MHZ BW 4 20MHZ sub bands */
-#define SUB80BW 4
-/* 160MHZ BW 8 20MHZ sub bands */
-#define SUB160BW 8
-/* 320MHZ BW 16 20MHZ sub bands */
-#define SUB320BW 16
-
 #define RNG_ERR		"SRNG setup failed for"
 #define dp_mon_info(params...) \
 	__QDF_TRACE_FL(QDF_TRACE_LEVEL_INFO_HIGH, QDF_MODULE_ID_MON, ## params)
@@ -57,35 +43,12 @@
 #define dp_mon_debug(params...) QDF_TRACE_DEBUG(QDF_MODULE_ID_MON, params)
 #define dp_mon_warn(params...) QDF_TRACE_WARN(QDF_MODULE_ID_MON, params)
 
-#define dp_mon_warn_rl(params...) QDF_TRACE_WARN_RL(QDF_MODULE_ID_MON, params)
-#define dp_mon_debug_rl(params...) QDF_TRACE_DEBUG_RL(QDF_MODULE_ID_MON, params)
-#define dp_mon_info_rl(params...) \
-	__QDF_TRACE_RL(QDF_TRACE_LEVEL_INFO_HIGH, QDF_MODULE_ID_MON, ## params)
-
-#ifdef QCA_ENHANCED_STATS_SUPPORT
-typedef struct dp_peer_extd_tx_stats dp_mon_peer_tx_stats;
-typedef struct dp_peer_extd_rx_stats dp_mon_peer_rx_stats;
-
-#define DP_UPDATE_MON_STATS(_tgtobj, _srcobj) \
-	DP_UPDATE_EXTD_STATS(_tgtobj, _srcobj)
-#endif
-
 #ifndef WLAN_TX_PKT_CAPTURE_ENH
 struct dp_pdev_tx_capture {
 };
 
 struct dp_peer_tx_capture {
 };
-#endif
-
-#ifndef WLAN_TX_PKT_CAPTURE_ENH
-static inline void
-dp_process_ppdu_stats_update_failed_bitmap(struct dp_pdev *pdev,
-					   void *data,
-					   uint32_t ppdu_id,
-					   uint32_t size)
-{
-}
 #endif
 
 #ifdef DP_CON_MON_MSI_ENABLED
@@ -97,6 +60,16 @@ static inline bool dp_is_monitor_mode_using_poll(struct dp_soc *soc)
 static inline bool dp_is_monitor_mode_using_poll(struct dp_soc *soc)
 {
 	return true;
+}
+#endif
+
+#ifndef WLAN_TX_PKT_CAPTURE_ENH
+static inline void
+dp_process_ppdu_stats_update_failed_bitmap(struct dp_pdev *pdev,
+					   void *data,
+					   uint32_t ppdu_id,
+					   uint32_t size)
+{
 }
 #endif
 
@@ -208,80 +181,6 @@ QDF_STATUS dp_mon_peer_attach(struct dp_peer *peer)
 QDF_STATUS dp_mon_peer_detach(struct dp_peer *peer);
 
 /*
- * dp_mon_peer_get_peerstats_ctx() - Get peer stats context from monitor peer
- * @peer: Datapath peer handle
- *
- * Return: peerstats_ctx
- */
-struct cdp_peer_rate_stats_ctx *dp_mon_peer_get_peerstats_ctx(struct
-							      dp_peer *peer);
-
-#ifdef QCA_ENHANCED_STATS_SUPPORT
-/*
- * dp_mon_peer_reset_stats() - Reset monitor peer stats
- * @peer: Datapath peer handle
- *
- * Return: none
- */
-void dp_mon_peer_reset_stats(struct dp_peer *peer);
-
-/*
- * dp_mon_peer_get_stats() - Get monitor peer stats
- *
- * @peer: Datapath peer handle
- * @arg: Pointer to stats struct
- * @type: Update type
- *
- * Return: none
- */
-void dp_mon_peer_get_stats(struct dp_peer *peer, void *arg,
-			   enum cdp_stat_update_type type);
-
-/*
- * dp_mon_invalid_peer_update_pdev_stats() - Update pdev stats from
- *					invalid monitor peer
- * @pdev: Datapath pdev handle
- *
- * Return: none
- */
-void dp_mon_invalid_peer_update_pdev_stats(struct dp_pdev *pdev);
-
-/*
- * dp_mon_peer_get_stats_param() - Get stats param value from monitor peer
- * @peer: Datapath peer handle
- * @type: Stats type requested
- * @buf: Pointer to buffer for stats param
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS dp_mon_peer_get_stats_param(struct dp_peer *peer,
-				       enum cdp_peer_stats_type type,
-				       cdp_peer_stats_param_t *buf);
-#else
-static inline void dp_mon_peer_reset_stats(struct dp_peer *peer)
-{
-}
-
-static inline
-void dp_mon_peer_get_stats(struct dp_peer *peer, void *arg,
-			   enum cdp_stat_update_type type)
-{
-}
-
-static inline void dp_mon_invalid_peer_update_pdev_stats(struct dp_pdev *pdev)
-{
-}
-
-static inline
-QDF_STATUS dp_mon_peer_get_stats_param(struct dp_peer *peer,
-				       enum cdp_peer_stats_type type,
-				       cdp_peer_stats_param_t *buf)
-{
-	return QDF_STATUS_E_FAILURE;
-}
-#endif
-
-/*
  * dp_mon_cdp_ops_register() - Register monitor cdp ops
  * @soc: Datapath soc handle
  *
@@ -294,27 +193,6 @@ void dp_mon_cdp_ops_register(struct dp_soc *soc);
  *
  */
 void dp_mon_cdp_ops_deregister(struct dp_soc *soc);
-
-/*
- * dp_mon_intr_ops_deregister() - deregister monitor interrupt ops
- * @soc: Datapath soc handle
- *
- */
-void dp_mon_intr_ops_deregister(struct dp_soc *soc);
-
-/*
- * dp_mon_feature_ops_deregister() - deregister monitor feature ops
- * @soc: Datapath soc handle
- *
- */
-void dp_mon_feature_ops_deregister(struct dp_soc *soc);
-
-/*
- * dp_mon_ops_free() - free monitor ops
- * @soc: Datapath soc handle
- *
- */
-void dp_mon_ops_free(struct dp_soc *soc);
 
 /*
  * dp_mon_ops_register() - Register monitor ops
@@ -361,23 +239,6 @@ dp_config_debug_sniffer(struct dp_pdev *pdev, int val) {
 	return QDF_STATUS_E_INVAL;
 }
 #endif /* QCA_MCOPY_SUPPORT || QCA_TX_CAPTURE_SUPPORT */
-
-/*
- * dp_config_debug_sniffer()- API to enable/disable debug sniffer
- * @pdev: DP_PDEV handle
- * @val: user provided value
- *
- * Return: 0 for success. nonzero for failure.
- */
-#ifdef QCA_UNDECODED_METADATA_SUPPORT
-QDF_STATUS
-dp_mon_config_undecoded_metadata_capture(struct dp_pdev *pdev, int val);
-#else
-static inline QDF_STATUS
-dp_mon_config_undecoded_metadata_capture(struct dp_pdev *pdev, int val) {
-	return QDF_STATUS_E_INVAL;
-}
-#endif /* QCA_UNDECODED_METADATA_SUPPORT */
 
 /*
  * dp_htt_ppdu_stats_attach() - attach resources for HTT PPDU stats processing
@@ -485,9 +346,9 @@ void dp_pktlogmod_exit(struct dp_pdev *handle)
  *
  * @pdev: DP pdev object
  *
- * Return: QDF_STATUS
+ * Return: void
  */
-QDF_STATUS dp_vdev_set_monitor_mode_buf_rings(struct dp_pdev *pdev);
+void dp_vdev_set_monitor_mode_buf_rings(struct dp_pdev *pdev);
 
 /**
  * dp_vdev_set_monitor_mode_rings () - set monitor mode rings
@@ -503,10 +364,9 @@ QDF_STATUS dp_vdev_set_monitor_mode_rings(struct dp_pdev *pdev,
 					  uint8_t delayed_replenish);
 
 #else
-static inline QDF_STATUS
+static inline void
 dp_vdev_set_monitor_mode_buf_rings(struct dp_pdev *pdev)
 {
-	return QDF_STATUS_SUCCESS;
 }
 
 static inline QDF_STATUS
@@ -532,48 +392,13 @@ bool dp_ppdu_stats_ind_handler(struct htt_soc *soc,
 			       qdf_nbuf_t htt_t2h_msg);
 #endif
 
-#if defined(QCA_ENHANCED_STATS_SUPPORT) && \
-	(!defined(WLAN_TX_PKT_CAPTURE_ENH) || defined(QCA_MONITOR_2_0_SUPPORT))
-/**
- * dp_ppdu_desc_deliver(): Function to deliver Tx PPDU status descriptor
- * to upper layer
- * @pdev: DP pdev handle
- * @ppdu_info: per PPDU TLV descriptor
- *
- * return: void
- */
-void dp_ppdu_desc_deliver(struct dp_pdev *pdev, struct ppdu_info *ppdu_info);
-#endif
-
-#ifdef QCA_RSSI_DB2DBM
-/*
- * dp_mon_pdev_params_rssi_dbm_conv() --> to set rssi in dbm conversion
- *						params into monitor pdev.
- *@cdp_soc: dp soc handle.
- *@params: cdp_rssi_db2dbm_param_dp structure value.
- *
- * Return: QDF_STATUS_SUCCESS if value set successfully
- *         QDF_STATUS_E_INVAL false if error
- */
-QDF_STATUS
-dp_mon_pdev_params_rssi_dbm_conv(struct cdp_soc_t *cdp_soc,
-				 struct cdp_rssi_db2dbm_param_dp *params);
-#else
-static inline QDF_STATUS
-dp_mon_pdev_params_rssi_dbm_conv(struct cdp_soc_t *cdp_soc,
-				 struct cdp_rssi_db2dbm_param_dp *params)
-{
-	return QDF_STATUS_E_INVAL;
-}
-#endif /* QCA_RSSI_DB2DBM */
-
 struct dp_mon_ops {
 	QDF_STATUS (*mon_soc_cfg_init)(struct dp_soc *soc);
 	QDF_STATUS (*mon_soc_attach)(struct dp_soc *soc);
 	QDF_STATUS (*mon_soc_detach)(struct dp_soc *soc);
-	QDF_STATUS (*mon_pdev_alloc)(struct dp_pdev *pdev);
 	QDF_STATUS (*mon_soc_init)(struct dp_soc *soc);
-	void (*mon_soc_deinit)(struct dp_soc *soc);
+	QDF_STATUS (*mon_soc_deinit)(struct dp_soc *soc);
+	QDF_STATUS (*mon_pdev_alloc)(struct dp_pdev *pdev);
 	void (*mon_pdev_free)(struct dp_pdev *pdev);
 	QDF_STATUS (*mon_pdev_attach)(struct dp_pdev *pdev);
 	QDF_STATUS (*mon_pdev_detach)(struct dp_pdev *pdev);
@@ -583,15 +408,6 @@ struct dp_mon_ops {
 	QDF_STATUS (*mon_vdev_detach)(struct dp_vdev *vdev);
 	QDF_STATUS (*mon_peer_attach)(struct dp_peer *peer);
 	QDF_STATUS (*mon_peer_detach)(struct dp_peer *peer);
-	struct cdp_peer_rate_stats_ctx *(*mon_peer_get_peerstats_ctx)(struct
-								dp_peer *peer);
-	void (*mon_peer_reset_stats)(struct dp_peer *peer);
-	void (*mon_peer_get_stats)(struct dp_peer *peer, void *arg,
-				   enum cdp_stat_update_type type);
-	void (*mon_invalid_peer_update_pdev_stats)(struct dp_pdev *pdev);
-	QDF_STATUS (*mon_peer_get_stats_param)(struct dp_peer *peer,
-					       enum cdp_peer_stats_type type,
-					       cdp_peer_stats_param_t *buf);
 	QDF_STATUS (*mon_config_debug_sniffer)(struct dp_pdev *pdev, int val);
 	void (*mon_flush_rings)(struct dp_soc *soc);
 #if !defined(DISABLE_MON_CONFIG)
@@ -604,8 +420,7 @@ struct dp_mon_ops {
 #if !defined(DISABLE_MON_CONFIG) && defined(MON_ENABLE_DROP_FOR_MAC)
 	uint32_t (*mon_drop_packets_for_mac)(struct dp_pdev *pdev,
 					     uint32_t mac_id,
-					     uint32_t quota,
-					     bool force_flush);
+					     uint32_t quota);
 #endif
 #if defined(DP_CON_MON)
 	void (*mon_service_rings)(struct  dp_soc *soc, uint32_t quota);
@@ -619,12 +434,11 @@ struct dp_mon_ops {
 				   struct dp_intr *int_ctx,
 				   uint32_t mac_id,
 				   uint32_t quota);
-	void (*print_txmon_ring_stat)(struct dp_pdev *pdev);
 #endif
 	void (*mon_peer_tx_init)(struct dp_pdev *pdev, struct dp_peer *peer);
 	void (*mon_peer_tx_cleanup)(struct dp_vdev *vdev,
 				    struct dp_peer *peer);
-#ifdef WIFI_MONITOR_SUPPORT
+#ifdef WLAN_TX_PKT_CAPTURE_ENH
 	void (*mon_peer_tid_peer_id_update)(struct dp_peer *peer,
 					    uint16_t peer_id);
 	void (*mon_tx_ppdu_stats_attach)(struct dp_pdev *pdev);
@@ -635,18 +449,12 @@ struct dp_mon_ops {
 	QDF_STATUS (*mon_tx_add_to_comp_queue)(struct dp_soc *soc,
 					       struct dp_tx_desc_s *desc,
 					       struct hal_tx_completion_status *ts,
-					       uint16_t peer_id);
+					       struct dp_peer *peer);
 	QDF_STATUS (*mon_update_msdu_to_list)(struct dp_soc *soc,
 					      struct dp_pdev *pdev,
 					      struct dp_peer *peer,
 					      struct hal_tx_completion_status *ts,
 					      qdf_nbuf_t netbuf);
-	QDF_STATUS
-	(*mon_peer_tx_capture_get_stats)(struct dp_peer *peer,
-					 struct cdp_peer_tx_capture_stats *sts);
-	QDF_STATUS
-	(*mon_pdev_tx_capture_get_stats)(struct dp_pdev *pdev,
-					 struct cdp_pdev_tx_capture_stats *sts);
 #endif
 #if defined(WDI_EVENT_ENABLE) &&\
 	(defined(QCA_ENHANCED_STATS_SUPPORT) || !defined(REMOVE_PKT_LOG))
@@ -658,14 +466,10 @@ struct dp_mon_ops {
 	void (*mon_htt_ppdu_stats_detach)(struct dp_pdev *pdev);
 	void (*mon_print_pdev_rx_mon_stats)(struct dp_pdev *pdev);
 
-#ifdef WIFI_MONITOR_SUPPORT
+#ifdef WLAN_TX_PKT_CAPTURE_ENH
 	void (*mon_print_pdev_tx_capture_stats)(struct dp_pdev *pdev);
 	QDF_STATUS (*mon_config_enh_tx_capture)(struct dp_pdev *pdev,
 						uint8_t val);
-	QDF_STATUS (*mon_tx_peer_filter)(struct dp_pdev *pdev_handle,
-					 struct dp_peer *peer_handle,
-					 uint8_t is_tx_pkt_cap_enable,
-					 uint8_t *peer_mac);
 #endif
 #ifdef WLAN_RX_PKT_CAPTURE_ENH
 	QDF_STATUS (*mon_config_enh_rx_capture)(struct dp_pdev *pdev,
@@ -691,7 +495,7 @@ struct dp_mon_ops {
 #if defined(DP_CON_MON) && !defined(REMOVE_PKT_LOG)
 	void (*mon_pktlogmod_exit)(struct dp_pdev *pdev);
 #endif
-	QDF_STATUS (*mon_vdev_set_monitor_mode_buf_rings)(struct dp_pdev *pdev);
+	void (*mon_vdev_set_monitor_mode_buf_rings)(struct dp_pdev *pdev);
 	QDF_STATUS (*mon_vdev_set_monitor_mode_rings)(struct dp_pdev *pdev,
 						      uint8_t delayed_replenish);
 	void (*mon_neighbour_peers_detach)(struct dp_pdev *pdev);
@@ -704,10 +508,8 @@ struct dp_mon_ops {
 	bool (*mon_vdev_timer_stop)(struct dp_soc *soc);
 	void (*mon_vdev_timer_deinit)(struct dp_soc *soc);
 	void (*mon_reap_timer_init)(struct dp_soc *soc);
-	bool (*mon_reap_timer_start)(struct dp_soc *soc,
-				     enum cdp_mon_reap_source source);
-	bool (*mon_reap_timer_stop)(struct dp_soc *soc,
-				    enum cdp_mon_reap_source source);
+	void (*mon_reap_timer_start)(struct dp_soc *soc);
+	bool (*mon_reap_timer_stop)(struct dp_soc *soc);
 	void (*mon_reap_timer_deinit)(struct dp_soc *soc);
 #ifdef QCA_MCOPY_SUPPORT
 	QDF_STATUS (*mon_mcopy_check_deliver)(struct dp_pdev *pdev,
@@ -723,14 +525,6 @@ struct dp_mon_ops {
 #ifdef QCA_ENHANCED_STATS_SUPPORT
 	void (*mon_filter_setup_enhanced_stats)(struct dp_pdev *pdev);
 	void (*mon_filter_reset_enhanced_stats)(struct dp_pdev *pdev);
-	void (*mon_tx_stats_update)(struct dp_mon_peer *mon_peer,
-				    struct cdp_tx_completion_ppdu_user *ppdu);
-	void (*mon_tx_enable_enhanced_stats)(struct dp_pdev *pdev);
-	void (*mon_tx_disable_enhanced_stats)(struct dp_pdev *pdev);
-	void (*mon_ppdu_desc_deliver)(struct dp_pdev *pdev,
-				      struct ppdu_info *ppdu_info);
-	bool (*mon_ppdu_stats_feat_enable_check)(struct dp_pdev *pdev);
-	void (*mon_ppdu_desc_notify)(struct dp_pdev *pdev, qdf_nbuf_t nbuf);
 #endif
 #ifdef QCA_MCOPY_SUPPORT
 	void (*mon_filter_setup_mcopy_mode)(struct dp_pdev *pdev);
@@ -740,16 +534,12 @@ struct dp_mon_ops {
 	void (*mon_filter_setup_smart_monitor)(struct dp_pdev *pdev);
 	void (*mon_filter_reset_smart_monitor)(struct dp_pdev *pdev);
 #endif
-	void (*mon_filter_set_reset_mon_mac_filter)(struct dp_pdev *pdev,
-						    bool val);
 #ifdef WLAN_RX_PKT_CAPTURE_ENH
 	void (*mon_filter_setup_rx_enh_capture)(struct dp_pdev *pdev);
 	void (*mon_filter_reset_rx_enh_capture)(struct dp_pdev *pdev);
 #endif
-	void (*mon_filter_setup_rx_mon_mode)(struct dp_pdev *pdev);
-	void (*mon_filter_reset_rx_mon_mode)(struct dp_pdev *pdev);
-	void (*mon_filter_setup_tx_mon_mode)(struct dp_pdev *pdev);
-	void (*mon_filter_reset_tx_mon_mode)(struct dp_pdev *pdev);
+	void (*mon_filter_setup_mon_mode)(struct dp_pdev *pdev);
+	void (*mon_filter_reset_mon_mode)(struct dp_pdev *pdev);
 #ifdef WDI_EVENT_ENABLE
 	void (*mon_filter_setup_rx_pkt_log_full)(struct dp_pdev *pdev);
 	void (*mon_filter_reset_rx_pkt_log_full)(struct dp_pdev *pdev);
@@ -757,18 +547,13 @@ struct dp_mon_ops {
 	void (*mon_filter_reset_rx_pkt_log_lite)(struct dp_pdev *pdev);
 	void (*mon_filter_setup_rx_pkt_log_cbf)(struct dp_pdev *pdev);
 	void (*mon_filter_reset_rx_pkt_log_cbf)(struct dp_pdev *pdev);
-#ifdef BE_PKTLOG_SUPPORT
+#ifdef QCA_WIFI_QCN9224
 	void (*mon_filter_setup_pktlog_hybrid)(struct dp_pdev *pdev);
 	void (*mon_filter_reset_pktlog_hybrid)(struct dp_pdev *pdev);
 #endif
 #endif
-	QDF_STATUS (*rx_mon_filter_update)(struct dp_pdev *pdev);
-	QDF_STATUS (*tx_mon_filter_update)(struct dp_pdev *pdev);
-	QDF_STATUS (*set_mon_mode_buf_rings_tx)(struct dp_pdev *pdev,
-						uint16_t num_buf);
+	QDF_STATUS (*mon_filter_update)(struct dp_pdev *pdev);
 
-	QDF_STATUS (*tx_mon_filter_alloc)(struct dp_pdev *pdev);
-	void (*tx_mon_filter_dealloc)(struct dp_pdev *pdev);
 	QDF_STATUS (*mon_rings_alloc)(struct dp_pdev *pdev);
 	void (*mon_rings_free)(struct dp_pdev *pdev);
 	QDF_STATUS (*mon_rings_init)(struct dp_pdev *pdev);
@@ -784,65 +569,16 @@ struct dp_mon_ops {
 	void (*tx_mon_desc_pool_deinit)(struct dp_pdev *pdev);
 	QDF_STATUS (*tx_mon_desc_pool_alloc)(struct dp_pdev *pdev);
 	void (*tx_mon_desc_pool_free)(struct dp_pdev *pdev);
-	void (*rx_mon_enable)(uint32_t *msg_word,
-			      struct htt_rx_ring_tlv_filter *tlv_filter);
-	void (*rx_hdr_length_set)(uint32_t *msg_word,
-				  struct htt_rx_ring_tlv_filter *tlv_filter);
 	void (*rx_packet_length_set)(uint32_t *msg_word,
 				     struct htt_rx_ring_tlv_filter *tlv_filter);
 	void (*rx_wmask_subscribe)(uint32_t *msg_word,
 				   struct htt_rx_ring_tlv_filter *tlv_filter);
 	void (*rx_enable_mpdu_logging)(uint32_t *msg_word,
 				       struct htt_rx_ring_tlv_filter *tlv_filter);
-	void (*rx_enable_fpmo)(uint32_t *msg_word,
-			       struct htt_rx_ring_tlv_filter *tlv_filter);
 #ifndef DISABLE_MON_CONFIG
 	void (*mon_register_intr_ops)(struct dp_soc *soc);
 #endif
 	void (*mon_register_feature_ops)(struct dp_soc *soc);
-#ifdef QCA_ENHANCED_STATS_SUPPORT
-	void (*mon_rx_stats_update)(struct dp_mon_peer *mon_peer,
-				    struct cdp_rx_indication_ppdu *ppdu,
-				    struct cdp_rx_stats_ppdu_user *ppdu_user);
-	void (*mon_rx_populate_ppdu_usr_info)(struct mon_rx_user_status *rx_user_status,
-					      struct cdp_rx_stats_ppdu_user *ppdu_user);
-	void (*mon_rx_populate_ppdu_info)(struct hal_rx_ppdu_info *hal_ppdu_info,
-					  struct cdp_rx_indication_ppdu *ppdu);
-#endif
-	QDF_STATUS (*rx_mon_refill_buf_ring)(struct dp_intr *int_ctx);
-	QDF_STATUS (*tx_mon_refill_buf_ring)(struct dp_intr *int_ctx);
-#ifdef QCA_UNDECODED_METADATA_SUPPORT
-	QDF_STATUS (*mon_config_undecoded_metadata_capture)
-	    (struct dp_pdev *pdev, int val);
-	void (*mon_filter_setup_undecoded_metadata_capture)
-	    (struct dp_pdev *pdev);
-	void (*mon_filter_reset_undecoded_metadata_capture)
-	    (struct dp_pdev *pdev);
-#endif
-	QDF_STATUS (*mon_pdev_ext_init)(struct dp_pdev *pdev);
-	QDF_STATUS (*mon_pdev_ext_deinit)(struct dp_pdev *pdev);
-	QDF_STATUS (*mon_lite_mon_alloc)(struct dp_pdev *pdev);
-	void (*mon_lite_mon_dealloc)(struct dp_pdev *pdev);
-	void (*mon_lite_mon_vdev_delete)(struct dp_pdev *pdev,
-					 struct dp_vdev *vdev);
-	void (*mon_lite_mon_disable_rx)(struct dp_pdev *pdev);
-	/* Print advanced monitor stats */
-	void (*mon_rx_print_advanced_stats)
-		(struct dp_soc *soc, struct dp_pdev *pdev);
-	QDF_STATUS (*mon_rx_ppdu_info_cache_create)(struct dp_pdev *pdev);
-	void (*mon_rx_ppdu_info_cache_destroy)(struct dp_pdev *pdev);
-	void (*mon_mac_filter_set)(uint32_t *msg_word,
-				   struct htt_rx_ring_tlv_filter *tlv_filter);
-};
-
-/**
- * struct dp_mon_soc_stats - monitor stats
- * @frag_alloc: Number of frags allocated
- * @frag_free: Number of frags freed
- */
-struct dp_mon_soc_stats {
-	uint32_t frag_alloc;
-	uint32_t frag_free;
 };
 
 struct dp_mon_soc {
@@ -868,11 +604,6 @@ struct dp_mon_soc {
 	qdf_timer_t mon_reap_timer;
 	uint8_t reap_timer_init;
 
-	qdf_spinlock_t reap_timer_lock;
-
-	/* Bitmap to record trigger sources of the reap timer */
-	qdf_bitmap(mon_reap_src_bitmap, CDP_MON_REAP_SOURCE_NUM);
-
 	qdf_timer_t mon_vdev_timer;
 	uint8_t mon_vdev_timer_state;
 
@@ -884,74 +615,6 @@ struct dp_mon_soc {
 				   uint32_t mac_id,
 				   uint32_t quota);
 #endif
-
-#ifdef WLAN_TX_PKT_CAPTURE_ENH
-	struct dp_soc_tx_capture dp_soc_tx_capt;
-#endif
-	/* monitor stats */
-	struct dp_mon_soc_stats stats;
-};
-
-#ifdef WLAN_TELEMETRY_STATS_SUPPORT
-struct dp_mon_peer_airtime_consumption {
-	uint32_t consumption;
-	uint32_t avg_consumption_per_sec;
-};
-#endif
-
-/**
- * struct dp_mon_peer_stats - Monitor peer stats
- */
-struct dp_mon_peer_stats {
-#ifdef QCA_ENHANCED_STATS_SUPPORT
-	dp_mon_peer_tx_stats tx;
-	dp_mon_peer_rx_stats rx;
-#ifdef WLAN_TELEMETRY_STATS_SUPPORT
-	struct dp_mon_peer_airtime_consumption airtime_consumption[WME_AC_MAX];
-#endif
-#endif
-};
-
-struct dp_mon_peer {
-#ifdef WLAN_TX_PKT_CAPTURE_ENH
-	struct dp_peer_tx_capture tx_capture;
-#endif
-#ifdef FEATURE_PERPKT_INFO
-	/* delayed ba ppdu stats handling */
-	struct cdp_delayed_tx_completion_ppdu_user delayed_ba_ppdu_stats;
-	/* delayed ba flag */
-	bool last_delayed_ba;
-	/* delayed ba ppdu id */
-	uint32_t last_delayed_ba_ppduid;
-#endif
-	uint8_t tx_cap_enabled:1, /* Peer's tx-capture is enabled */
-		rx_cap_enabled:1; /* Peer's rx-capture is enabled */
-
-	/* Peer level flag to check peer based pktlog enabled or
-	 * disabled
-	 */
-	uint8_t peer_based_pktlog_filter;
-
-	/* Monitor peer stats */
-	struct dp_mon_peer_stats stats;
-
-	/* peer extended statistics context */
-	struct cdp_peer_rate_stats_ctx *peerstats_ctx;
-};
-
-struct dp_rx_mon_rssi_offset {
-	/* Temperature based rssi offset */
-	int32_t rssi_temp_offset;
-	/* Low noise amplifier bypass offset */
-	int32_t xlna_bypass_offset;
-	/* Low noise amplifier bypass threshold */
-	int32_t xlna_bypass_threshold;
-	/* 3 Bytes of xbar_config are used for RF to BB mapping */
-	uint32_t xbar_config;
-	/* min noise floor in active chains per channel */
-	int8_t min_nf_dbm;
-	/* this value is sum of temp_oofset + min_nf*/
-	int32_t rssi_offset;
 };
 
 struct  dp_mon_pdev {
@@ -1060,13 +723,14 @@ struct  dp_mon_pdev {
 	/* Enable pktlog logging cbf */
 	bool rx_pktlog_cbf;
 
-#ifdef BE_PKTLOG_SUPPORT
 	/* Enable pktlog logging hybrid */
+#ifdef QCA_WIFI_QCN9224
 	bool pktlog_hybrid_mode;
 #endif
 	bool tx_sniffer_enable;
 	/* mirror copy mode */
 	enum m_copy_mode mcopy_mode;
+	bool enable_reap_timer_non_pkt;
 	bool bpr_enable;
 	/* Pdev level flag to check peer based pktlog enabled or
 	 * disabled
@@ -1129,22 +793,11 @@ struct  dp_mon_pdev {
 	bool is_dp_mon_pdev_initialized;
 	/* indicates if spcl vap is configured */
 	bool scan_spcl_vap_configured;
-	bool undecoded_metadata_capture;
-#ifdef QCA_UNDECODED_METADATA_SUPPORT
-	uint32_t phyrx_error_mask;
-	uint32_t phyrx_error_mask_cont;
-#endif
 #ifdef QCA_SUPPORT_SCAN_SPCL_VAP_STATS
 	/* enable spcl vap stats reset on ch change */
 	bool reset_scan_spcl_vap_stats_enable;
 #endif
 	bool is_tlv_hdr_64_bit;
-
-	/* Invalid monitor peer to account for stats in mcopy mode */
-	struct dp_mon_peer *invalid_mon_peer;
-
-	bool rssi_dbm_conv_support;
-	struct dp_rx_mon_rssi_offset rssi_offsets;
 };
 
 struct  dp_mon_vdev {
@@ -1152,6 +805,20 @@ struct  dp_mon_vdev {
 	ol_txrx_rx_mon_fp osif_rx_mon;
 #ifdef QCA_SUPPORT_SCAN_SPCL_VAP_STATS
 	struct cdp_scan_spcl_vap_stats *scan_spcl_vap_stats;
+#endif
+};
+
+struct dp_mon_peer {
+#ifdef WLAN_TX_PKT_CAPTURE_ENH
+	struct dp_peer_tx_capture tx_capture;
+#endif
+#ifdef FEATURE_PERPKT_INFO
+	/* delayed ba ppdu stats handling */
+	struct cdp_delayed_tx_completion_ppdu_user delayed_ba_ppdu_stats;
+	/* delayed ba flag */
+	bool last_delayed_ba;
+	/* delayed ba ppdu id */
+	uint32_t last_delayed_ba_ppduid;
 #endif
 };
 
@@ -1200,6 +867,14 @@ void dp_rx_mon_update_protocol_flow_tag(struct dp_soc *soc,
 #endif /* WLAN_SUPPORT_RX_PROTOCOL_TYPE_TAG || WLAN_SUPPORT_RX_FLOW_TAG */
 
 #ifndef WLAN_TX_PKT_CAPTURE_ENH
+static inline
+QDF_STATUS dp_peer_set_tx_capture_enabled(struct dp_pdev *pdev,
+					  struct dp_peer *peer_handle,
+					  uint8_t value, uint8_t *peer_mac)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
 /**
  * dp_peer_tid_queue_init() – Initialize ppdu stats queue per TID
  * @peer: Datapath peer
@@ -1230,29 +905,84 @@ dp_peer_update_80211_hdr(struct dp_vdev *vdev, struct dp_peer *peer)
 }
 
 /**
- * dp_get_peer_tx_capture_stats: to get peer tx capture stats
- * @peer: DP PEER handle
- * @stats: pointor to peer tx capture stats
+ * dp_tx_ppdu_stats_attach - Initialize Tx PPDU stats and enhanced capture
+ * @pdev: DP PDEV
  *
- * return: QDF_STATUS
+ * Return: none
  */
-static inline QDF_STATUS
-dp_get_peer_tx_capture_stats(struct dp_peer *peer,
-			     struct cdp_peer_tx_capture_stats *stats)
+static inline void dp_tx_ppdu_stats_attach(struct dp_pdev *pdev)
+{
+}
+
+/**
+ * dp_tx_ppdu_stats_detach - Cleanup Tx PPDU stats and enhanced capture
+ * @pdev: DP PDEV
+ *
+ * Return: none
+ */
+static inline void dp_tx_ppdu_stats_detach(struct dp_pdev *pdev)
+{
+}
+
+/**
+ * dp_tx_add_to_comp_queue() - add completion msdu to queue
+ * @soc: DP Soc handle
+ * @tx_desc: software Tx descriptor
+ * @ts : Tx completion status from HAL/HTT descriptor
+ * @peer: DP peer
+ *
+ * Return: none
+ */
+static inline
+QDF_STATUS dp_tx_add_to_comp_queue(struct dp_soc *soc,
+				   struct dp_tx_desc_s *desc,
+				   struct hal_tx_completion_status *ts,
+				   struct dp_peer *peer)
 {
 	return QDF_STATUS_E_FAILURE;
 }
 
 /**
- * dp_get_pdev_tx_capture_stats: to get pdev tx capture stats
+ * dp_update_msdu_to_list(): Function to queue msdu from wbm
+ * @pdev: dp_pdev
+ * @peer: dp_peer
+ * @ts: hal tx completion status
+ * @netbuf: msdu
+ *
+ * return: status
+ */
+static inline
+QDF_STATUS dp_update_msdu_to_list(struct dp_soc *soc,
+				  struct dp_pdev *pdev,
+				  struct dp_peer *peer,
+				  struct hal_tx_completion_status *ts,
+				  qdf_nbuf_t netbuf)
+{
+	return QDF_STATUS_E_FAILURE;
+}
+
+/*
+ * dp_peer_tx_capture_filter_check: check filter is enable for the filter
+ * and update tx_cap_enabled flag
  * @pdev: DP PDEV handle
- * @stats: pointor to pdev tx capture stats
+ * @peer: DP PEER handle
+ *
+ * return: void
+ */
+static inline
+void dp_peer_tx_capture_filter_check(struct dp_pdev *pdev,
+				     struct dp_peer *peer)
+{
+}
+
+/*
+ * dp_tx_capture_debugfs_init: tx capture debugfs init
+ * @pdev: DP PDEV handle
  *
  * return: QDF_STATUS
  */
-static inline QDF_STATUS
-dp_get_pdev_tx_capture_stats(struct dp_pdev *pdev,
-			     struct cdp_pdev_tx_capture_stats *stats)
+static inline
+QDF_STATUS dp_tx_capture_debugfs_init(struct dp_pdev *pdev)
 {
 	return QDF_STATUS_E_FAILURE;
 }
@@ -1266,8 +996,7 @@ dp_cpu_ring_map[DP_NSS_CPU_RING_MAP_MAX][WLAN_CFG_INT_NUM_CONTEXTS_MAX];
 int
 dp_htt_get_ppdu_sniffer_ampdu_tlv_bitmap(uint32_t bitmap);
 
-#if (defined(DP_CON_MON) || defined(WDI_EVENT_ENABLE)) &&\
-	(!defined(REMOVE_PKT_LOG))
+#ifdef WDI_EVENT_ENABLE
 void dp_pkt_log_init(struct cdp_soc_t *soc_hdl, uint8_t pdev_id, void *scn);
 #else
 static inline void
@@ -1276,24 +1005,13 @@ dp_pkt_log_init(struct cdp_soc_t *soc_hdl, uint8_t pdev_id, void *scn)
 }
 #endif
 
-#if defined(WDI_EVENT_ENABLE) && defined(QCA_ENHANCED_STATS_SUPPORT)
+#ifdef WDI_EVENT_ENABLE
 QDF_STATUS dp_peer_stats_notify(struct dp_pdev *pdev, struct dp_peer *peer);
 #else
 static inline QDF_STATUS dp_peer_stats_notify(struct dp_pdev *pdev,
 					      struct dp_peer *peer)
 {
 	return QDF_STATUS_SUCCESS;
-}
-#endif
-
-#if defined(FEATURE_PERPKT_INFO) && defined(WDI_EVENT_ENABLE)
-void dp_send_stats_event(struct dp_pdev *pdev, struct dp_peer *peer,
-			 uint16_t peer_id);
-#else
-static inline
-void dp_send_stats_event(struct dp_pdev *pdev, struct dp_peer *peer,
-			 uint16_t peer_id)
-{
 }
 #endif
 
@@ -1321,6 +1039,16 @@ void dp_tx_capture_htt_frame_counter(struct dp_pdev *pdev,
 {
 }
 
+/*
+ * dp_tx_cature_stats: print tx capture stats
+ * @pdev: DP PDEV handle
+ *
+ * return: void
+ */
+static inline
+void dp_print_pdev_tx_capture_stats(struct dp_pdev *pdev)
+{
+}
 #endif
 
 /**
@@ -1371,6 +1099,21 @@ static inline bool dp_soc_is_full_mon_enable(struct dp_pdev *pdev)
 {
 	return (pdev->soc->monitor_soc->full_mon_mode &&
 		pdev->monitor_pdev->monitor_configured) ? true : false;
+}
+
+/*
+ * dp_mon_is_enable_reap_timer_non_pkt() - check if mon reap timer is
+ * enabled by non-pkt log or not
+ * @pdev: point to dp pdev
+ *
+ * Return: true if mon reap timer is enabled by non-pkt log
+ */
+static inline bool dp_mon_is_enable_reap_timer_non_pkt(struct dp_pdev *pdev)
+{
+	if (qdf_unlikely(!pdev || !pdev->monitor_pdev))
+		return false;
+
+	return pdev->monitor_pdev->enable_reap_timer_non_pkt;
 }
 
 /*
@@ -1533,20 +1276,6 @@ static inline void dp_monitor_set_chan_num(struct dp_pdev *pdev, int chan_num)
 }
 
 /*
- * dp_monitor_get_chan_num() - get channel number
- * @pdev: DP pdev handle
- *
- * Return: channel number
- */
-static inline int dp_monitor_get_chan_num(struct dp_pdev *pdev)
-{
-	if (qdf_unlikely(!pdev || !pdev->monitor_pdev))
-		return 0;
-
-	return pdev->monitor_pdev->mon_chan_num;
-}
-
-/*
  * dp_monitor_set_chan_freq() - set channel frequency
  * @pdev: point to dp pdev
  * @chan_freq: channel frequency
@@ -1559,21 +1288,6 @@ dp_monitor_set_chan_freq(struct dp_pdev *pdev, qdf_freq_t chan_freq)
 		return;
 
 	pdev->monitor_pdev->mon_chan_freq = chan_freq;
-}
-
-/*
- * dp_monitor_get_chan_freq() - get channel frequency
- * @pdev: DP pdev handle
- *
- * @Return: channel frequency
- */
-static inline qdf_freq_t
-dp_monitor_get_chan_freq(struct dp_pdev *pdev)
-{
-	if (qdf_unlikely(!pdev || !pdev->monitor_pdev))
-		return 0;
-
-	return pdev->monitor_pdev->mon_chan_freq;
 }
 
 /*
@@ -1889,140 +1603,6 @@ static inline QDF_STATUS dp_monitor_peer_detach(struct dp_soc *soc,
 }
 
 /*
- * dp_monitor_peer_get_peerstats_ctx() - Get peerstats context from monitor peer
- * @soc: Datapath soc handle
- * @peer: Datapath peer handle
- *
- * Return: peer stats context
- */
-static inline struct cdp_peer_rate_stats_ctx*
-dp_monitor_peer_get_peerstats_ctx(struct dp_soc *soc, struct dp_peer *peer)
-{
-	struct dp_mon_ops *monitor_ops;
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-
-	if (!mon_soc)
-		return NULL;
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops || !monitor_ops->mon_peer_get_peerstats_ctx) {
-		dp_mon_debug("callback not registered");
-		return NULL;
-	}
-
-	return monitor_ops->mon_peer_get_peerstats_ctx(peer);
-}
-
-/*
- * dp_monitor_peer_reset_stats() - Reset monitor peer stats
- * @soc: Datapath soc handle
- * @peer: Datapath peer handle
- *
- * Return: none
- */
-static inline void dp_monitor_peer_reset_stats(struct dp_soc *soc,
-					       struct dp_peer *peer)
-{
-	struct dp_mon_ops *monitor_ops;
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-
-	if (!mon_soc)
-		return;
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops || !monitor_ops->mon_peer_reset_stats) {
-		dp_mon_debug("callback not registered");
-		return;
-	}
-
-	monitor_ops->mon_peer_reset_stats(peer);
-}
-
-/*
- * dp_monitor_peer_get_stats() - Get monitor peer stats
- * @soc: Datapath soc handle
- * @peer: Datapath peer handle
- * @arg: Pointer to stats struct
- * @type: Update type
- *
- * Return: none
- */
-static inline
-void dp_monitor_peer_get_stats(struct dp_soc *soc, struct dp_peer *peer,
-			       void *arg, enum cdp_stat_update_type type)
-{
-	struct dp_mon_ops *monitor_ops;
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-
-	if (!mon_soc)
-		return;
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops || !monitor_ops->mon_peer_get_stats) {
-		dp_mon_debug("callback not registered");
-		return;
-	}
-
-	monitor_ops->mon_peer_get_stats(peer, arg, type);
-}
-
-/*
- * dp_monitor_invalid_peer_update_pdev_stats() - Update pdev stats from
- *						invalid monitor peer
- * @soc: Datapath soc handle
- * @pdev: Datapath pdev handle
- *
- * Return: none
- */
-static inline
-void dp_monitor_invalid_peer_update_pdev_stats(struct dp_soc *soc,
-					       struct dp_pdev *pdev)
-{
-	struct dp_mon_ops *monitor_ops;
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-
-	if (!mon_soc)
-		return;
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops || !monitor_ops->mon_invalid_peer_update_pdev_stats) {
-		dp_mon_debug("callback not registered");
-		return;
-	}
-
-	monitor_ops->mon_invalid_peer_update_pdev_stats(pdev);
-}
-
-/*
- * dp_monitor_peer_get_stats_param() - Get stats param value from monitor peer
- * @soc: Datapath soc handle
- * @peer: Datapath peer handle
- * @type: Stats type requested
- * @buf: Pointer to buffer for stats param
- *
- * Return: QDF_STATUS
- */
-static inline QDF_STATUS
-dp_monitor_peer_get_stats_param(struct dp_soc *soc, struct dp_peer *peer,
-				enum cdp_peer_stats_type type,
-				cdp_peer_stats_param_t *buf)
-{
-	struct dp_mon_ops *monitor_ops;
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-
-	if (!mon_soc)
-		return QDF_STATUS_E_FAILURE;
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops || !monitor_ops->mon_peer_get_stats_param) {
-		dp_mon_debug("callback not registered");
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	return monitor_ops->mon_peer_get_stats_param(peer, type, buf);
-}
-
-/*
  * dp_monitor_pdev_init() - Monitor pdev init
  * @pdev: point to pdev
  *
@@ -2158,104 +1738,6 @@ static inline void dp_monitor_flush_rings(struct dp_soc *soc)
 }
 
 /*
- * dp_monitor_config_undecoded_metadata_capture() - Monitor config
- * undecoded metadata capture
- * @pdev: point to pdev
- * @val: val
- *
- * Return: return QDF_STATUS
- */
-#ifdef QCA_UNDECODED_METADATA_SUPPORT
-static inline
-QDF_STATUS dp_monitor_config_undecoded_metadata_capture(struct dp_pdev *pdev,
-							int val)
-{
-	struct dp_mon_ops *monitor_ops;
-	struct dp_mon_soc *mon_soc = pdev->soc->monitor_soc;
-
-	if (!mon_soc)
-		return QDF_STATUS_E_FAILURE;
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops ||
-	    !monitor_ops->mon_config_undecoded_metadata_capture) {
-		dp_mon_debug("callback not registered");
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	return monitor_ops->mon_config_undecoded_metadata_capture(pdev, val);
-}
-
-static inline QDF_STATUS
-dp_monitor_config_undecoded_metadata_phyrx_error_mask(struct dp_pdev *pdev,
-						      int mask, int mask_cont)
-{
-	struct dp_mon_ops *monitor_ops;
-	struct dp_mon_pdev *mon_pdev = pdev->monitor_pdev;
-	struct dp_mon_soc *mon_soc = pdev->soc->monitor_soc;
-
-	if (!mon_soc)
-		return QDF_STATUS_E_FAILURE;
-
-	if (!mon_pdev)
-		return QDF_STATUS_E_FAILURE;
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops ||
-	    !monitor_ops->mon_config_undecoded_metadata_capture) {
-		dp_mon_debug("callback not registered");
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	if (!mon_pdev->undecoded_metadata_capture) {
-		qdf_info("mask:0x%x mask_cont:0x%x", mask, mask_cont);
-		return QDF_STATUS_SUCCESS;
-	}
-
-	mon_pdev->phyrx_error_mask = mask;
-	mon_pdev->phyrx_error_mask_cont = mask_cont;
-
-	return monitor_ops->mon_config_undecoded_metadata_capture(pdev, 1);
-}
-
-static inline QDF_STATUS
-dp_monitor_get_undecoded_metadata_phyrx_error_mask(struct dp_pdev *pdev,
-						   int *mask, int *mask_cont)
-{
-	struct dp_mon_pdev *mon_pdev = pdev->monitor_pdev;
-
-	if (!mon_pdev)
-		return QDF_STATUS_E_FAILURE;
-
-	*mask = mon_pdev->phyrx_error_mask;
-	*mask_cont = mon_pdev->phyrx_error_mask_cont;
-
-	return QDF_STATUS_SUCCESS;
-}
-#else
-static inline
-QDF_STATUS dp_monitor_config_undecoded_metadata_capture(struct dp_pdev *pdev,
-							int val)
-{
-	return QDF_STATUS_SUCCESS;
-}
-
-static inline QDF_STATUS
-dp_monitor_config_undecoded_metadata_phyrx_error_mask(struct dp_pdev *pdev,
-						      int mask1, int mask2)
-{
-	return QDF_STATUS_SUCCESS;
-}
-
-static inline QDF_STATUS
-dp_monitor_get_undecoded_metadata_phyrx_error_mask(struct dp_pdev *pdev,
-						   int *mask, int *mask_cont)
-{
-	return QDF_STATUS_SUCCESS;
-}
-#endif /* QCA_UNDECODED_METADATA_SUPPORT */
-
-/*
  * dp_monitor_htt_srng_setup() - Setup htt srng
  * @soc: point to soc
  * @pdev: point to pdev
@@ -2346,7 +1828,7 @@ void dp_monitor_service_mon_rings(struct dp_soc *soc, uint32_t quota)
 #endif
 
 /*
- * dp_rx_monitor_process() - Process monitor
+ * dp_monitor_process() - Process monitor
  * @soc: point to soc
  * @int_ctx: interrupt ctx
  * @mac_id: lma
@@ -2357,7 +1839,7 @@ void dp_monitor_service_mon_rings(struct dp_soc *soc, uint32_t quota)
 #ifndef DISABLE_MON_CONFIG
 static inline
 uint32_t dp_monitor_process(struct dp_soc *soc, struct dp_intr *int_ctx,
-			       uint32_t mac_id, uint32_t quota)
+			    uint32_t mac_id, uint32_t quota)
 {
 	struct dp_mon_soc *mon_soc = soc->monitor_soc;
 
@@ -2374,94 +1856,16 @@ uint32_t dp_monitor_process(struct dp_soc *soc, struct dp_intr *int_ctx,
 	return mon_soc->mon_rx_process(soc, int_ctx, mac_id, quota);
 }
 
-static inline
-uint32_t dp_tx_mon_process(struct dp_soc *soc, struct dp_intr *int_ctx,
-			   uint32_t mac_id, uint32_t quota)
+static inline uint32_t
+dp_tx_mon_process(struct dp_soc *soc, struct dp_intr *int_ctx,
+		  uint32_t mac_id, uint32_t quota)
 {
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-	struct dp_mon_ops *monitor_ops;
-
-	if (!mon_soc) {
-		dp_mon_debug("monitor soc is NULL");
-		return 0;
-	}
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops || !monitor_ops->mon_tx_process) {
-		dp_mon_debug("callback not registered");
-		return 0;
-	}
-
-	return monitor_ops->mon_tx_process(soc, int_ctx, mac_id, quota);
+	return 0;
 }
-
-static inline
-uint32_t dp_tx_mon_buf_refill(struct dp_intr *int_ctx)
-{
-	struct dp_soc *soc = int_ctx->soc;
-	struct dp_mon_ops *monitor_ops;
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-
-	if (!mon_soc) {
-		dp_mon_debug("monitor soc is NULL");
-		return 0;
-	}
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops || !monitor_ops->tx_mon_refill_buf_ring) {
-		dp_mon_debug("callback not registered");
-		return 0;
-	}
-
-	return monitor_ops->tx_mon_refill_buf_ring(int_ctx);
-}
-
-static inline
-uint32_t dp_rx_mon_buf_refill(struct dp_intr *int_ctx)
-{
-	struct dp_soc *soc = int_ctx->soc;
-	struct dp_mon_ops *monitor_ops;
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-
-	if (!mon_soc) {
-		dp_mon_debug("monitor soc is NULL");
-		return 0;
-	}
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops || !monitor_ops->rx_mon_refill_buf_ring) {
-		dp_mon_debug("callback not registered");
-		return 0;
-	}
-
-	return monitor_ops->rx_mon_refill_buf_ring(int_ctx);
-}
-
-static inline
-void dp_print_txmon_ring_stat_from_hal(struct dp_pdev *pdev)
-{
-	struct dp_soc *soc = pdev->soc;
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-	struct dp_mon_ops *monitor_ops;
-
-	if (!mon_soc) {
-		dp_mon_debug("monitor soc is NULL");
-		return;
-	}
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops || !monitor_ops->print_txmon_ring_stat) {
-		dp_mon_debug("callback not registered");
-		return;
-	}
-
-	monitor_ops->print_txmon_ring_stat(pdev);
-}
-
 #else
 static inline
 uint32_t dp_monitor_process(struct dp_soc *soc, struct dp_intr *int_ctx,
-			       uint32_t mac_id, uint32_t quota)
+			    uint32_t mac_id, uint32_t quota)
 {
 	return 0;
 }
@@ -2471,23 +1875,6 @@ dp_tx_mon_process(struct dp_soc *soc, struct dp_intr *int_ctx,
 		  uint32_t mac_id, uint32_t quota)
 {
 	return 0;
-}
-
-static inline
-uint32_t dp_tx_mon_buf_refill(struct dp_intr *int_ctx)
-{
-	return 0;
-}
-
-static inline
-uint32_t dp_rx_mon_buf_refill(struct dp_intr *int_ctx)
-{
-	return 0;
-}
-
-static inline
-void dp_print_txmon_ring_stat_from_hal(struct dp_pdev *pdev)
-{
 }
 #endif
 
@@ -2519,7 +1906,7 @@ uint32_t dp_monitor_drop_packets_for_mac(struct dp_pdev *pdev,
 	}
 
 	return monitor_ops->mon_drop_packets_for_mac(pdev,
-						     mac_id, quota, false);
+						     mac_id, quota);
 }
 #else
 static inline
@@ -2584,8 +1971,8 @@ static inline void dp_monitor_peer_tx_cleanup(struct dp_vdev *vdev,
 	return monitor_ops->mon_peer_tx_cleanup(vdev, peer);
 }
 
-#ifdef WIFI_MONITOR_SUPPORT
-/**
+#ifdef WLAN_TX_PKT_CAPTURE_ENH
+/*
  * dp_monitor_peer_tid_peer_id_update() - peer tid update
  * @soc: point to soc
  * @peer: point to peer
@@ -2722,14 +2109,14 @@ static inline void dp_monitor_peer_tx_capture_filter_check(struct dp_pdev *pdev,
  * dp_monitor_tx_add_to_comp_queue() - add completion msdu to queue
  *
  * This API returns QDF_STATUS_SUCCESS in case where buffer is added
- * to txmonitor queue successfully caller will not free the buffer in
+ * to txmonitor queue successfuly caller will not free the buffer in
  * this case. In other cases this API return QDF_STATUS_E_FAILURE and
  * caller frees the buffer
  *
  * @soc: point to soc
  * @desc: point to tx desc
  * @ts: Tx completion status from HAL/HTT descriptor
- * @peer id: DP peer id
+ * @peer: DP peer
  *
  * Return: QDF_STATUS
  *
@@ -2738,7 +2125,7 @@ static inline
 QDF_STATUS dp_monitor_tx_add_to_comp_queue(struct dp_soc *soc,
 					   struct dp_tx_desc_s *desc,
 					   struct hal_tx_completion_status *ts,
-					   uint16_t peer_id)
+					   struct dp_peer *peer)
 {
 	struct dp_mon_ops *monitor_ops;
 	struct dp_mon_soc *mon_soc = soc->monitor_soc;
@@ -2754,7 +2141,7 @@ QDF_STATUS dp_monitor_tx_add_to_comp_queue(struct dp_soc *soc,
 		return QDF_STATUS_E_FAILURE;
 	}
 
-	return monitor_ops->mon_tx_add_to_comp_queue(soc, desc, ts, peer_id);
+	return monitor_ops->mon_tx_add_to_comp_queue(soc, desc, ts, peer);
 }
 
 static inline
@@ -2782,63 +2169,6 @@ QDF_STATUS monitor_update_msdu_to_list(struct dp_soc *soc,
 						    peer, ts, netbuf);
 }
 
-/*
- * dp_monitor_peer_tx_capture_get_stats - to get Peer Tx Capture stats
- * @soc: DP SOC handle
- * @peer: DP PEER handle
- * @stats: Pointer Peer tx capture stats
- *
- * Return: QDF_STATUS_E_FAILURE or QDF_STATUS_SUCCESS
- */
-static inline QDF_STATUS
-dp_monitor_peer_tx_capture_get_stats(struct dp_soc *soc, struct dp_peer *peer,
-				     struct cdp_peer_tx_capture_stats *stats)
-{
-	struct dp_mon_ops *monitor_ops;
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-
-	if (!mon_soc) {
-		dp_mon_debug("monitor soc is NULL");
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops || !monitor_ops->mon_peer_tx_capture_get_stats) {
-		dp_mon_debug("callback not registered");
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	return monitor_ops->mon_peer_tx_capture_get_stats(peer, stats);
-}
-
-/*
- * dp_monitor_pdev_tx_capture_get_stats - to get pdev tx capture stats
- * @soc: DP SOC handle
- * @pdev: DP PDEV handle
- * @stats: Pointer to pdev tx capture stats
- *
- * Return: QDF_STATUS_E_FAILURE or QDF_STATUS_SUCCESS
- */
-static inline QDF_STATUS
-dp_monitor_pdev_tx_capture_get_stats(struct dp_soc *soc, struct dp_pdev *pdev,
-				     struct cdp_pdev_tx_capture_stats *stats)
-{
-	struct dp_mon_ops *monitor_ops;
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-
-	if (!mon_soc) {
-		dp_mon_debug("monitor soc is NULL");
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops || !monitor_ops->mon_pdev_tx_capture_get_stats) {
-		dp_mon_debug("callback not registered");
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	return monitor_ops->mon_pdev_tx_capture_get_stats(pdev, stats);
-}
 #else
 static inline
 void dp_monitor_peer_tid_peer_id_update(struct dp_soc *soc,
@@ -2870,7 +2200,7 @@ static inline
 QDF_STATUS dp_monitor_tx_add_to_comp_queue(struct dp_soc *soc,
 					   struct dp_tx_desc_s *desc,
 					   struct hal_tx_completion_status *ts,
-					   uint16_t peer_id)
+					   struct dp_peer *peer)
 {
 	return QDF_STATUS_E_FAILURE;
 }
@@ -2881,20 +2211,6 @@ QDF_STATUS monitor_update_msdu_to_list(struct dp_soc *soc,
 				       struct dp_peer *peer,
 				       struct hal_tx_completion_status *ts,
 				       qdf_nbuf_t netbuf)
-{
-	return QDF_STATUS_E_FAILURE;
-}
-
-static inline QDF_STATUS
-dp_monitor_peer_tx_capture_get_stats(struct dp_soc *soc, struct dp_peer *peer,
-				     struct cdp_peer_tx_capture_stats *stats)
-{
-	return QDF_STATUS_E_FAILURE;
-}
-
-static inline QDF_STATUS
-dp_monitor_pdev_tx_capture_get_stats(struct dp_soc *soc, struct dp_pdev *pdev,
-				     struct cdp_pdev_tx_capture_stats *stats)
 {
 	return QDF_STATUS_E_FAILURE;
 }
@@ -3016,13 +2332,13 @@ static inline void dp_monitor_print_pdev_rx_mon_stats(struct dp_pdev *pdev)
 	return monitor_ops->mon_print_pdev_rx_mon_stats(pdev);
 }
 
-#ifdef WIFI_MONITOR_SUPPORT
 /*
  * dp_monitor_print_pdev_tx_capture_stats() - print tx capture stats
  * @pdev: Datapath PDEV handle
  *
  * Return: void
  */
+#ifdef WLAN_TX_PKT_CAPTURE_ENH
 static inline void dp_monitor_print_pdev_tx_capture_stats(struct dp_pdev *pdev)
 {
 	struct dp_mon_ops *monitor_ops;
@@ -3042,13 +2358,6 @@ static inline void dp_monitor_print_pdev_tx_capture_stats(struct dp_pdev *pdev)
 	return monitor_ops->mon_print_pdev_tx_capture_stats(pdev);
 }
 
-/**
- * dp_monitor_config_enh_tx_capture() - configure tx capture
- * @pdev: Datapath PDEV handle
- * @val: mode
- *
- * Return: status
- */
 static inline QDF_STATUS dp_monitor_config_enh_tx_capture(struct dp_pdev *pdev,
 							  uint32_t val)
 {
@@ -3068,37 +2377,15 @@ static inline QDF_STATUS dp_monitor_config_enh_tx_capture(struct dp_pdev *pdev,
 
 	return monitor_ops->mon_config_enh_tx_capture(pdev, val);
 }
-
-/**
- * dp_monitor_tx_peer_filter() -  add tx monitor peer filter
- * @pdev: Datapath PDEV handle
- * @peer: Datapath PEER handle
- * @is_tx_pkt_cap_enable: flag for tx capture enable/disable
- * @peer_mac: peer mac address
- *
- * Return: status
- */
-static inline QDF_STATUS dp_monitor_tx_peer_filter(struct dp_pdev *pdev,
-						   struct dp_peer *peer,
-						   uint8_t is_tx_pkt_cap_enable,
-						   uint8_t *peer_mac)
+#else
+static inline void dp_monitor_print_pdev_tx_capture_stats(struct dp_pdev *pdev)
 {
-	struct dp_mon_ops *monitor_ops;
-	struct dp_mon_soc *mon_soc = pdev->soc->monitor_soc;
+}
 
-	if (!mon_soc) {
-		qdf_err("monitor soc is NULL");
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops || !monitor_ops->mon_tx_peer_filter) {
-		qdf_err("callback not registered");
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	return monitor_ops->mon_tx_peer_filter(pdev, peer, is_tx_pkt_cap_enable,
-					       peer_mac);
+static inline QDF_STATUS dp_monitor_config_enh_tx_capture(struct dp_pdev *pdev,
+							  uint32_t val)
+{
+	return QDF_STATUS_E_INVAL;
 }
 #endif
 
@@ -3350,20 +2637,20 @@ static inline void dp_monitor_pktlogmod_exit(struct dp_pdev *pdev) {}
 #endif
 
 static inline
-QDF_STATUS dp_monitor_vdev_set_monitor_mode_buf_rings(struct dp_pdev *pdev)
+void dp_monitor_vdev_set_monitor_mode_buf_rings(struct dp_pdev *pdev)
 {
 	struct dp_mon_ops *monitor_ops;
 	struct dp_mon_soc *mon_soc = pdev->soc->monitor_soc;
 
 	if (!mon_soc) {
 		dp_mon_debug("monitor soc is NULL");
-		return QDF_STATUS_E_FAILURE;
+		return;
 	}
 
 	monitor_ops = mon_soc->mon_ops;
 	if (!monitor_ops || !monitor_ops->mon_vdev_set_monitor_mode_buf_rings) {
 		dp_mon_debug("callback not registered");
-		return QDF_STATUS_E_FAILURE;
+		return;
 	}
 
 	return monitor_ops->mon_vdev_set_monitor_mode_buf_rings(pdev);
@@ -3451,44 +2738,28 @@ void dp_monitor_reap_timer_deinit(struct dp_soc *soc)
 	monitor_ops->mon_reap_timer_deinit(soc);
 }
 
-/**
- * dp_monitor_reap_timer_start() - start reap timer of monitor status ring
- * @soc: point to soc
- * @source: trigger source
- *
- * Return: true if timer-start is performed, false otherwise.
- */
-static inline bool
-dp_monitor_reap_timer_start(struct dp_soc *soc,
-			    enum cdp_mon_reap_source source)
+static inline
+void dp_monitor_reap_timer_start(struct dp_soc *soc)
 {
 	struct dp_mon_ops *monitor_ops;
 	struct dp_mon_soc *mon_soc = soc->monitor_soc;
 
 	if (!mon_soc) {
 		dp_mon_debug("monitor soc is NULL");
-		return false;
+		return;
 	}
 
 	monitor_ops = mon_soc->mon_ops;
 	if (!monitor_ops || !monitor_ops->mon_reap_timer_start) {
 		dp_mon_debug("callback not registered");
-		return false;
+		return;
 	}
 
-	return monitor_ops->mon_reap_timer_start(soc, source);
+	monitor_ops->mon_reap_timer_start(soc);
 }
 
-/**
- * dp_monitor_reap_timer_stop() - stop reap timer of monitor status ring
- * @soc: point to soc
- * @source: trigger source
- *
- * Return: true if timer-stop is performed, false otherwise.
- */
-static inline bool
-dp_monitor_reap_timer_stop(struct dp_soc *soc,
-			   enum cdp_mon_reap_source source)
+static inline
+bool dp_monitor_reap_timer_stop(struct dp_soc *soc)
 {
 	struct dp_mon_ops *monitor_ops;
 	struct dp_mon_soc *mon_soc = soc->monitor_soc;
@@ -3504,7 +2775,7 @@ dp_monitor_reap_timer_stop(struct dp_soc *soc,
 		return false;
 	}
 
-	return monitor_ops->mon_reap_timer_stop(soc, source);
+	return monitor_ops->mon_reap_timer_stop(soc);
 }
 
 static inline
@@ -3669,8 +2940,8 @@ static inline void dp_monitor_vdev_delete(struct dp_soc *soc,
 		qdf_timer_sync_cancel(&soc->int_timer);
 		dp_monitor_flush_rings(soc);
 	} else if (soc->intr_mode == DP_INTR_MSI) {
-		dp_monitor_vdev_timer_stop(soc);
-		dp_monitor_flush_rings(soc);
+		if (dp_monitor_vdev_timer_stop(soc))
+			dp_monitor_flush_rings(soc);
 	}
 
 	dp_monitor_vdev_detach(vdev);
@@ -3678,19 +2949,45 @@ static inline void dp_monitor_vdev_delete(struct dp_soc *soc,
 
 #ifdef DP_POWER_SAVE
 /*
- * dp_monitor_reap_timer_suspend() - Stop monitor reap timer
- * and reap any pending frames in ring
+ * dp_monitor_pktlog_reap_pending_frames() - reap pending frames
  * @pdev: point to dp pdev
  *
  * Return: void
  */
-static inline void
-dp_monitor_reap_timer_suspend(struct dp_soc *soc)
+static inline void dp_monitor_pktlog_reap_pending_frames(struct dp_pdev *pdev)
 {
-	if (dp_monitor_reap_timer_stop(soc, CDP_MON_REAP_SOURCE_ANY))
-		dp_monitor_service_mon_rings(soc, DP_MON_REAP_BUDGET);
+	struct dp_soc *soc;
+
+	if (qdf_unlikely(!pdev || !pdev->monitor_pdev))
+		return;
+
+	soc = pdev->soc;
+
+	if (((pdev->monitor_pdev->rx_pktlog_mode != DP_RX_PKTLOG_DISABLED) ||
+	     dp_mon_is_enable_reap_timer_non_pkt(pdev))) {
+		if (dp_monitor_reap_timer_stop(soc))
+			dp_monitor_service_mon_rings(soc, DP_MON_REAP_BUDGET);
+	}
 }
 
+/*
+ * dp_monitor_pktlog_start_reap_timer() - start reap timer
+ * @pdev: point to dp pdev
+ *
+ * Return: void
+ */
+static inline void dp_monitor_pktlog_start_reap_timer(struct dp_pdev *pdev)
+{
+	struct dp_soc *soc;
+
+	if (qdf_unlikely(!pdev || !pdev->monitor_pdev))
+		return;
+
+	soc = pdev->soc;
+	if (((pdev->monitor_pdev->rx_pktlog_mode != DP_RX_PKTLOG_DISABLED) ||
+	     dp_mon_is_enable_reap_timer_non_pkt(pdev)))
+		dp_monitor_reap_timer_start(soc);
+}
 #endif
 
 /*
@@ -3813,64 +3110,6 @@ dp_mon_rx_enable_mpdu_logging(struct dp_soc *soc, uint32_t *msg_word,
 	monitor_ops->rx_enable_mpdu_logging(msg_word, tlv_filter);
 }
 
-/*
- * dp_mon_rx_enable_fpmo() - set fpmo filters
- * @soc: dp soc handle
- * @msg_word: msg word
- * @tlv_filter: rx fing filter config
- *
- * Return: void
- */
-static inline void
-dp_mon_rx_enable_fpmo(struct dp_soc *soc, uint32_t *msg_word,
-		      struct htt_rx_ring_tlv_filter *tlv_filter)
-{
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-	struct dp_mon_ops *monitor_ops;
-
-	if (!mon_soc) {
-		dp_mon_debug("mon soc is NULL");
-		return;
-	}
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops || !monitor_ops->rx_enable_fpmo) {
-		dp_mon_debug("callback not registered");
-		return;
-	}
-
-	monitor_ops->rx_enable_fpmo(msg_word, tlv_filter);
-}
-
-/*
- * dp_mon_rx_hdr_length_set() - set rx hdr tlv length
- * @soc: dp soc handle
- * @msg_word: msg word
- * @tlv_filter: rx fing filter config
- *
- * Return: void
- */
-static inline void
-dp_mon_rx_hdr_length_set(struct dp_soc *soc, uint32_t *msg_word,
-			 struct htt_rx_ring_tlv_filter *tlv_filter)
-{
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-	struct dp_mon_ops *monitor_ops;
-
-	if (!mon_soc) {
-		dp_mon_debug("mon soc is NULL");
-		return;
-	}
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops || !monitor_ops->rx_hdr_length_set) {
-		dp_mon_debug("callback not registered");
-		return;
-	}
-
-	monitor_ops->rx_hdr_length_set(msg_word, tlv_filter);
-}
-
 static inline void
 dp_mon_rx_packet_length_set(struct dp_soc *soc, uint32_t *msg_word,
 			    struct htt_rx_ring_tlv_filter *tlv_filter)
@@ -3891,48 +3130,6 @@ dp_mon_rx_packet_length_set(struct dp_soc *soc, uint32_t *msg_word,
 	}
 
 	monitor_ops->rx_packet_length_set(msg_word, tlv_filter);
-}
-
-static inline void
-dp_rx_mon_enable(struct dp_soc *soc, uint32_t *msg_word,
-		 struct htt_rx_ring_tlv_filter *tlv_filter)
-{
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-	struct dp_mon_ops *monitor_ops;
-
-	if (!mon_soc) {
-		dp_mon_debug("mon soc is NULL");
-		return;
-	}
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops || !monitor_ops->rx_mon_enable) {
-		dp_mon_debug("callback not registered");
-		return;
-	}
-
-	monitor_ops->rx_mon_enable(msg_word, tlv_filter);
-}
-
-static inline void
-dp_mon_rx_mac_filter_set(struct dp_soc *soc, uint32_t *msg_word,
-			 struct htt_rx_ring_tlv_filter *tlv_filter)
-{
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-	struct dp_mon_ops *monitor_ops;
-
-	if (!mon_soc) {
-		dp_mon_debug("mon soc is NULL");
-		return;
-	}
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops || !monitor_ops->mon_mac_filter_set) {
-		dp_mon_debug("callback not registered");
-		return;
-	}
-
-	monitor_ops->mon_mac_filter_set(msg_word, tlv_filter);
 }
 
 #ifdef QCA_ENHANCED_STATS_SUPPORT
@@ -4049,38 +3246,6 @@ struct cdp_mon_ops *dp_mon_cdp_ops_get(struct dp_soc *soc)
 }
 
 /**
- * dp_monitor_soc_init() - Monitor SOC init
- * @soc: DP soc handle
- *
- * Return: void
- */
-static inline void dp_monitor_soc_init(struct dp_soc *soc)
-{
-	struct dp_mon_ops *mon_ops;
-
-	mon_ops = dp_mon_ops_get(soc);
-
-	if (mon_ops && mon_ops->mon_soc_init)
-		mon_ops->mon_soc_init(soc);
-}
-
-/**
- * dp_monitor_soc_deinit() - Monitor SOC deinit
- * @soc: DP soc handle
- *
- * Return: void
- */
-static inline void dp_monitor_soc_deinit(struct dp_soc *soc)
-{
-	struct dp_mon_ops *mon_ops;
-
-	mon_ops = dp_mon_ops_get(soc);
-
-	if (mon_ops && mon_ops->mon_soc_deinit)
-		mon_ops->mon_soc_deinit(soc);
-}
-
-/**
  * dp_ppdu_desc_user_stats_update(): Function to update TX user stats
  * @pdev: DP pdev handle
  * @ppdu_info: per PPDU TLV descriptor
@@ -4100,58 +3265,34 @@ dp_ppdu_desc_user_stats_update(struct dp_pdev *pdev,
 #endif /* QCA_ENHANCED_STATS_SUPPORT */
 
 /**
- * dp_mon_ops_register_1_0(): register legacy monitor ops
- * @mon_soc: monitor soc handle
+ * dp_mon_ops_get_1_0(): Get legacy monitor ops
  *
- * return: void
+ * return: Pointer to dp_mon_ops
  */
-void dp_mon_ops_register_1_0(struct dp_mon_soc *mon_soc);
+struct dp_mon_ops *dp_mon_ops_get_1_0(void);
 
 /**
- * dp_mon_cdp_ops_register_1_0(): register legacy monitor cdp ops
- * @ops: cdp ops handle
+ * dp_mon_cdp_ops_get_1_0(): Get legacy monitor cdp ops
  *
- * return: void
+ * return: Pointer to dp_mon_cdp_ops
  */
-void dp_mon_cdp_ops_register_1_0(struct cdp_ops *ops);
-
-#if defined(WLAN_CFR_ENABLE) && defined(WLAN_ENH_CFR_ENABLE)
-/**
- * dp_cfr_filter_register_1_0(): register cfr filter setting API
- * @ops: cdp ops handle
- *
- * return: void
- */
-void dp_cfr_filter_register_1_0(struct cdp_ops *ops);
-#endif
+struct cdp_mon_ops *dp_mon_cdp_ops_get_1_0(void);
 
 #ifdef QCA_MONITOR_2_0_SUPPORT
 /**
- * dp_mon_ops_register_2_0(): register monitor ops
- * @mon_soc: monitor soc handle
+ * dp_mon_ops_get_2_0(): Get BE monitor ops
  *
- * return: void
+ * return: Pointer to dp_mon_ops
  */
-void dp_mon_ops_register_2_0(struct dp_mon_soc *mon_soc);
+struct dp_mon_ops *dp_mon_ops_get_2_0(void);
 
 /**
- * dp_mon_cdp_ops_register_2_0(): register monitor cdp ops
- * @ops: cdp ops handle
+ * dp_mon_cdp_ops_get_2_0(): Get BE monitor cdp ops
  *
- * return: void
+ * return: Pointer to dp_mon_cdp_ops
  */
-void dp_mon_cdp_ops_register_2_0(struct cdp_ops *ops);
-
-#if defined(WLAN_CFR_ENABLE) && defined(WLAN_ENH_CFR_ENABLE)
-/**
- * dp_cfr_filter_register_2_0(): register cfr filter setting API
- * @ops: cdp ops handle
- *
- * return: void
- */
-void dp_cfr_filter_register_2_0(struct cdp_ops *ops);
+struct cdp_mon_ops *dp_mon_cdp_ops_get_2_0(void);
 #endif
-#endif /* QCA_MONITOR_2_0_SUPPORT */
 
 /**
  * dp_mon_register_feature_ops(): Register mon feature ops
@@ -4173,234 +3314,4 @@ void dp_mon_register_feature_ops(struct dp_soc *soc)
 		mon_ops->mon_register_feature_ops(soc);
 }
 
-/**
- * dp_pdev_get_rx_mon_stats(): Get pdev Rx monitor stats
- * @soc_hdl: soc handle
- * @pdev_id: id of pdev handle
- * @stats: User allocated stats buffer
- *
- * return: status success/failure
- */
-QDF_STATUS dp_pdev_get_rx_mon_stats(struct cdp_soc_t *soc_hdl, uint8_t pdev_id,
-				    struct cdp_pdev_mon_stats *stats);
-
-/*
- * dp_enable_mon_reap_timer() - enable/disable reap timer
- * @soc_hdl: Datapath soc handle
- * @source: trigger source of the timer
- * @enable: Enable/Disable reap timer of monitor status ring
- *
- * Return: true if a timer-start/stop is performed, false otherwise.
- */
-bool dp_enable_mon_reap_timer(struct cdp_soc_t *soc_hdl,
-			      enum cdp_mon_reap_source source, bool enable);
-
-/*
- * dp_monitor_lite_mon_disable_rx() - disables rx lite mon
- * @pdev: dp pdev
- *
- * Return: void
- */
-static inline void
-dp_monitor_lite_mon_disable_rx(struct dp_pdev *pdev)
-{
-	struct dp_mon_ops *monitor_ops;
-	struct dp_mon_soc *mon_soc = pdev->soc->monitor_soc;
-
-	if (!mon_soc) {
-		dp_mon_debug("monitor soc is NULL");
-		return;
-}
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops ||
-	    !monitor_ops->mon_lite_mon_disable_rx) {
-		dp_mon_debug("callback not registered");
-		return;
-}
-
-	return monitor_ops->mon_lite_mon_disable_rx(pdev);
-}
-
-#ifndef QCA_SUPPORT_LITE_MONITOR
-static inline void
-dp_lite_mon_disable_rx(struct dp_pdev *pdev)
-{
-}
-
-static inline void
-dp_lite_mon_disable_tx(struct dp_pdev *pdev)
-{
-}
-
-static inline int
-dp_lite_mon_is_level_msdu(struct dp_mon_pdev *mon_pdev)
-{
-	return 0;
-}
-
-static inline int
-dp_lite_mon_is_rx_enabled(struct dp_mon_pdev *mon_pdev)
-{
-	return 0;
-}
-
-static inline int
-dp_lite_mon_is_tx_enabled(struct dp_mon_pdev *mon_pdev)
-{
-	return 0;
-}
-
-static inline QDF_STATUS
-dp_lite_mon_alloc(struct dp_pdev *pdev)
-{
-	return QDF_STATUS_SUCCESS;
-}
-
-static inline void
-dp_lite_mon_dealloc(struct dp_pdev *pdev)
-{
-}
-
-static inline void
-dp_lite_mon_vdev_delete(struct dp_pdev *pdev, struct dp_vdev *vdev)
-{
-}
-
-static inline int
-dp_lite_mon_config_nac_peer(struct cdp_soc_t *soc_hdl,
-			    uint8_t vdev_id,
-			    uint32_t cmd, uint8_t *macaddr)
-{
-	return 0;
-}
-
-static inline QDF_STATUS
-dp_lite_mon_config_nac_rssi_peer(struct cdp_soc_t *soc_hdl,
-				 uint8_t vdev_id,
-				 enum cdp_nac_param_cmd cmd,
-				 char *bssid, char *macaddr,
-				 uint8_t chan_num)
-{
-	return QDF_STATUS_E_FAILURE;
-}
-
-static inline QDF_STATUS
-dp_lite_mon_get_nac_peer_rssi(struct cdp_soc_t *soc_hdl,
-			      uint8_t vdev_id, char *macaddr,
-			      uint8_t *rssi)
-{
-	return QDF_STATUS_E_FAILURE;
-}
-
-static inline QDF_STATUS
-dp_lite_mon_rx_mpdu_process(struct dp_pdev *pdev,
-			    struct hal_rx_ppdu_info *ppdu_info,
-			    qdf_nbuf_t mon_mpdu, uint16_t mpdu_id,
-			    uint8_t user)
-{
-	return QDF_STATUS_E_FAILURE;
-}
-#endif
-
-#ifdef WLAN_TELEMETRY_STATS_SUPPORT
-static inline
-void dp_monitor_peer_telemetry_stats(struct dp_peer *peer,
-				     struct cdp_peer_telemetry_stats *stats)
-{
-	struct dp_mon_peer_stats *mon_peer_stats = NULL;
-	uint8_t ac;
-
-	if (qdf_unlikely(!peer->monitor_peer))
-		return;
-
-	mon_peer_stats = &peer->monitor_peer->stats;
-	for (ac = 0; ac < WME_AC_MAX; ac++) {
-		/* consumption is in micro seconds, convert it to seconds and
-		 * then calculate %age per sec
-		 */
-		stats->airtime_consumption[ac] =
-			((mon_peer_stats->airtime_consumption[ac].avg_consumption_per_sec * 100) /
-			(1000000));
-	}
-	stats->tx_mpdu_retried = mon_peer_stats->tx.retries;
-	stats->tx_mpdu_total = mon_peer_stats->tx.tx_mpdus_tried;
-	stats->rx_mpdu_retried = mon_peer_stats->rx.mpdu_retry_cnt;
-	stats->rx_mpdu_total = mon_peer_stats->rx.rx_mpdus;
-	stats->snr = CDP_SNR_OUT(mon_peer_stats->rx.avg_snr);
-}
-#endif
-
-/**
-<<<<<<< HEAD
- * dp_monitor_is_tx_cap_enabled() - get tx-cature enabled/disabled
- * @peer: DP peer handle
- *
- * Return: true if tx-capture is enabled
- */
-static inline bool dp_monitor_is_tx_cap_enabled(struct dp_peer *peer)
-{
-	return peer->monitor_peer ? peer->monitor_peer->tx_cap_enabled : 0;
-}
-
-/**
- * dp_monitor_is_rx_cap_enabled() - get rx-cature enabled/disabled
- * @peer: DP peer handle
- *
- * Return: true if rx-capture is enabled
- */
-static inline bool dp_monitor_is_rx_cap_enabled(struct dp_peer *peer)
-{
-	return peer->monitor_peer ? peer->monitor_peer->rx_cap_enabled : 0;
-}
-
-#if !(!defined(DISABLE_MON_CONFIG) && defined(QCA_MONITOR_2_0_SUPPORT))
-/**
- * dp_mon_get_context_size_be() - get BE specific size for mon pdev/soc
- * @arch_ops: arch ops pointer
- *
- * Return: size in bytes for the context_type
- */
-static inline
-qdf_size_t dp_mon_get_context_size_be(enum dp_context_type context_type)
-{
-	switch (context_type) {
-	case DP_CONTEXT_TYPE_MON_SOC:
-		return sizeof(struct dp_mon_soc);
-	case DP_CONTEXT_TYPE_MON_PDEV:
-		return sizeof(struct dp_mon_pdev);
-	default:
-		return 0;
-	}
-}
-#endif
-
-/*
- * dp_mon_rx_print_advanced_stats () - print advanced monitor stats
- *
- * @soc: DP soc handle
- * @pdev: DP pdev handle
- *
- * Return: void
- */
-static inline void
-dp_mon_rx_print_advanced_stats(struct dp_soc *soc,
-			       struct dp_pdev *pdev)
-{
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-	struct dp_mon_ops *monitor_ops;
-
-	if (!mon_soc) {
-		dp_mon_debug("mon soc is NULL");
-		return;
-	}
-
-	monitor_ops = mon_soc->mon_ops;
-	if (!monitor_ops ||
-	    !monitor_ops->mon_rx_print_advanced_stats) {
-		dp_mon_debug("callback not registered");
-		return;
-	}
-	return monitor_ops->mon_rx_print_advanced_stats(soc, pdev);
-}
 #endif /* _DP_MON_H_ */

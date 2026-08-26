@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2014, 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -117,13 +117,10 @@ static ssize_t ath_procfs_diag_read_legacy(struct file *file,
 	     (tgt_info->target_type == TARGET_TYPE_QCN9000) ||
 	     (tgt_info->target_type == TARGET_TYPE_QCN9224) ||
 	     (tgt_info->target_type == TARGET_TYPE_QCN6122) ||
-	     (tgt_info->target_type == TARGET_TYPE_QCN9160) ||
 	     (tgt_info->target_type == TARGET_TYPE_QCA5018) ||
-	     (tgt_info->target_type == TARGET_TYPE_QCA5332) ||
 	     (tgt_info->target_type == TARGET_TYPE_QCA6018) ||
 	     (tgt_info->target_type == TARGET_TYPE_QCN7605) ||
-	     (tgt_info->target_type == TARGET_TYPE_KIWI) ||
-	     (tgt_info->target_type == TARGET_TYPE_MANGO))) ||
+	     (tgt_info->target_type == TARGET_TYPE_KIWI))) ||
 	    (scn->bus_type ==  QDF_BUS_TYPE_IPCI &&
 	     (tgt_info->target_type == TARGET_TYPE_QCA6750)) ||
 	    ((scn->bus_type ==  QDF_BUS_TYPE_USB) &&
@@ -202,13 +199,10 @@ static ssize_t ath_procfs_diag_write_legacy(struct file *file,
 	      (tgt_info->target_type == TARGET_TYPE_QCN9000) ||
 	      (tgt_info->target_type == TARGET_TYPE_QCN9224) ||
 	      (tgt_info->target_type == TARGET_TYPE_QCN6122) ||
-	      (tgt_info->target_type == TARGET_TYPE_QCN9160) ||
 	      (tgt_info->target_type == TARGET_TYPE_QCA5018) ||
-	      (tgt_info->target_type == TARGET_TYPE_QCA5332) ||
 	      (tgt_info->target_type == TARGET_TYPE_QCA6018) ||
 	      (tgt_info->target_type == TARGET_TYPE_QCN7605) ||
-	      (tgt_info->target_type == TARGET_TYPE_KIWI) ||
-	      (tgt_info->target_type == TARGET_TYPE_MANGO))) ||
+	      (tgt_info->target_type == TARGET_TYPE_KIWI))) ||
 	    (scn->bus_type ==  QDF_BUS_TYPE_IPCI &&
 	     (tgt_info->target_type == TARGET_TYPE_QCA6750)) ||
 	    ((scn->bus_type ==  QDF_BUS_TYPE_USB) &&
@@ -355,7 +349,6 @@ static ssize_t ath_procfs_diag_read_ext(struct file *file, char __user *buf,
 		case TARGET_TYPE_QCA6390:
 		case TARGET_TYPE_QCA6490:
 		case TARGET_TYPE_KIWI:
-		case TARGET_TYPE_MANGO:
 			if (op_type == OP_TYPE_EXT_DIRECT)
 				rv = ath_procfs_direct_read(scn,
 							    offset,
@@ -431,7 +424,6 @@ static ssize_t ath_procfs_diag_write_ext(struct file *file,
 		case TARGET_TYPE_QCA6390:
 		case TARGET_TYPE_QCA6490:
 		case TARGET_TYPE_KIWI:
-		case TARGET_TYPE_MANGO:
 			if (op_type == OP_TYPE_EXT_DIRECT)
 				rv = ath_procfs_direct_write(scn,
 							     offset,
@@ -493,8 +485,8 @@ static ssize_t ath_procfs_diag_read(struct file *file, char __user *buf,
 	if (offset & 0x3)
 		return -EINVAL;
 
-	hif_info("rd cnt %zu offset 0x%x op_type %d type %d pos %llx",
-		 count, offset, op_type, memtype, *pos);
+	hif_debug("rd cnt %zu offset 0x%x op_type %d type %d pos %llx",
+		  count, offset, op_type, memtype, *pos);
 
 	switch (op_type) {
 	case OP_TYPE_LEGACY:
@@ -535,8 +527,8 @@ static ssize_t ath_procfs_diag_write(struct file *file,
 	if (offset & 0x3)
 		return -EINVAL;
 
-	hif_info("wr cnt %zu offset 0x%x op_type %d mem_type %d",
-		 count, offset, op_type, memtype);
+	hif_debug("wr cnt %zu offset 0x%x op_type %d mem_type %d",
+		  count, offset, op_type, memtype);
 
 	switch (op_type) {
 	case OP_TYPE_LEGACY:

@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  *
  * Permission to use, copy, modify, and/or distribute this software for
@@ -116,28 +115,6 @@ void ucfg_reg_restore_cached_channels(struct wlan_objmgr_pdev *pdev)
 #endif
 
 /**
- * ucfg_reg_get_keep_6ghz_sta_cli_connection() - Get keep 6ghz sta cli
- *                                               connection flag
- * @pdev: The physical pdev to get keep_6ghz_sta_cli_connection
- *
- * Return: Return true if keep 6ghz sta cli connection set else return flase
- */
-bool ucfg_reg_get_keep_6ghz_sta_cli_connection(
-					struct wlan_objmgr_pdev *pdev);
-
-/**
- * ucfg_reg_set_keep_6ghz_sta_cli_connection() - Set keep 6ghz sta cli
- *                                               connection flag
- * @pdev: The physical pdev to get keep_6ghz_sta_cli_connection
- * @keep_6ghz_sta_cli_connection: Parameter to set
- *
- * Return: QDF_STATUS
- */
-
-QDF_STATUS ucfg_reg_set_keep_6ghz_sta_cli_connection(
-					struct wlan_objmgr_pdev *pdev,
-					bool keep_6ghz_sta_cli_connection);
-/**
  * ucfg_reg_set_fcc_constraint() - apply fcc constraints on channels 12/13
  * @pdev: The physical pdev to reduce tx power for
  *
@@ -211,17 +188,8 @@ QDF_STATUS ucfg_reg_unregister_event_handler(uint8_t vdev_id, reg_event_cb cb,
 		void *arg);
 QDF_STATUS ucfg_reg_init_handler(uint8_t pdev_id);
 
-#ifdef WLAN_REG_PARTIAL_OFFLOAD
-/**
- * ucfg_reg_program_default_cc() - Program default country code
- * @pdev: Pdev pointer
- * @regdmn: Regdomain value
- *
- * Return: QDF_STATUS
- */
 QDF_STATUS ucfg_reg_program_default_cc(struct wlan_objmgr_pdev *pdev,
 				       uint16_t regdmn);
-#endif
 
 /**
  * ucfg_reg_program_cc() - Program user country code or regdomain
@@ -372,31 +340,6 @@ QDF_STATUS ucfg_reg_get_partial_afc_req_info(
 		struct wlan_objmgr_pdev *pdev,
 		struct wlan_afc_host_partial_request **afc_req,
 		uint64_t req_id);
-
-/**
- * ucfg_reg_register_afc_power_event_callback() - add AFC power event received
- * @pdev: Pointer to pdev
- * @cbf: Pointer to callback function
- * @arg: Pointer to opaque argument
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-ucfg_reg_register_afc_power_event_callback(struct wlan_objmgr_pdev *pdev,
-					   afc_power_tx_evt_handler cbf,
-					   void *arg);
-
-/**
- * ucfg_reg_unregister_afc_power_event_callback() - remove AFC power event
- * received callback
- * @pdev: Pointer to pdev
- * @cbf: Pointer to callback function
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-ucfg_reg_unregister_afc_power_event_callback(struct wlan_objmgr_pdev *pdev,
-					     afc_power_tx_evt_handler cbf);
 #endif
 
 /**
@@ -446,126 +389,6 @@ void ucfg_reg_ch_avoid(struct wlan_objmgr_psoc *psoc,
  */
 void ucfg_reg_ch_avoid_ext(struct wlan_objmgr_psoc *psoc,
 			   struct ch_avoid_ind_type *ch_avoid);
-#endif
-
-#if defined(CONFIG_BAND_6GHZ) && defined(CONFIG_AFC_SUPPORT)
-/**
- * ucfg_reg_get_enable_6ghz_sp_mode_support() - Get enable 6 GHz SP mode support
- * @psoc: psoc ptr
- *
- * Return: enable 6 GHz SP mode support flag
- */
-bool ucfg_reg_get_enable_6ghz_sp_mode_support(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_reg_set_enable_6ghz_sp_mode_support() - Set enable 6 GHz SP mode support
- * @psoc: psoc ptr
- * @value: value to be set
- *
- * Return: None
- */
-void ucfg_reg_set_enable_6ghz_sp_mode_support(struct wlan_objmgr_psoc *psoc,
-					      bool value);
-
-/**
- * ucfg_reg_get_afc_disable_timer_check() - Get AFC timer check disable flag
- * @psoc: psoc ptr
- *
- * Return: AFC timer check disable flag
- */
-bool ucfg_reg_get_afc_disable_timer_check(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_reg_set_afc_disable_timer_check() - Set AFC timer check disable flag
- * @psoc: psoc ptr
- * @value: value to be set
- *
- * Return: None
- */
-void ucfg_reg_set_afc_disable_timer_check(struct wlan_objmgr_psoc *psoc,
-					  bool value);
-
-/**
- * ucfg_reg_get_afc_disable_request_id_check() - Get AFC request id check flag
- * @psoc: psoc ptr
- *
- * Return: AFC request id check disable flag
- */
-bool ucfg_reg_get_afc_disable_request_id_check(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_reg_set_afc_disable_request_id_check() - Set AFC request id check flag
- * @psoc: psoc ptr
- * @value: value to be set
- *
- * Return: None
- */
-void ucfg_reg_set_afc_disable_request_id_check(struct wlan_objmgr_psoc *psoc,
-					       bool value);
-
-/**
- * ucfg_reg_get_afc_no_action() - Get AFC no action flag
- * @psoc: psoc ptr
- *
- * Return: AFC no action flag
- */
-bool ucfg_reg_get_afc_no_action(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_reg_set_afc_no_action() - Set AFC no action flag
- * @psoc: psoc ptr
- * @value: value to be set
- *
- * Return: None
- */
-void ucfg_reg_set_afc_no_action(struct wlan_objmgr_psoc *psoc, bool value);
-#else
-static inline
-bool ucfg_reg_get_enable_6ghz_sp_mode_support(struct wlan_objmgr_psoc *psoc)
-{
-	return false;
-}
-
-static inline
-void ucfg_reg_set_enable_6ghz_sp_mode_support(struct wlan_objmgr_psoc *psoc,
-					      bool value)
-{
-}
-
-static inline
-bool ucfg_reg_get_afc_disable_timer_check(struct wlan_objmgr_psoc *psoc)
-{
-	return false;
-}
-
-static inline
-void ucfg_reg_set_afc_disable_timer_check(struct wlan_objmgr_psoc *psoc,
-					  bool value)
-{
-}
-
-static inline
-bool ucfg_reg_get_afc_disable_request_id_check(struct wlan_objmgr_psoc *psoc)
-{
-	return false;
-}
-
-static inline
-void ucfg_reg_set_afc_disable_request_id_check(struct wlan_objmgr_psoc *psoc,
-					       bool value)
-{
-}
-
-static inline
-bool ucfg_reg_get_afc_no_action(struct wlan_objmgr_psoc *psoc)
-{
-	return false;
-}
-
-static inline
-void ucfg_reg_set_afc_no_action(struct wlan_objmgr_psoc *psoc, bool value)
-{
-}
 #endif
 
 /**

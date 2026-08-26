@@ -28,6 +28,9 @@
 #include <qca_vendor.h>
 #include "wlan_cm_ucfg_api.h"
 #include "wlan_cm_public_struct.h"
+#ifdef WLAN_FEATURE_ROAM_OFFLOAD
+#include "wlan_cm_roam_public_struct.h"
+#endif
 #ifdef CONN_MGR_ADV_FEATURE
 #include <cdp_txrx_mob_def.h>
 #endif
@@ -153,20 +156,6 @@ typedef QDF_STATUS
 				   struct wlan_cm_connect_resp *rsp,
 				   enum osif_cb_type type);
 
-#ifdef WLAN_VENDOR_HANDOFF_CONTROL
-/**
- * typedef osif_cm_get_vendor_handoff_params_cb  - process vendor handoff cb
- * @psoc: psoc pointer
- * @rsp: vendor handoff response
- * @vendor_handoff_context: vendor handoff context
- *
- * return: none
- */
-typedef QDF_STATUS
-(*osif_cm_get_vendor_handoff_params_cb)(struct wlan_objmgr_psoc *psoc,
-					void *vendor_handoff_context);
-#endif
-
 #ifdef WLAN_FEATURE_FILS_SK
 /**
  * typedef osif_cm_save_gtk_cb  - save gtk callback
@@ -198,7 +187,7 @@ typedef QDF_STATUS (*osif_cm_set_hlp_data_cb)(struct net_device *dev,
 #endif
 
 /**
- * typedef  osif_cm_disconnect_comp_cb: Disconnect complete callback
+ * typedef  osif_cm_disconnect_comp_cb: Disonnect complete callback
  * @vdev: vdev pointer
  * @rsp: disconnect response
  * @type: indicates update type
@@ -214,19 +203,6 @@ typedef QDF_STATUS
 				      enum osif_cb_type type);
 
 #ifdef CONN_MGR_ADV_FEATURE
-/**
- * typedef osif_cm_get_scan_ie_params_cb  - get scan ie params cb
- * @vdev: vdev pointer
- * @scan_ie: pointer to scan ie element struct
- * @dot11mode_filter: Pointer to dot11mode_filter enum
- *
- * Return: QDF_STATUS
- */
-typedef QDF_STATUS
-(*osif_cm_get_scan_ie_params_cb)(struct wlan_objmgr_vdev *vdev,
-				 struct element_info *scan_ie,
-				 enum dot11_mode_filter *dot11mode_filter);
-
 /**
  * typedef osif_cm_netif_queue_ctrl_cb: Callback to update netif queue
  * @vdev: vdev pointer
@@ -259,21 +235,6 @@ typedef QDF_STATUS
 	(*os_if_cm_napi_serialize_ctrl_cb)(bool action);
 
 /**
- * typedef osif_cm_send_vdev_keys_cb  - send vdev keys cb
- * @vdev: vdev pointer
- * @key_index: key index value
- * @pairwise: pairwise boolean value
- * @cipher_type: cipher type enum value
- *
- * return: none
- */
-typedef QDF_STATUS
-(*osif_cm_send_vdev_keys_cb)(struct wlan_objmgr_vdev *vdev,
-			     uint8_t key_index,
-			     bool pairwise,
-			     enum wlan_crypto_cipher_type cipher_type);
-
-/**
  * osif_cm_unlink_bss() - function to unlink bss from kernel and scan database
  * on connect timeouts reasons
  * @vdev: vdev pointer
@@ -290,6 +251,23 @@ void osif_cm_unlink_bss(struct wlan_objmgr_vdev *vdev,
 static inline
 void osif_cm_unlink_bss(struct wlan_objmgr_vdev *vdev,
 			struct qdf_mac_addr *bssid) {}
+#endif
+
+#ifdef WLAN_FEATURE_ROAM_OFFLOAD
+/**
+ * typedef osif_cm_roam_rt_stats_cb: Callback to send roam
+ * stats event
+ * @roam_stats: roam_stats_event pointer
+ * @idx: TLV idx for roam stats event
+ *
+ * This callback sends roam_stats_event to userspace
+ *
+ * Context: Any context.
+ * Return: void
+ */
+typedef void
+	(*osif_cm_roam_rt_stats_cb)(struct roam_stats_event *roam_stats,
+				    uint8_t idx);
 #endif
 
 #ifdef WLAN_FEATURE_PREAUTH_ENABLE
@@ -326,6 +304,22 @@ typedef QDF_STATUS
 #endif
 #endif
 
+#ifdef WLAN_BOOST_CPU_FREQ_IN_ROAM
+/**
+ * typedef os_if_cm_perfd_set_cpufreq_ctrl_cb: Callback to update
+ * CPU min freq
+ * @action: bool action to set or reset the CPU freq
+ *
+ * This callback indicates legacy modules to take the actions
+ * related to set/reset CPU freq
+ *
+ * Context: Any context.
+ * Return: QDF_STATUS
+ */
+typedef QDF_STATUS
+	(*os_if_cm_perfd_set_cpufreq_ctrl_cb)(bool action);
+#endif
+
 /**
  * osif_cm_ops: connection manager legacy callbacks
  * @osif_cm_connect_comp_cb: callback for connect complete to legacy
@@ -337,15 +331,13 @@ typedef QDF_STATUS
  * @os_if_cm_napi_serialize_ctrl_cb: callback to legacy module to take
  * actions on napi serialization
  * @save_gtk_cb : callback to legacy module to save gtk
- * @send_vdev_keys_cb: callback to send vdev keys
- * @osif_cm_get_scan_ie_params_cb: callback to get scan ie params
  * @set_hlp_data_cb: callback to legacy module to save hlp data
+ * @roam_rt_stats_event_cb: callback to send roam stats to userspace
  * @ft_preauth_complete_cb: callback to legacy module to send fast
  * transition event
  * @cckm_preauth_complete_cb: callback to legacy module to send cckm
  * preauth indication to the supplicant via wireless custom event.
- * @vendor_handoff_params_cb: callback to legacy module to send vendor handoff
- * parameters to upper layer
+ * @perfd_set_cpufreq_cb: callback to update CPU min freq
  */
 struct osif_cm_ops {
 	osif_cm_connect_comp_cb connect_complete_cb;
@@ -354,11 +346,12 @@ struct osif_cm_ops {
 	osif_cm_netif_queue_ctrl_cb netif_queue_control_cb;
 	os_if_cm_napi_serialize_ctrl_cb napi_serialize_control_cb;
 	osif_cm_save_gtk_cb save_gtk_cb;
-	osif_cm_send_vdev_keys_cb send_vdev_keys_cb;
-	osif_cm_get_scan_ie_params_cb get_scan_ie_params_cb;
 #endif
 #ifdef WLAN_FEATURE_FILS_SK
 	osif_cm_set_hlp_data_cb set_hlp_data_cb;
+#endif
+#ifdef WLAN_FEATURE_ROAM_OFFLOAD
+	osif_cm_roam_rt_stats_cb roam_rt_stats_event_cb;
 #endif
 #ifdef WLAN_FEATURE_PREAUTH_ENABLE
 	osif_cm_ft_preauth_complete_cb ft_preauth_complete_cb;
@@ -366,8 +359,8 @@ struct osif_cm_ops {
 	osif_cm_cckm_preauth_complete_cb cckm_preauth_complete_cb;
 #endif
 #endif
-#ifdef WLAN_VENDOR_HANDOFF_CONTROL
-	osif_cm_get_vendor_handoff_params_cb vendor_handoff_params_cb;
+#ifdef WLAN_BOOST_CPU_FREQ_IN_ROAM
+	os_if_cm_perfd_set_cpufreq_ctrl_cb perfd_set_cpufreq_cb;
 #endif
 };
 
@@ -386,19 +379,6 @@ struct osif_cm_ops {
 QDF_STATUS osif_cm_connect_comp_ind(struct wlan_objmgr_vdev *vdev,
 				    struct wlan_cm_connect_resp *rsp,
 				    enum osif_cb_type type);
-
-#ifdef WLAN_VENDOR_HANDOFF_CONTROL
-/**
- * osif_cm_vendor_handoff_params_cb() - Function to process vendor handoff
- * event callback
- * @psoc: psoc object pointer
- * @vendor_handoff_context: vendor handoff context
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS osif_cm_vendor_handoff_params_cb(struct wlan_objmgr_psoc *psoc,
-					    void *vendor_handoff_context);
-#endif
 
 /**
  * osif_cm_disconnect_comp_ind() - Function to indicate disconnect
@@ -457,24 +437,6 @@ QDF_STATUS osif_cm_napi_serialize(bool action);
  */
 QDF_STATUS osif_cm_save_gtk(struct wlan_objmgr_vdev *vdev,
 			    struct wlan_cm_connect_resp *rsp);
-
-/**
- * osif_cm_send_vdev_keys() - Function to send vdev keys
- * @vdev: vdev pointer
- * @key_index: key index value
- * @pairwise: pairwise bool value
- * @cipher_type: cipher type value
- *
- * This function to send vdev keys
- *
- * Context: Any context.
- * Return: QDF_STATUS
- */
-QDF_STATUS
-osif_cm_send_vdev_keys(struct wlan_objmgr_vdev *vdev,
-		       uint8_t key_index,
-		       bool pairwise,
-		       enum wlan_crypto_cipher_type cipher_type);
 #else
 static inline QDF_STATUS osif_cm_save_gtk(struct wlan_objmgr_vdev *vdev,
 					  struct wlan_cm_connect_resp *rsp)
@@ -527,4 +489,25 @@ void osif_cm_set_legacy_cb(struct osif_cm_ops *osif_legacy_ops);
  * Return: void
  */
 void osif_cm_reset_legacy_cb(void);
+
+#ifdef WLAN_BOOST_CPU_FREQ_IN_ROAM
+/**
+ * osif_cm_perfd_set_cpufreq() - Function to CPU min freq
+ * action to legacy module
+ * @action: Action to set or reset the CPU freq
+ *
+ * This function indicates to take the actions related to set/reset the CPU freq
+ *
+ * Context: Any context.
+ * Return: QDF_STATUS
+ */
+QDF_STATUS osif_cm_perfd_set_cpufreq(bool action);
+#else
+static inline
+QDF_STATUS osif_cm_perfd_set_cpufreq(bool action)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
 #endif /* __OSIF_CM_UTIL_H */

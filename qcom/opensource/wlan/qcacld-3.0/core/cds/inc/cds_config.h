@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -34,7 +33,6 @@
 #include "wlan_cmn_ieee80211.h"
 #include "wlan_pmo_common_public_struct.h"
 #include "qca_vendor.h"
-#include "wmi_unified_param.h"
 
 /**
  * enum cfg_sub_20_channel_width: ini values for su 20 mhz channel width
@@ -47,28 +45,11 @@ enum cfg_sub_20_channel_width {
 	WLAN_SUB_20_CH_WIDTH_10 = 2,
 };
 
-#ifdef FEATURE_SET
-/**
- * struct wlan_cds_feature_set - CDS feature set struct
- * @wifi_standard: Supported wifi standard
- * @sap_5g_supported: 5GHz SAP supported or not
- * @sap_6g_supported: 6GHz SAP supported or no
- * @band_capability: Supported band capability bitmap;
- */
-struct wlan_cds_feature_set {
-	WMI_HOST_WIFI_STANDARD wifi_standard;
-	bool sap_5g_supported;
-	bool sap_6g_supported;
-	uint32_t band_capability;
-};
-#endif
-
 /**
  * struct cds_config_info - Place Holder for cds configuration
  * @max_station: Max station supported
  * @max_bssid: Max Bssid Supported
  * @sta_maxlimod_dtim: station max listen interval
- * @sta_maxlimod_dtim_ms: station max listen interval ms
  * @driver_type: Enumeration of Driver Type whether FTM or Mission mode
  * currently rest of bits are not used
  * Indicates whether support is enabled or not
@@ -93,15 +74,12 @@ struct wlan_cds_feature_set {
  * @rps_enabled: RPS enabled in SAP mode
  * Structure for holding cds ini parameters.
  * @num_vdevs: Configured max number of VDEVs can be supported in the stack.
- * @cds_feature_set: CDS feature set structure.
- * @get_wifi_features: Get wifi features from fw
  */
 
 struct cds_config_info {
 	uint16_t max_station;
 	uint16_t max_bssid;
 	uint8_t sta_maxlimod_dtim;
-	uint16_t sta_maxlimod_dtim_ms;
 	enum qdf_driver_type driver_type;
 	uint8_t ap_maxoffload_peers;
 	uint8_t ap_maxoffload_reorderbuffs;
@@ -127,9 +105,5 @@ struct cds_config_info {
 	bool rps_enabled;
 	uint32_t num_vdevs;
 	bool enable_tx_compl_tsf64;
-#ifdef FEATURE_SET
-	struct wlan_cds_feature_set cds_feature_set;
-	bool get_wifi_features;
-#endif
 };
 #endif /* !defined( __CDS_CONFIG_H ) */

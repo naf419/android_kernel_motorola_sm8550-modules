@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -461,62 +461,6 @@ void copied_conn_req_lock_release(struct wlan_mlo_sta *sta_ctx)
 {
 	qdf_spin_unlock_bh(&sta_ctx->copied_conn_req_lock);
 }
-
-/**
- * tsf_recalculation_lock_create - Create TSF recalculation mutex/spinlock
- * @mldev:  ML device context
- *
- * Creates mutex/spinlock
- *
- * Return: void
- */
-static inline void
-tsf_recalculation_lock_create(struct wlan_mlo_dev_context *mldev)
-{
-	qdf_spinlock_create(&mldev->tsf_recalculation_lock);
-}
-
-/**
- * tsf_recalculation_lock_destroy - Destroy TSF recalculation mutex/spinlock
- * @mldev:  ML device context
- *
- * Destroy mutex/spinlock
- *
- * Return: void
- */
-static inline void
-tsf_recalculation_lock_destroy(struct wlan_mlo_dev_context *mldev)
-{
-	qdf_spinlock_destroy(&mldev->tsf_recalculation_lock);
-}
-
-/**
- * tsf_recalculation_lock_acquire - Acquire TSF recalculation mutex/spinlock
- * @mldev:  ML device context
- *
- * Acquire mutex/spinlock
- *
- * return: void
- */
-static inline
-void tsf_recalculation_lock_acquire(struct wlan_mlo_dev_context *mldev)
-{
-	qdf_spin_lock_bh(&mldev->tsf_recalculation_lock);
-}
-
-/**
- * tsf_recalculation_lock_release - Release TSF recalculation mutex/spinlock
- * @mldev:  ML device context
- *
- * release mutex/spinlock
- *
- * return: void
- */
-static inline
-void tsf_recalculation_lock_release(struct wlan_mlo_dev_context *mldev)
-{
-	qdf_spin_unlock_bh(&mldev->tsf_recalculation_lock);
-}
 #else /* WLAN_MLO_USE_SPINLOCK */
 static inline
 void ml_link_lock_create(struct mlo_mgr_context *mlo_ctx)
@@ -683,62 +627,6 @@ void copied_conn_req_lock_release(struct wlan_mlo_sta *sta_ctx)
 {
 	qdf_mutex_release(&sta_ctx->copied_conn_req_lock);
 }
-
-/**
- * tsf_recalculation_lock_create - Create TSF recalculation mutex/spinlock
- * @mldev:  ML device context
- *
- * Creates mutex/spinlock
- *
- * Return: void
- */
-static inline void
-tsf_recalculation_lock_create(struct wlan_mlo_dev_context *mldev)
-{
-	qdf_mutex_create(&mldev->tsf_recalculation_lock);
-}
-
-/**
- * tsf_recalculation_lock_destroy - Destroy TSF recalculation mutex/spinlock
- * @mldev:  ML device context
- *
- * Destroy mutex/spinlock
- *
- * Return: void
- */
-static inline void
-tsf_recalculation_lock_destroy(struct wlan_mlo_dev_context *mldev)
-{
-	qdf_mutex_destroy(&mldev->tsf_recalculation_lock);
-}
-
-/**
- * tsf_recalculation_lock_acquire - Acquire TSF recalculation mutex/spinlock
- * @mldev:  ML device context
- *
- * Acquire mutex/spinlock
- *
- * return: void
- */
-static inline
-void tsf_recalculation_lock_acquire(struct wlan_mlo_dev_context *mldev)
-{
-	qdf_mutex_acquire(&mldev->tsf_recalculation_lock);
-}
-
-/**
- * tsf_recalculation_lock_release - Release TSF recalculation mutex/spinlock
- * @mldev:  ML device context
- *
- * release mutex/spinlock
- *
- * return: void
- */
-static inline
-void tsf_recalculation_lock_release(struct wlan_mlo_dev_context *mldev)
-{
-	qdf_mutex_release(&mldev->tsf_recalculation_lock);
-}
 #endif /* WLAN_MLO_USE_SPINLOCK */
 
 /**
@@ -772,108 +660,6 @@ QDF_STATUS wlan_mlo_mgr_psoc_disable(struct wlan_objmgr_psoc *psoc);
  */
 QDF_STATUS wlan_mlo_mgr_update_mld_addr(struct qdf_mac_addr *old_mac,
 					struct qdf_mac_addr *new_mac);
-
-/**
- * wlan_mlo_is_mld_ctx_exist() - check whether MLD exist with MLD MAC address
- * @mldaddr: MLD MAC address
- *
- * API to check whether MLD is present with MLD MAC address.
- *
- * Return: true, if it is present
- *         false, if it is not present
- */
-bool wlan_mlo_is_mld_ctx_exist(struct qdf_mac_addr *mldaddr);
-
-/**
- * wlan_mlo_get_sta_mld_ctx_count() - Get number of sta mld device context
- *
- * API to get number of sta mld device context
- *
- * Return: number of sta mld device context
- */
-uint8_t wlan_mlo_get_sta_mld_ctx_count(void);
-
-/**
- * wlan_mlo_get_mld_ctx_by_mldaddr() - Get mld device context using mld
- *                                     MAC address
- *
- * @mldaddr: MAC address of the MLD device
- *
- * API to get mld device context using the mld mac address
- *
- * Return: Pointer to mlo device context
- */
-struct wlan_mlo_dev_context
-*wlan_mlo_get_mld_ctx_by_mldaddr(struct qdf_mac_addr *mldaddr);
-
-/**
- * wlan_mlo_check_valid_config() - Check vap config is valid for mld
- *
- * @ml_dev: Pointer to structure of mlo device context
- * @pdev: Reference pdev to check against MLD list
- * @opmode: Operating mode of vdev (SAP/STA etc..)
- *
- * API to check if vaps config is valid
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS wlan_mlo_check_valid_config(struct wlan_mlo_dev_context *ml_dev,
-				       struct wlan_objmgr_pdev *pdev,
-				       enum QDF_OPMODE opmode);
-
-/**
- * mlo_mgr_ml_peer_exist_on_diff_ml_ctx() - Check if MAC address matches any
- * MLD address
- * @peer_addr: Address to search for a match
- * @peer_vdev_id: vdev ID of peer
- *
- * The API iterates through all the ML dev ctx in the global MLO
- * manager to check if MAC address pointed by @peer_addr matches
- * the MLD address of any ML dev context or its ML peers.
- * If @peer_vdev_id is a valid pointer address, then API returns
- * true only if the matching MAC address is not part of the same
- * ML dev context.
- *
- * Return: True if a matching entity is found else false.
- */
-bool mlo_mgr_ml_peer_exist_on_diff_ml_ctx(uint8_t *peer_addr,
-					  uint8_t *peer_vdev_id);
-
-/**
- * wlan_mlo_update_action_frame_from_user() - Change MAC address in WLAN frame
- * received from userspace.
- * @vdev: VDEV objmgr pointer.
- * @frame: Pointer to start of WLAN MAC frame.
- * @frame_len: Length of the frame.
- *
- * The API will translate MLD address in the SA, DA, BSSID for the action
- * frames received from userspace with link address to send over the air.
- * The API will not modify if the frame is a Public Action category frame and
- * for VDEV other then STA mode.
- *
- * Return: void
- */
-void wlan_mlo_update_action_frame_from_user(struct wlan_objmgr_vdev *vdev,
-					    uint8_t *frame,
-					    uint32_t frame_len);
-
-/**
- * wlan_mlo_update_action_frame_to_user() - Change MAC address in WLAN frame
- * received over the air.
- * @vdev: VDEV objmgr pointer.
- * @frame: Pointer to start of WLAN MAC frame.
- * @frame_len: Length of the frame.
- *
- * The API will translate link address in the SA, DA, BSSID for the action
- * frames received over the air with MLD address to send to userspace.
- * The API will not modify if the frame is a Public Action category frame and
- * for VDEV other then STA mode.
- *
- * Return: void
- */
-void wlan_mlo_update_action_frame_to_user(struct wlan_objmgr_vdev *vdev,
-					  uint8_t *frame,
-					  uint32_t frame_len);
 #else
 static inline QDF_STATUS wlan_mlo_mgr_init(void)
 {
@@ -890,33 +676,6 @@ wlan_mlo_mgr_update_mld_addr(struct qdf_mac_addr *old_mac,
 			     struct qdf_mac_addr *new_mac)
 {
 	return QDF_STATUS_SUCCESS;
-}
-
-static inline
-bool mlo_mgr_ml_peer_exist_on_diff_ml_ctx(uint8_t *peer_addr,
-					  uint8_t *peer_vdev_id)
-{
-	return false;
-}
-
-static inline
-void wlan_mlo_update_action_frame_from_user(struct wlan_objmgr_vdev *vdev,
-					    uint8_t *frame,
-					    uint32_t frame_len)
-{
-}
-
-static inline
-void wlan_mlo_update_action_frame_to_user(struct wlan_objmgr_vdev *vdev,
-					  uint8_t *frame,
-					  uint32_t frame_len)
-{
-}
-
-static inline
-uint8_t wlan_mlo_get_sta_mld_ctx_count(void)
-{
-	return 0;
 }
 #endif
 #endif

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,15 +22,6 @@
 #ifndef __CFG_MLME_SCORE_PARAMS_H
 #define __CFG_MLME_SCORE_PARAMS_H
 
-#ifdef CONNECTION_ROAMING_CFG
-#define RoamAPScore_RSSIWeight_min 0
-#define RoamAPScore_RSSIWeight_max 100
-#define RoamAPScore_RSSIWeight_default 65
-#else
-#define RoamAPScore_RSSIWeight_min 0
-#define RoamAPScore_RSSIWeight_max 100
-#define RoamAPScore_RSSIWeight_default 20
-#endif
 /*
  * <ini>
  * rssi_weightage/RoamAPScore_RSSIWeight - RSSI Weightage to calculate best
@@ -52,9 +43,9 @@
  */
 #define CFG_SCORING_RSSI_WEIGHTAGE CFG_INI_UINT( \
 	"rssi_weightage RoamAPScore_RSSIWeight", \
-	RoamAPScore_RSSIWeight_min, \
-	RoamAPScore_RSSIWeight_max, \
-	RoamAPScore_RSSIWeight_default, \
+	0, \
+	100, \
+	20, \
 	CFG_VALUE_OR_DEFAULT, \
 	"RSSI Weightage")
 
@@ -144,7 +135,7 @@
  * chan_width_weightage - Channel Width Weightage to calculate best candidate
  * @Min: 0
  * @Max: 100
- * @Default: 20
+ * @Default: 12
  *
  * This ini is used to increase/decrease Channel Width weightage in best
  * candidate selection. AP with Higher channel width will get higher weightage
@@ -161,13 +152,13 @@
 	"chan_width_weightage", \
 	0, \
 	100, \
-	20, \
+	12, \
 	CFG_VALUE_OR_DEFAULT, \
 	"Channel width weightage")
 
 /*
  * <ini>
- * chan_band_weightage - Channel Band preference to 5GHZ to
+ * chan_band_weightage - Channel Band perferance to 5GHZ to
  * calculate best candidate
  * @Min: 0
  * @Max: 100
@@ -199,7 +190,7 @@
  * nss_weightage - NSS Weightage to calculate best candidate
  * @Min: 0
  * @Max: 100
- * @Default: 20
+ * @Default: 16
  *
  * This ini is used to increase/decrease NSS weightage in best candidate
  * selection. If there are two AP, one AP supports 2x2 and another one supports
@@ -218,7 +209,7 @@
 	"nss_weightage", \
 	0, \
 	100, \
-	20, \
+	16, \
 	CFG_VALUE_OR_DEFAULT, \
 	"NSS Weightage")
 /*
@@ -633,30 +624,6 @@
 	CFG_VALUE_OR_DEFAULT, \
 	"RSSI Pref 5G Threshold")
 
-/*
- * <ini>
- * ConNonHint_TargetMinRSSI - min RSSI value for connection.
- * @Min: -95
- * @Max: -40
- * @Default: -75
- *
- * This ini sets threshold for RSSI, below which BSSID is not considered for
- * connection.
- *
- * Supported Feature: STA Candidate selection
- *
- * Usage: External
- *
- * </ini>
- */
-#define CFG_CON_NON_HINT_TARGET_MIN_RSSI CFG_INI_UINT(\
-			"ConNonHint_TargetMinRSSI",\
-			-95, \
-			-40,\
-			-75, \
-			CFG_VALUE_OR_DEFAULT, \
-			"Threshold RSSI value for connection")
-
 #ifdef WLAN_FEATURE_11BE
 /*
  * <ini>
@@ -734,7 +701,7 @@
  * nss_weight_per_index - percentage as per NSS
  * @Min: 0x00000000
  * @Max: 0x64646464
- * @Default: 0x5032190C
+ * @Default: 0x6432190C
  *
  * This INI give percentage value of nss_weightage to be used as per peer NSS.
  * Self NSS capability is also considered. Eg if self NSS is 1x1 10% will be
@@ -744,7 +711,7 @@
  *     0 Index (BITS 0-7): 1X1- Def 12%
  *     1 Index (BITS 8-15): 2X2- Def 25%
  *     2 Index (BITS 16-23): 3X3- Def 50%
- *     3 Index (BITS 24-31): 4X4- Def 80%
+ *     3 Index (BITS 24-31): 4X4- Def 100%
  * These percentage values are stored in HEX. For any index max value, can be 64
  *
  * Related: nss_weightage
@@ -759,7 +726,7 @@
 	"nss_weight_per_index", \
 	0x00000000, \
 	0x64646464, \
-	0x5032190C, \
+	0x6432190C, \
 	CFG_VALUE_OR_DEFAULT, \
 	"NSS weight per index")
 
@@ -1928,7 +1895,6 @@
 	CFG(CFG_SCORING_GOOD_RSSI_BUCKET_SIZE) \
 	CFG(CFG_SCORING_BAD_RSSI_BUCKET_SIZE) \
 	CFG(CFG_SCORING_RSSI_PREF_5G_THRESHOLD) \
-	CFG(CFG_CON_NON_HINT_TARGET_MIN_RSSI) \
 	CFG(CFG_SCORING_BW_WEIGHT_PER_IDX) \
 	CFG(CFG_SCORING_NSS_WEIGHT_PER_IDX) \
 	CFG(CFG_SCORING_BAND_WEIGHT_PER_IDX) \

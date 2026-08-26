@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2015-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -36,8 +35,8 @@
 /*
  * Number of times to check for any pending tx/rx completion on
  * a copy engine, this count should be big enough. Once we hit
- * this threshold we'll not check for any Tx/Rx completion in same
- * interrupt handling. Note that this threshold is only used for
+ * this threashold we'll not check for any Tx/Rx comlpetion in same
+ * interrupt handling. Note that this threashold is only used for
  * Rx interrupt processing, this can be used tor Tx as well if we
  * suspect any infinite loop in checking for pending Tx completion.
  */
@@ -119,7 +118,7 @@ struct HIF_CE_pipe_info {
 	/* Handle of underlying Copy Engine */
 	struct CE_handle *ce_hdl;
 
-	/* Our pipe number; facilitates use of pipe_info ptrs. */
+	/* Our pipe number; facilitiates use of pipe_info ptrs. */
 	uint8_t pipe_num;
 
 	/* Convenience back pointer to HIF_CE_state. */
@@ -193,11 +192,6 @@ struct ce_stats {
 	uint64_t ce_tasklet_sched_bucket[CE_COUNT_MAX][CE_BUCKET_MAX];
 	uint64_t ce_tasklet_exec_last_update[CE_COUNT_MAX][CE_BUCKET_MAX];
 	uint64_t ce_tasklet_sched_last_update[CE_COUNT_MAX][CE_BUCKET_MAX];
-#ifdef CE_TASKLET_SCHEDULE_ON_FULL
-	uint32_t ce_ring_full_count[CE_COUNT_MAX];
-	uint32_t ce_manual_tasklet_schedule_count[CE_COUNT_MAX];
-	uint64_t ce_last_manual_tasklet_schedule_ts[CE_COUNT_MAX];
-#endif
 #endif
 };
 

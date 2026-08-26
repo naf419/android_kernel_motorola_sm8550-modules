@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -92,7 +91,7 @@ typedef struct {
 } __attribute__ ((packed)) qcom_ie_age;
 
 /**
- * struct osif_scan_pdev - OS scan private structure
+ * struct osif_scan_pdev - OS scan private strcutre
  * scan_req_q: Scan request queue
  * scan_req_q_lock: Protect scan request queue
  * req_id: Scan request Id
@@ -444,7 +443,6 @@ void wlan_config_sched_scan_plans_to_wiphy(struct wiphy *wiphy,
  * @netdev: Net device
  * @req : Scan request
  * @aborted : true scan aborted false scan success
- * @osif_priv: OS private structure
  *
  * This function notifies scan done to cfg80211
  *
@@ -452,7 +450,7 @@ void wlan_config_sched_scan_plans_to_wiphy(struct wiphy *wiphy,
  */
 void wlan_cfg80211_scan_done(struct net_device *netdev,
 			     struct cfg80211_scan_request *req,
-			     bool aborted, struct pdev_osif_priv *osif_priv);
+			     bool aborted);
 
 /**
  * convert_nl_scan_priority_to_internal() - Convert NL80211 based scan prioirty
@@ -463,15 +461,4 @@ void wlan_cfg80211_scan_done(struct net_device *netdev,
  */
 enum scan_priority convert_nl_scan_priority_to_internal(
 	enum qca_wlan_vendor_scan_priority nl_scan_priority);
-
-/**
- * wlan_is_scan_allowed() - Allow/reject scan if any scan is running
- * @vdev: vdev on which current scan issued
- *
- * Check if any other scan is in queue and decide whether to allow or reject
- * current scan based on simultaneous_scan feature support
- *
- * Return: True if current scan can be allowed
- */
-bool wlan_is_scan_allowed(struct wlan_objmgr_vdev *vdev);
 #endif

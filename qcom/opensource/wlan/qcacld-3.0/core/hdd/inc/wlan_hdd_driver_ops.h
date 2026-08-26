@@ -1,7 +1,6 @@
 /*
  * Copyright (c) 2015-2017, 2019, 2021 The Linux Foundation.
  * All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -146,7 +145,7 @@ void hdd_soc_idle_restart_unlock(void);
  * hdd_set_hif_init_phase() - Enable/disable the
  * init_phase flag
  * @hif_ctx: hif opaque handle
- * @init_phase: init phase flag
+ * @hal_init_phase: init phase flag
  *
  * Return: None
  */

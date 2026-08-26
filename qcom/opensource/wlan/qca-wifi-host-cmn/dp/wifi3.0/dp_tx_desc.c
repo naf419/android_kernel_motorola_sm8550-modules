@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -63,63 +62,6 @@ dp_tx_desc_pool_counter_initialize(struct dp_tx_desc_pool_s *tx_desc_pool,
 }
 #endif
 
-#ifdef DP_UMAC_HW_RESET_SUPPORT
-/**
- * dp_tx_desc_clean_up() -  Clean up the tx dexcriptors
- * @ctxt: context passed
- * @elem: element to be cleaned up
- * @elem_list: element list
- *
- */
-void dp_tx_desc_clean_up(void *ctxt, void *elem, void *elem_list)
-{
-	struct dp_soc *soc = (struct dp_soc *)ctxt;
-	struct dp_tx_desc_s *tx_desc = (struct dp_tx_desc_s *)elem;
-	qdf_nbuf_t *nbuf_list = (qdf_nbuf_t *)elem_list;
-	qdf_nbuf_t nbuf = NULL;
-
-	if (tx_desc->nbuf) {
-		nbuf = dp_tx_comp_free_buf(soc, tx_desc, true);
-		dp_tx_desc_release(tx_desc, tx_desc->pool_id);
-
-		if (nbuf) {
-			if (!nbuf_list) {
-				dp_err("potential memory leak");
-				qdf_assert_always(0);
-			}
-
-			nbuf->next = *nbuf_list;
-			*nbuf_list = nbuf;
-		}
-	}
-}
-
-/**
- * dp_tx_desc_pool_cleanup() -  Clean up the tx dexcriptor pools
- * @soc: Handle to DP SoC structure
- * @nbuf_list: nbuf list for delayed free
- *
- */
-void dp_tx_desc_pool_cleanup(struct dp_soc *soc, qdf_nbuf_t *nbuf_list)
-{
-	int i;
-	struct dp_tx_desc_pool_s *tx_desc_pool = NULL;
-	uint32_t num_pool = wlan_cfg_get_num_tx_desc_pool(soc->wlan_cfg_ctx);
-
-	for (i = 0; i < num_pool; i++) {
-		tx_desc_pool = &soc->tx_desc[i];
-
-		if (tx_desc_pool)
-			qdf_tx_desc_pool_free_bufs(soc,
-						   &tx_desc_pool->desc_pages,
-						   tx_desc_pool->elem_size,
-						   tx_desc_pool->elem_count,
-						   true, &dp_tx_desc_clean_up,
-						   nbuf_list);
-	}
-}
-#endif
-
 /**
  * dp_tx_desc_pool_alloc() - Allocate Tx Descriptor pool(s)
  * @soc Handle to DP SoC structure
@@ -149,15 +91,14 @@ void dp_tx_desc_pool_cleanup(struct dp_soc *soc, qdf_nbuf_t *nbuf_list)
  * Return: Status code. 0 for success.
  */
 QDF_STATUS dp_tx_desc_pool_alloc(struct dp_soc *soc, uint8_t pool_id,
-				 uint32_t num_elem)
+				 uint16_t num_elem)
 {
 	uint32_t desc_size;
 	struct dp_tx_desc_pool_s *tx_desc_pool;
 
 	desc_size = DP_TX_DESC_SIZE(sizeof(struct dp_tx_desc_s));
 	tx_desc_pool = &((soc)->tx_desc[(pool_id)]);
-	tx_desc_pool->desc_pages.page_size = DP_BLOCKMEM_SIZE;
-	dp_desc_multi_pages_mem_alloc(soc, QDF_DP_TX_DESC_TYPE,
+	dp_desc_multi_pages_mem_alloc(soc, DP_TX_DESC_TYPE,
 				      &tx_desc_pool->desc_pages,
 				      desc_size, num_elem,
 				      0, true);
@@ -182,7 +123,7 @@ void dp_tx_desc_pool_free(struct dp_soc *soc, uint8_t pool_id)
 	tx_desc_pool = &((soc)->tx_desc[pool_id]);
 
 	if (tx_desc_pool->desc_pages.num_pages)
-		dp_desc_multi_pages_mem_free(soc, QDF_DP_TX_DESC_TYPE,
+		dp_desc_multi_pages_mem_free(soc, DP_TX_DESC_TYPE,
 					     &tx_desc_pool->desc_pages, 0,
 					     true);
 }
@@ -197,7 +138,7 @@ void dp_tx_desc_pool_free(struct dp_soc *soc, uint8_t pool_id)
  *	   QDF_STATUS_E_FAULT
  */
 QDF_STATUS dp_tx_desc_pool_init(struct dp_soc *soc, uint8_t pool_id,
-				uint32_t num_elem)
+				uint16_t num_elem)
 {
 	struct dp_tx_desc_pool_s *tx_desc_pool;
 	uint32_t desc_size;
@@ -246,7 +187,7 @@ void dp_tx_desc_pool_deinit(struct dp_soc *soc, uint8_t pool_id)
 }
 
 /**
- * dp_tx_ext_desc_pool_alloc() - allocate Tx extension Descriptor pool(s)
+ * dp_tx_ext_desc_pool_alloc() - allocate Tx extenstion Descriptor pool(s)
  * @soc: Handle to DP SoC structure
  * @num_pool: Number of pools to allocate
  * @num_elem: Number of descriptor elements per pool
@@ -255,7 +196,7 @@ void dp_tx_desc_pool_deinit(struct dp_soc *soc, uint8_t pool_id)
  *	    QDF_STATUS_E_NOMEM
  */
 QDF_STATUS dp_tx_ext_desc_pool_alloc(struct dp_soc *soc, uint8_t num_pool,
-				     uint32_t num_elem)
+				     uint16_t num_elem)
 {
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
 	qdf_dma_context_t memctx = 0;
@@ -270,7 +211,7 @@ QDF_STATUS dp_tx_ext_desc_pool_alloc(struct dp_soc *soc, uint8_t num_pool,
 		dp_tx_ext_desc_pool = &((soc)->tx_ext_desc[pool_id]);
 		memctx = qdf_get_dma_mem_context(dp_tx_ext_desc_pool, memctx);
 		dp_desc_multi_pages_mem_alloc(
-					  soc, QDF_DP_TX_EXT_DESC_TYPE,
+					  soc, DP_TX_EXT_DESC_TYPE,
 					  &dp_tx_ext_desc_pool->desc_pages,
 					  elem_size,
 					  num_elem,
@@ -294,7 +235,7 @@ QDF_STATUS dp_tx_ext_desc_pool_alloc(struct dp_soc *soc, uint8_t num_pool,
 		dp_tx_ext_desc_pool = &((soc)->tx_ext_desc[pool_id]);
 		dp_desc_multi_pages_mem_alloc(
 					  soc,
-					  QDF_DP_TX_EXT_DESC_LINK_TYPE,
+					  DP_TX_EXT_DESC_LINK_TYPE,
 					  &dp_tx_ext_desc_pool->desc_link_pages,
 					  link_elem_size,
 					  num_elem,
@@ -314,7 +255,7 @@ free_ext_desc_page:
 	for (count = 0; count < pool_id; count++) {
 		dp_tx_ext_desc_pool = &((soc)->tx_ext_desc[count]);
 		dp_desc_multi_pages_mem_free(
-					soc, QDF_DP_TX_EXT_DESC_LINK_TYPE,
+					soc, DP_TX_EXT_DESC_LINK_TYPE,
 					&dp_tx_ext_desc_pool->desc_link_pages,
 					0, true);
 	}
@@ -326,7 +267,7 @@ fail_exit:
 		dp_tx_ext_desc_pool = &((soc)->tx_ext_desc[count]);
 		memctx = qdf_get_dma_mem_context(dp_tx_ext_desc_pool, memctx);
 		dp_desc_multi_pages_mem_free(
-					soc, QDF_DP_TX_EXT_DESC_TYPE,
+					soc, DP_TX_EXT_DESC_TYPE,
 					&dp_tx_ext_desc_pool->desc_pages,
 					memctx, false);
 	}
@@ -335,7 +276,7 @@ fail_exit:
 }
 
 /**
- * dp_tx_ext_desc_pool_init() - initialize Tx extension Descriptor pool(s)
+ * dp_tx_ext_desc_pool_init() - initialize Tx extenstion Descriptor pool(s)
  * @soc: Handle to DP SoC structure
  * @num_pool: Number of pools to initialize
  * @num_elem: Number of descriptor elements per pool
@@ -344,7 +285,7 @@ fail_exit:
  *	    QDF_STATUS_E_NOMEM
  */
 QDF_STATUS dp_tx_ext_desc_pool_init(struct dp_soc *soc, uint8_t num_pool,
-				    uint32_t num_elem)
+				    uint16_t num_elem)
 {
 	uint32_t i;
 	struct dp_tx_ext_desc_elem_s *c_elem, *p_elem;
@@ -422,7 +363,7 @@ fail:
 }
 
 /**
- * dp_tx_ext_desc_pool_free() -  free Tx extension Descriptor pool(s)
+ * dp_tx_ext_desc_pool_free() -  free Tx extenstion Descriptor pool(s)
  * @soc: Handle to DP SoC structure
  * @num_pool: Number of pools to free
  *
@@ -438,19 +379,19 @@ void dp_tx_ext_desc_pool_free(struct dp_soc *soc, uint8_t num_pool)
 		memctx = qdf_get_dma_mem_context(dp_tx_ext_desc_pool, memctx);
 
 		dp_desc_multi_pages_mem_free(
-					soc, QDF_DP_TX_EXT_DESC_LINK_TYPE,
+					soc, DP_TX_EXT_DESC_LINK_TYPE,
 					&dp_tx_ext_desc_pool->desc_link_pages,
 					0, true);
 
 		dp_desc_multi_pages_mem_free(
-					soc, QDF_DP_TX_EXT_DESC_TYPE,
+					soc, DP_TX_EXT_DESC_TYPE,
 					&dp_tx_ext_desc_pool->desc_pages,
 					memctx, false);
 	}
 }
 
 /**
- * dp_tx_ext_desc_pool_deinit() -  deinit Tx extension Descriptor pool(s)
+ * dp_tx_ext_desc_pool_deinit() -  deinit Tx extenstion Descriptor pool(s)
  * @soc: Handle to DP SoC structure
  * @num_pool: Number of pools to de-initialize
  *
@@ -477,7 +418,7 @@ void dp_tx_ext_desc_pool_deinit(struct dp_soc *soc, uint8_t num_pool)
  *	    QDF_STATUS_E_NOMEM
  */
 QDF_STATUS dp_tx_tso_desc_pool_alloc(struct dp_soc *soc, uint8_t num_pool,
-				     uint32_t num_elem)
+				     uint16_t num_elem)
 {
 	struct dp_tx_tso_seg_pool_s *tso_desc_pool;
 	uint32_t desc_size, pool_id, i;
@@ -488,7 +429,7 @@ QDF_STATUS dp_tx_tso_desc_pool_alloc(struct dp_soc *soc, uint8_t num_pool,
 		tso_desc_pool->num_free = 0;
 		dp_desc_multi_pages_mem_alloc(
 					soc,
-					QDF_DP_TX_TSO_DESC_TYPE,
+					DP_TX_TSO_DESC_TYPE,
 					&tso_desc_pool->desc_pages,
 					desc_size,
 					num_elem, 0, true);
@@ -503,7 +444,7 @@ QDF_STATUS dp_tx_tso_desc_pool_alloc(struct dp_soc *soc, uint8_t num_pool,
 fail:
 	for (i = 0; i < pool_id; i++) {
 		tso_desc_pool = &soc->tx_tso_desc[i];
-		dp_desc_multi_pages_mem_free(soc, QDF_DP_TX_TSO_DESC_TYPE,
+		dp_desc_multi_pages_mem_free(soc, DP_TX_TSO_DESC_TYPE,
 					     &tso_desc_pool->desc_pages,
 					     0, true);
 	}
@@ -523,7 +464,7 @@ void dp_tx_tso_desc_pool_free(struct dp_soc *soc, uint8_t num_pool)
 
 	for (pool_id = 0; pool_id < num_pool; pool_id++) {
 		tso_desc_pool = &soc->tx_tso_desc[pool_id];
-		dp_desc_multi_pages_mem_free(soc, QDF_DP_TX_TSO_DESC_TYPE,
+		dp_desc_multi_pages_mem_free(soc, DP_TX_TSO_DESC_TYPE,
 					     &tso_desc_pool->desc_pages,
 					     0, true);
 	}
@@ -539,7 +480,7 @@ void dp_tx_tso_desc_pool_free(struct dp_soc *soc, uint8_t num_pool)
  *	    QDF_STATUS_E_NOMEM
  */
 QDF_STATUS dp_tx_tso_desc_pool_init(struct dp_soc *soc, uint8_t num_pool,
-				    uint32_t num_elem)
+				    uint16_t num_elem)
 {
 	struct dp_tx_tso_seg_pool_s *tso_desc_pool;
 	uint32_t desc_size, pool_id;
@@ -605,7 +546,7 @@ void dp_tx_tso_desc_pool_deinit(struct dp_soc *soc, uint8_t num_pool)
  *	    QDF_STATUS_E_NOMEM
  */
 QDF_STATUS dp_tx_tso_num_seg_pool_alloc(struct dp_soc *soc, uint8_t num_pool,
-					uint32_t num_elem)
+					uint16_t num_elem)
 {
 	struct dp_tx_tso_num_seg_pool_s *tso_num_seg_pool;
 	uint32_t desc_size, pool_id, i;
@@ -615,7 +556,7 @@ QDF_STATUS dp_tx_tso_num_seg_pool_alloc(struct dp_soc *soc, uint8_t num_pool,
 	for (pool_id = 0; pool_id < num_pool; pool_id++) {
 		tso_num_seg_pool = &soc->tx_tso_num_seg[pool_id];
 		tso_num_seg_pool->num_free = 0;
-		dp_desc_multi_pages_mem_alloc(soc, QDF_DP_TX_TSO_NUM_SEG_TYPE,
+		dp_desc_multi_pages_mem_alloc(soc, DP_TX_TSO_NUM_SEG_TYPE,
 					      &tso_num_seg_pool->desc_pages,
 					      desc_size,
 					      num_elem, 0, true);
@@ -630,7 +571,7 @@ QDF_STATUS dp_tx_tso_num_seg_pool_alloc(struct dp_soc *soc, uint8_t num_pool,
 fail:
 	for (i = 0; i < pool_id; i++) {
 		tso_num_seg_pool = &soc->tx_tso_num_seg[i];
-		dp_desc_multi_pages_mem_free(soc, QDF_DP_TX_TSO_NUM_SEG_TYPE,
+		dp_desc_multi_pages_mem_free(soc, DP_TX_TSO_NUM_SEG_TYPE,
 					     &tso_num_seg_pool->desc_pages,
 					     0, true);
 	}
@@ -651,7 +592,7 @@ void dp_tx_tso_num_seg_pool_free(struct dp_soc *soc, uint8_t num_pool)
 
 	for (pool_id = 0; pool_id < num_pool; pool_id++) {
 		tso_num_seg_pool = &soc->tx_tso_num_seg[pool_id];
-		dp_desc_multi_pages_mem_free(soc, QDF_DP_TX_TSO_NUM_SEG_TYPE,
+		dp_desc_multi_pages_mem_free(soc, DP_TX_TSO_NUM_SEG_TYPE,
 					     &tso_num_seg_pool->desc_pages,
 					     0, true);
 	}
@@ -669,7 +610,7 @@ void dp_tx_tso_num_seg_pool_free(struct dp_soc *soc, uint8_t num_pool)
  *	    QDF_STATUS_E_FAULT
  */
 QDF_STATUS dp_tx_tso_num_seg_pool_init(struct dp_soc *soc, uint8_t num_pool,
-				       uint32_t num_elem)
+				       uint16_t num_elem)
 {
 	struct dp_tx_tso_num_seg_pool_s *tso_num_seg_pool;
 	uint32_t desc_size, pool_id;
@@ -725,13 +666,13 @@ void dp_tx_tso_num_seg_pool_deinit(struct dp_soc *soc, uint8_t num_pool)
 }
 #else
 QDF_STATUS dp_tx_tso_desc_pool_alloc(struct dp_soc *soc, uint8_t num_pool,
-				     uint32_t num_elem)
+				     uint16_t num_elem)
 {
 	return QDF_STATUS_SUCCESS;
 }
 
 QDF_STATUS dp_tx_tso_desc_pool_init(struct dp_soc *soc, uint8_t num_pool,
-				    uint32_t num_elem)
+				    uint16_t num_elem)
 {
 	return QDF_STATUS_SUCCESS;
 }
@@ -745,7 +686,7 @@ void dp_tx_tso_desc_pool_deinit(struct dp_soc *soc, uint8_t num_pool)
 }
 
 QDF_STATUS dp_tx_tso_num_seg_pool_alloc(struct dp_soc *soc, uint8_t num_pool,
-					uint32_t num_elem)
+					uint16_t num_elem)
 {
 	return QDF_STATUS_SUCCESS;
 }
@@ -755,7 +696,7 @@ void dp_tx_tso_num_seg_pool_free(struct dp_soc *soc, uint8_t num_pool)
 }
 
 QDF_STATUS dp_tx_tso_num_seg_pool_init(struct dp_soc *soc, uint8_t num_pool,
-				       uint32_t num_elem)
+				       uint16_t num_elem)
 {
 	return QDF_STATUS_SUCCESS;
 }

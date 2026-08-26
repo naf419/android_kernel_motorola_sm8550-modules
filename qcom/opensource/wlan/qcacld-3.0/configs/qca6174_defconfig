@@ -67,7 +67,7 @@ ifeq ($(CONFIG_ARCH_SDX20), y)
 CONFIG_MOBILE_ROUTER := y
 endif
 
-ifeq (y, $(filter y, $(CONFIG_ARCH_SDXPRAIRIE) $(CONFIG_ARCH_SA515) $(CONFIG_ARCH_SDXPOORWILLS) $(CONFIG_ARCH_SA515M)))
+ifeq (y, $(filter y, $(CONFIG_ARCH_SDXPRAIRIE) $(CONFIG_ARCH_SA515) $(CONFIG_ARCH_SDXPOORWILLS)))
 CONFIG_MOBILE_ROUTER := y
 endif
 
@@ -186,11 +186,9 @@ CONFIG_WLAN_OFFLOAD_PACKETS := y
 
 #enable TSF get feature
 CONFIG_WLAN_SYNC_TSF := y
+#Enable DSRC feature
 ifeq ($(CONFIG_QCA_WIFI_SDIO), y)
-	#Enable DSRC feature
-	CONFIG_WLAN_FEATURE_DSRC := y
-else
-	CONFIG_WLAN_REG_AUTO := y
+CONFIG_WLAN_FEATURE_DSRC := y
 endif
 
 ifneq ($(CONFIG_ROME_IF),usb)
@@ -233,6 +231,7 @@ CONFIG_MCC_TO_SCC_SWITCH := y
 ifeq ($(CONFIG_SLUB_DEBUG), y)
 	# Enable Obj Mgr Degug services if slub build
 	CONFIG_WLAN_OBJMGR_DEBUG:= y
+	CONFIG_MPC_UT_FRAMEWORK := y
 	CONFIG_LOCK_STATS_ON:= y
 endif
 
@@ -577,8 +576,6 @@ endif
 
 CONFIG_CP_STATS := y
 
-CONFIG_QCA_TARGET_IF_MLME := y
-
 CONFIG_FEATURE_WLAN_WAPI := y
 
 CONFIG_AGEIE_ON_SCAN_RESULTS := y
@@ -633,9 +630,6 @@ CONFIG_WMI_STA_SUPPORT := y
 
 #Flag to enable LTE COEX feature
 CONFIG_LTE_COEX := y
-
-#Flag to enable delayed peer obj free
-CONFIG_FEATURE_DELAYED_PEER_OBJ_DESTROY := y
 
 #Flag to enable/disable TARGET 11d scan
 CONFIG_TARGET_11D_SCAN := y
@@ -753,6 +747,3 @@ CONFIG_WLAN_SYSFS_MEM_STATS := y
 
 #Enable PCI low power interrupt register mask configuration
 CONFIG_PCI_LOW_POWER_INT_REG := y
-
-#Enable Usable channel feature
-CONFIG_WLAN_FEATURE_GET_USABLE_CHAN_LIST := y

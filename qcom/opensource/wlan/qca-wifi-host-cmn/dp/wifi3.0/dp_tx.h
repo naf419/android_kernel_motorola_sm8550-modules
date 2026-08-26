@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -22,24 +22,12 @@
 #include <qdf_types.h>
 #include <qdf_nbuf.h>
 #include "dp_types.h"
-#ifdef FEATURE_PERPKT_INFO
-#if defined(QCA_SUPPORT_LATENCY_CAPTURE) || \
-	defined(QCA_TX_CAPTURE_SUPPORT) || \
-	defined(QCA_MCOPY_SUPPORT)
+#if defined(MESH_MODE_SUPPORT) || defined(FEATURE_PERPKT_INFO)
 #include "if_meta_hdr.h"
-#endif
 #endif
 #include "dp_internal.h"
 #include "hal_tx.h"
 #include <qdf_tracepoint.h>
-#ifdef CONFIG_SAWF
-#include "dp_sawf.h"
-#endif
-#include <qdf_pkt_add_timestamp.h>
-#include "dp_ipa.h"
-#ifdef IPA_OFFLOAD
-#include <wlan_ipa_obj_mgmt_api.h>
-#endif
 
 #define DP_INVALID_VDEV_ID 0xFF
 
@@ -63,15 +51,6 @@
 #define DP_TX_DESC_FLAG_UNMAP_DONE	0x800
 #define DP_TX_DESC_FLAG_TX_COMP_ERR	0x1000
 #define DP_TX_DESC_FLAG_FLUSH		0x2000
-#define DP_TX_DESC_FLAG_TRAFFIC_END_IND	0x4000
-#define DP_TX_DESC_FLAG_RMNET		0x8000
-/*
- * Since the Tx descriptor flag is of only 16-bit and no more bit is free for
- * any new flag, therefore for time being overloading PPEDS flag with that of
- * FLUSH flag and FLAG_FAST with TDLS which is not enabled for WIN.
- */
-#define DP_TX_DESC_FLAG_PPEDS		0x2000
-#define DP_TX_DESC_FLAG_FAST		0x100
 
 #define DP_TX_EXT_DESC_FLAG_METADATA_VALID 0x1
 
@@ -101,7 +80,7 @@ do {                                                           \
 #define MAX_CDP_SEC_TYPE 12
 
 /* number of dwords for htt_tx_msdu_desc_ext2_t */
-#define DP_TX_MSDU_INFO_META_DATA_DWORDS 9
+#define DP_TX_MSDU_INFO_META_DATA_DWORDS 7
 
 #define dp_tx_alert(params...) QDF_TRACE_FATAL(QDF_MODULE_ID_DP_TX, params)
 #define dp_tx_err(params...) QDF_TRACE_ERROR(QDF_MODULE_ID_DP_TX, params)
@@ -124,7 +103,7 @@ do {                                                           \
 
 /**
  * struct dp_tx_frag_info_s
- * @vaddr: hlos virtual address for buffer
+ * @vaddr: hlos vritual address for buffer
  * @paddr_lo: physical address lower 32bits
  * @paddr_hi: physical address higher bits
  * @len: length of the buffer
@@ -200,8 +179,6 @@ struct dp_tx_queue {
  * @exception_fw: Duplicate frame to be sent to firmware
  * @ppdu_cookie: 16-bit ppdu_cookie that has to be replayed back in completions
  * @ix_tx_sniffer: Indicates if the packet has to be sniffed
- * @gsn: global sequence for reinjected mcast packets
- * @vdev_id : vdev_id for reinjected mcast packets
  * @skip_hp_update : Skip HP update for TSO segments and update in last segment
  *
  * This structure holds the complete MSDU information needed to program the
@@ -221,18 +198,8 @@ struct dp_tx_msdu_info_s {
 	} u;
 	uint32_t meta_data[DP_TX_MSDU_INFO_META_DATA_DWORDS];
 	uint16_t ppdu_cookie;
-#if defined(WLAN_FEATURE_11BE_MLO) && defined(WLAN_MLO_MULTI_CHIP)
-#ifdef WLAN_MCAST_MLO
-	uint16_t gsn;
-	uint8_t vdev_id;
-#endif
-#endif
 #ifdef WLAN_DP_FEATURE_SW_LATENCY_MGR
 	uint8_t skip_hp_update;
-#endif
-#ifdef QCA_DP_TX_RMNET_OPTIMIZATION
-	uint16_t buf_len;
-	uint8_t *payload_addr;
 #endif
 };
 
@@ -252,61 +219,46 @@ struct dp_tx_msdu_info_s {
 void dp_tx_deinit_pair_by_index(struct dp_soc *soc, int index);
 #endif /* QCA_HOST_MODE_WIFI_DISABLED */
 
-void
-dp_tx_comp_process_desc_list(struct dp_soc *soc,
-			     struct dp_tx_desc_s *comp_head, uint8_t ring_id);
-void dp_tx_tso_cmn_desc_pool_deinit(struct dp_soc *soc, uint8_t num_pool);
-void dp_tx_tso_cmn_desc_pool_free(struct dp_soc *soc, uint8_t num_pool);
 void dp_tx_tso_cmn_desc_pool_deinit(struct dp_soc *soc, uint8_t num_pool);
 void dp_tx_tso_cmn_desc_pool_free(struct dp_soc *soc, uint8_t num_pool);
 QDF_STATUS dp_tx_tso_cmn_desc_pool_alloc(struct dp_soc *soc,
 					 uint8_t num_pool,
-					 uint32_t num_desc);
+					 uint16_t num_desc);
 QDF_STATUS dp_tx_tso_cmn_desc_pool_init(struct dp_soc *soc,
 					uint8_t num_pool,
-					uint32_t num_desc);
-qdf_nbuf_t dp_tx_comp_free_buf(struct dp_soc *soc, struct dp_tx_desc_s *desc,
-			       bool delayed_free);
+					uint16_t num_desc);
+
+void dp_tx_tso_cmn_desc_pool_deinit(struct dp_soc *soc, uint8_t num_pool);
+void dp_tx_tso_cmn_desc_pool_free(struct dp_soc *soc, uint8_t num_pool);
+QDF_STATUS dp_tx_tso_cmn_desc_pool_alloc(struct dp_soc *soc,
+					 uint8_t num_pool,
+					 uint16_t num_desc);
+QDF_STATUS dp_tx_tso_cmn_desc_pool_init(struct dp_soc *soc,
+					uint8_t num_pool,
+					uint16_t num_desc);
+void dp_tx_comp_free_buf(struct dp_soc *soc, struct dp_tx_desc_s *desc);
 void dp_tx_desc_release(struct dp_tx_desc_s *tx_desc, uint8_t desc_pool_id);
 void dp_tx_compute_delay(struct dp_vdev *vdev, struct dp_tx_desc_s *tx_desc,
 			 uint8_t tid, uint8_t ring_id);
 void dp_tx_comp_process_tx_status(struct dp_soc *soc,
 				  struct dp_tx_desc_s *tx_desc,
 				  struct hal_tx_completion_status *ts,
-				  struct dp_txrx_peer *txrx_peer,
-				  uint8_t ring_id);
+				  struct dp_peer *peer, uint8_t ring_id);
 void dp_tx_comp_process_desc(struct dp_soc *soc,
 			     struct dp_tx_desc_s *desc,
 			     struct hal_tx_completion_status *ts,
-			     struct dp_txrx_peer *txrx_peer);
+			     struct dp_peer *peer);
 void dp_tx_reinject_handler(struct dp_soc *soc,
 			    struct dp_vdev *vdev,
 			    struct dp_tx_desc_s *tx_desc,
-			    uint8_t *status,
-			    uint8_t reinject_reason);
+			    uint8_t *status);
 void dp_tx_inspect_handler(struct dp_soc *soc,
 			   struct dp_vdev *vdev,
 			   struct dp_tx_desc_s *tx_desc,
 			   uint8_t *status);
-void dp_tx_update_peer_basic_stats(struct dp_txrx_peer *txrx_peer,
-				   uint32_t length, uint8_t tx_status,
-				   bool update);
+void dp_tx_update_peer_basic_stats(struct dp_peer *peer, uint32_t length,
+				   uint8_t tx_status, bool update);
 
-#ifdef DP_UMAC_HW_RESET_SUPPORT
-qdf_nbuf_t dp_tx_drop(struct cdp_soc_t *soc, uint8_t vdev_id, qdf_nbuf_t nbuf);
-
-qdf_nbuf_t dp_tx_exc_drop(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
-			  qdf_nbuf_t nbuf,
-			  struct cdp_tx_exception_metadata *tx_exc_metadata);
-#endif
-#ifdef WLAN_SUPPORT_PPEDS
-void dp_ppeds_tx_desc_free(struct dp_soc *soc, struct dp_tx_desc_s *tx_desc);
-#else
-static inline
-void dp_ppeds_tx_desc_free(struct dp_soc *soc, struct dp_tx_desc_s *tx_desc)
-{
-}
-#endif
 #ifndef QCA_HOST_MODE_WIFI_DISABLED
 /**
  * dp_tso_attach() - TSO Attach handler
@@ -431,62 +383,6 @@ static inline QDF_STATUS dp_tx_pdev_init(struct dp_pdev *pdev)
 	return QDF_STATUS_SUCCESS;
 }
 
-/**
- * dp_tx_prefetch_hw_sw_nbuf_desc() - function to prefetch HW and SW desc
- * @soc: Handle to HAL Soc structure
- * @hal_soc: HAL SOC handle
- * @num_avail_for_reap: descriptors available for reap
- * @hal_ring_hdl: ring pointer
- * @last_prefetched_hw_desc: pointer to the last prefetched HW descriptor
- * @last_prefetched_sw_desc: pointer to last prefetch SW desc
- *
- * Return: None
- */
-#ifdef QCA_DP_TX_HW_SW_NBUF_DESC_PREFETCH
-static inline
-void dp_tx_prefetch_hw_sw_nbuf_desc(struct dp_soc *soc,
-				    hal_soc_handle_t hal_soc,
-				    uint32_t num_avail_for_reap,
-				    hal_ring_handle_t hal_ring_hdl,
-				    void **last_prefetched_hw_desc,
-				    struct dp_tx_desc_s
-				    **last_prefetched_sw_desc)
-{
-	if (*last_prefetched_sw_desc) {
-		qdf_prefetch((uint8_t *)(*last_prefetched_sw_desc)->nbuf);
-		qdf_prefetch((uint8_t *)(*last_prefetched_sw_desc)->nbuf + 64);
-	}
-
-	if (num_avail_for_reap && *last_prefetched_hw_desc) {
-		soc->arch_ops.tx_comp_get_params_from_hal_desc(soc,
-						       *last_prefetched_hw_desc,
-						       last_prefetched_sw_desc);
-
-		if ((uintptr_t)*last_prefetched_hw_desc & 0x3f)
-			*last_prefetched_hw_desc =
-				hal_srng_dst_prefetch_next_cached_desc(
-					hal_soc,
-					hal_ring_hdl,
-					(uint8_t *)*last_prefetched_hw_desc);
-		else
-			*last_prefetched_hw_desc =
-				hal_srng_dst_get_next_32_byte_desc(hal_soc,
-					hal_ring_hdl,
-					(uint8_t *)*last_prefetched_hw_desc);
-	}
-}
-#else
-static inline
-void dp_tx_prefetch_hw_sw_nbuf_desc(struct dp_soc *soc,
-				    hal_soc_handle_t hal_soc,
-				    uint32_t num_avail_for_reap,
-				    hal_ring_handle_t hal_ring_hdl,
-				    void **last_prefetched_hw_desc,
-				    struct dp_tx_desc_s
-				    **last_prefetched_sw_desc)
-{
-}
-#endif
 
 #ifndef FEATURE_WDS
 static inline void dp_tx_mec_handler(struct dp_vdev *vdev, uint8_t *status)
@@ -515,9 +411,6 @@ bool dp_tx_multipass_process(struct dp_soc *soc, struct dp_vdev *vdev,
 			     struct dp_tx_msdu_info_s *msdu_info);
 
 void dp_tx_vdev_multipass_deinit(struct dp_vdev *vdev);
-void dp_tx_add_groupkey_metadata(struct dp_vdev *vdev,
-				 struct dp_tx_msdu_info_s *msdu_info,
-				 uint16_t group_key);
 #endif
 
 /**
@@ -563,8 +456,15 @@ static inline enum qdf_dp_tx_rx_status dp_tx_hw_to_qdf(uint16_t status)
 static inline void dp_tx_get_queue(struct dp_vdev *vdev,
 				   qdf_nbuf_t nbuf, struct dp_tx_queue *queue)
 {
+	uint16_t queue_offset = qdf_nbuf_get_queue_mapping(nbuf) &
+				DP_TX_QUEUE_MASK;
+
+	queue->desc_pool_id = queue_offset;
 	queue->ring_id = qdf_get_cpu();
-	queue->desc_pool_id = queue->ring_id;
+
+	dp_tx_debug("pool_id:%d ring_id: %d",
+		    queue->desc_pool_id, queue->ring_id);
+
 }
 
 /*
@@ -592,8 +492,7 @@ static inline void dp_tx_get_queue(struct dp_vdev *vdev,
 {
 	/* get flow id */
 	queue->desc_pool_id = DP_TX_GET_DESC_POOL_ID(vdev);
-	if (vdev->pdev->soc->wlan_cfg_ctx->ipa_enabled &&
-	    !ipa_config_is_opt_wifi_dp_enabled())
+	if (vdev->pdev->soc->wlan_cfg_ctx->ipa_enabled)
 		queue->ring_id = DP_TX_GET_RING_ID(vdev);
 	else
 		queue->ring_id = (qdf_nbuf_get_queue_mapping(nbuf) %
@@ -757,14 +656,11 @@ static inline void dp_tx_vdev_update_search_flags(struct dp_vdev *vdev)
 
 #endif /* QCA_HOST_MODE_WIFI_DISABLED */
 
-#if defined(QCA_SUPPORT_LATENCY_CAPTURE) || \
-	defined(QCA_TX_CAPTURE_SUPPORT) || \
-	defined(QCA_MCOPY_SUPPORT)
 #ifdef FEATURE_PERPKT_INFO
 QDF_STATUS
 dp_get_completion_indication_for_stack(struct dp_soc *soc,
 				       struct dp_pdev *pdev,
-				       struct dp_txrx_peer *peer,
+				       struct dp_peer *peer,
 				       struct hal_tx_completion_status *ts,
 				       qdf_nbuf_t netbuf,
 				       uint64_t time_latency);
@@ -772,12 +668,11 @@ dp_get_completion_indication_for_stack(struct dp_soc *soc,
 void dp_send_completion_to_stack(struct dp_soc *soc,  struct dp_pdev *pdev,
 			    uint16_t peer_id, uint32_t ppdu_id,
 			    qdf_nbuf_t netbuf);
-#endif
 #else
 static inline
 QDF_STATUS dp_get_completion_indication_for_stack(struct dp_soc *soc,
 				       struct dp_pdev *pdev,
-				       struct dp_txrx_peer *peer,
+				       struct dp_peer *peer,
 				       struct hal_tx_completion_status *ts,
 				       qdf_nbuf_t netbuf,
 				       uint64_t time_latency)
@@ -929,55 +824,34 @@ dp_set_rtpm_tput_policy_requirement(struct cdp_soc_t *soc_hdl,
 static inline void
 dp_tx_hw_desc_update_evt(uint8_t *hal_tx_desc_cached,
 			 hal_ring_handle_t hal_ring_hdl,
-			 struct dp_soc *soc, uint8_t ring_id)
+			 struct dp_soc *soc)
 {
-	struct dp_tx_hw_desc_history *tx_hw_desc_history =
-						&soc->tx_hw_desc_history;
 	struct dp_tx_hw_desc_evt *evt;
-	uint32_t idx = 0;
-	uint16_t slot = 0;
+	uint64_t idx = 0;
 
-	if (!tx_hw_desc_history->allocated)
+	if (!soc->tx_hw_desc_history)
 		return;
 
-	dp_get_frag_hist_next_atomic_idx(&tx_hw_desc_history->index, &idx,
-					 &slot,
-					 DP_TX_HW_DESC_HIST_SLOT_SHIFT,
-					 DP_TX_HW_DESC_HIST_PER_SLOT_MAX,
-					 DP_TX_HW_DESC_HIST_MAX);
+	idx = ++soc->tx_hw_desc_history->index;
+	if (idx == DP_TX_HW_DESC_HIST_MAX)
+		soc->tx_hw_desc_history->index = 0;
+	idx = qdf_do_div_rem(idx, DP_TX_HW_DESC_HIST_MAX);
 
-	evt = &tx_hw_desc_history->entry[slot][idx];
+	evt = &soc->tx_hw_desc_history->entry[idx];
 	qdf_mem_copy(evt->tcl_desc, hal_tx_desc_cached, HAL_TX_DESC_LEN_BYTES);
 	evt->posted = qdf_get_log_timestamp();
-	evt->tcl_ring_id = ring_id;
 	hal_get_sw_hptp(soc->hal_soc, hal_ring_hdl, &evt->tp, &evt->hp);
 }
 #else
 static inline void
 dp_tx_hw_desc_update_evt(uint8_t *hal_tx_desc_cached,
 			 hal_ring_handle_t hal_ring_hdl,
-			 struct dp_soc *soc, uint8_t ring_id)
+			 struct dp_soc *soc)
 {
 }
 #endif
 
-#if defined(WLAN_FEATURE_TSF_UPLINK_DELAY) || defined(WLAN_CONFIG_TX_DELAY)
-/**
- * dp_tx_compute_hw_delay_us() - Compute hardware Tx completion delay
- * @ts: Tx completion status
- * @delta_tsf: Difference between TSF clock and qtimer
- * @delay_us: Delay in microseconds
- *
- * Return: QDF_STATUS_SUCCESS   : Success
- *         QDF_STATUS_E_INVAL   : Tx completion status is invalid or
- *                                delay_us is NULL
- *         QDF_STATUS_E_FAILURE : Error in delay calculation
- */
-QDF_STATUS
-dp_tx_compute_hw_delay_us(struct hal_tx_completion_status *ts,
-			  uint32_t delta_tsf,
-			  uint32_t *delay_us);
-
+#ifdef WLAN_FEATURE_TSF_UPLINK_DELAY
 /**
  * dp_set_delta_tsf() - Set delta_tsf to dp_soc structure
  * @soc_hdl: cdp soc pointer
@@ -988,8 +862,7 @@ dp_tx_compute_hw_delay_us(struct hal_tx_completion_status *ts,
  */
 void dp_set_delta_tsf(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 		      uint32_t delta_tsf);
-#endif
-#ifdef WLAN_FEATURE_TSF_UPLINK_DELAY
+
 /**
  * dp_set_tsf_report_ul_delay() - Enable or disable reporting uplink delay
  * @soc_hdl: cdp soc pointer
@@ -1036,7 +909,7 @@ bool dp_tx_pkt_tracepoints_enabled(void)
 static inline
 void dp_tx_desc_set_timestamp(struct dp_tx_desc_s *tx_desc)
 {
-	tx_desc->timestamp_tick = qdf_system_ticks();
+	tx_desc->timestamp = qdf_system_ticks();
 }
 
 /**
@@ -1061,13 +934,6 @@ void dp_tx_desc_check_corruption(struct dp_tx_desc_s *tx_desc)
 }
 #endif
 
-#ifndef CONFIG_SAWF
-static inline bool dp_sawf_tag_valid_get(qdf_nbuf_t nbuf)
-{
-	return false;
-}
-#endif
-
 #ifdef HW_TX_DELAY_STATS_ENABLE
 /**
  * dp_tx_desc_set_ktimestamp() - set kernel timestamp in tx descriptor
@@ -1083,9 +949,9 @@ bool dp_tx_desc_set_ktimestamp(struct dp_vdev *vdev,
 	if (qdf_unlikely(vdev->pdev->delay_stats_flag) ||
 	    qdf_unlikely(vdev->pdev->soc->wlan_cfg_ctx->pext_stats_enabled) ||
 	    qdf_unlikely(dp_tx_pkt_tracepoints_enabled()) ||
-	    qdf_unlikely(vdev->pdev->soc->peerstats_enabled) ||
+	    qdf_unlikely(vdev->pdev->soc->rdkstats_enabled) ||
 	    qdf_unlikely(dp_is_vdev_tx_delay_stats_enabled(vdev))) {
-		tx_desc->timestamp = qdf_ktime_real_get();
+		tx_desc->timestamp = qdf_ktime_to_ms(qdf_ktime_real_get());
 		return true;
 	}
 	return false;
@@ -1098,207 +964,11 @@ bool dp_tx_desc_set_ktimestamp(struct dp_vdev *vdev,
 	if (qdf_unlikely(vdev->pdev->delay_stats_flag) ||
 	    qdf_unlikely(vdev->pdev->soc->wlan_cfg_ctx->pext_stats_enabled) ||
 	    qdf_unlikely(dp_tx_pkt_tracepoints_enabled()) ||
-	    qdf_unlikely(vdev->pdev->soc->peerstats_enabled)) {
-		tx_desc->timestamp = qdf_ktime_real_get();
+	    qdf_unlikely(vdev->pdev->soc->rdkstats_enabled)) {
+		tx_desc->timestamp = qdf_ktime_to_ms(qdf_ktime_real_get());
 		return true;
 	}
 	return false;
 }
 #endif
-
-#ifdef CONFIG_DP_PKT_ADD_TIMESTAMP
-/**
- * dp_pkt_add_timestamp() - add timestamp in data payload
- *
- * @vdev: dp vdev
- * @index: index to decide offset in payload
- * @time: timestamp to add in data payload
- * @nbuf: network buffer
- *
- * Return: none
- */
-void dp_pkt_add_timestamp(struct dp_vdev *vdev,
-			  enum qdf_pkt_timestamp_index index, uint64_t time,
-			  qdf_nbuf_t nbuf);
-/**
- * dp_pkt_get_timestamp() - get current system time
- *
- * @time: return current system time
- *
- * Return: none
- */
-void dp_pkt_get_timestamp(uint64_t *time);
-#else
-#define dp_pkt_add_timestamp(vdev, index, time, nbuf)
-
-static inline
-void dp_pkt_get_timestamp(uint64_t *time)
-{
-}
-#endif
-
-#ifdef CONFIG_WLAN_SYSFS_MEM_STATS
-/**
- * dp_update_tx_desc_stats - Update the increase or decrease in
- * outstanding tx desc count
- * values on pdev and soc
- * @vdev: DP pdev handle
- *
- * Return: void
- */
-static inline void
-dp_update_tx_desc_stats(struct dp_pdev *pdev)
-{
-	int32_t tx_descs_cnt =
-		qdf_atomic_read(&pdev->num_tx_outstanding);
-	if (pdev->tx_descs_max < tx_descs_cnt)
-		pdev->tx_descs_max = tx_descs_cnt;
-	qdf_mem_tx_desc_cnt_update(pdev->num_tx_outstanding,
-				   pdev->tx_descs_max);
-}
-
-#else /* CONFIG_WLAN_SYSFS_MEM_STATS */
-
-static inline void
-dp_update_tx_desc_stats(struct dp_pdev *pdev)
-{
-}
-#endif /* CONFIG_WLAN_SYSFS_MEM_STATS */
-
-#ifdef QCA_TX_LIMIT_CHECK
-/**
- * dp_tx_limit_check - Check if allocated tx descriptors reached
- * soc max limit and pdev max limit
- * @vdev: DP vdev handle
- *
- * Return: true if allocated tx descriptors reached max configured value, else
- * false
- */
-static inline bool
-dp_tx_limit_check(struct dp_vdev *vdev)
-{
-	struct dp_pdev *pdev = vdev->pdev;
-	struct dp_soc *soc = pdev->soc;
-
-	if (qdf_atomic_read(&soc->num_tx_outstanding) >=
-			soc->num_tx_allowed) {
-		dp_tx_info("queued packets are more than max tx, drop the frame");
-		DP_STATS_INC(vdev, tx_i.dropped.desc_na.num, 1);
-		return true;
-	}
-
-	if (qdf_atomic_read(&pdev->num_tx_outstanding) >=
-			pdev->num_tx_allowed) {
-		dp_tx_info("queued packets are more than max tx, drop the frame");
-		DP_STATS_INC(vdev, tx_i.dropped.desc_na.num, 1);
-		DP_STATS_INC(vdev, tx_i.dropped.desc_na_exc_outstand.num, 1);
-		return true;
-	}
-	return false;
-}
-
-/**
- * dp_tx_exception_limit_check - Check if allocated tx exception descriptors
- * reached soc max limit
- * @vdev: DP vdev handle
- *
- * Return: true if allocated tx descriptors reached max configured value, else
- * false
- */
-static inline bool
-dp_tx_exception_limit_check(struct dp_vdev *vdev)
-{
-	struct dp_pdev *pdev = vdev->pdev;
-	struct dp_soc *soc = pdev->soc;
-
-	if (qdf_atomic_read(&soc->num_tx_exception) >=
-			soc->num_msdu_exception_desc) {
-		dp_info("exc packets are more than max drop the exc pkt");
-		DP_STATS_INC(vdev, tx_i.dropped.exc_desc_na.num, 1);
-		return true;
-	}
-
-	return false;
-}
-
-/**
- * dp_tx_outstanding_inc - Increment outstanding tx desc values on pdev and soc
- * @vdev: DP pdev handle
- *
- * Return: void
- */
-static inline void
-dp_tx_outstanding_inc(struct dp_pdev *pdev)
-{
-	struct dp_soc *soc = pdev->soc;
-
-	qdf_atomic_inc(&pdev->num_tx_outstanding);
-	qdf_atomic_inc(&soc->num_tx_outstanding);
-	dp_update_tx_desc_stats(pdev);
-}
-
-/**
- * dp_tx_outstanding__dec - Decrement outstanding tx desc values on pdev and soc
- * @vdev: DP pdev handle
- *
- * Return: void
- */
-static inline void
-dp_tx_outstanding_dec(struct dp_pdev *pdev)
-{
-	struct dp_soc *soc = pdev->soc;
-
-	qdf_atomic_dec(&pdev->num_tx_outstanding);
-	qdf_atomic_dec(&soc->num_tx_outstanding);
-	dp_update_tx_desc_stats(pdev);
-}
-
-#else //QCA_TX_LIMIT_CHECK
-static inline bool
-dp_tx_limit_check(struct dp_vdev *vdev)
-{
-	return false;
-}
-
-static inline bool
-dp_tx_exception_limit_check(struct dp_vdev *vdev)
-{
-	return false;
-}
-
-static inline void
-dp_tx_outstanding_inc(struct dp_pdev *pdev)
-{
-	qdf_atomic_inc(&pdev->num_tx_outstanding);
-	dp_update_tx_desc_stats(pdev);
-}
-
-static inline void
-dp_tx_outstanding_dec(struct dp_pdev *pdev)
-{
-	qdf_atomic_dec(&pdev->num_tx_outstanding);
-	dp_update_tx_desc_stats(pdev);
-}
-#endif //QCA_TX_LIMIT_CHECK
-/**
- * dp_tx_get_pkt_len() - Get the packet length of a msdu
- * @tx_desc: tx descriptor
- *
- * Return: Packet length of a msdu. If the packet is fragmented,
- * it will return the single fragment length.
- *
- * In TSO mode, the msdu from stack will be fragmented into small
- * fragments and each of these new fragments will be transmitted
- * as an individual msdu.
- *
- * Please note that the length of a msdu from stack may be smaller
- * than the length of the total length of the fragments it has been
- * fragmentted because each of the fragments has a nbuf header.
- */
-static inline uint32_t dp_tx_get_pkt_len(struct dp_tx_desc_s *tx_desc)
-{
-	return tx_desc->frm_type == dp_tx_frm_tso ?
-		tx_desc->msdu_ext_desc->tso_desc->seg.total_len :
-		qdf_nbuf_len(tx_desc->nbuf);
-}
 #endif

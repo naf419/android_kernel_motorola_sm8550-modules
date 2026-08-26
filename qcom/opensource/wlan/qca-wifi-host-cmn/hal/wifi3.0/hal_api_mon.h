@@ -80,7 +80,6 @@
 #define HAL_TLV_STATUS_MSDU_END 8
 #define HAL_TLV_STATUS_MON_BUF_ADDR 9
 #define HAL_TLV_STATUS_MPDU_START 10
-#define HAL_TLV_STATUS_MON_DROP 11
 
 #define HAL_MAX_UL_MU_USERS	37
 
@@ -89,9 +88,6 @@
 #define HAL_RX_PKT_TYPE_11N	2
 #define HAL_RX_PKT_TYPE_11AC	3
 #define HAL_RX_PKT_TYPE_11AX	4
-#ifdef WLAN_FEATURE_11BE
-#define HAL_RX_PKT_TYPE_11BE	6
-#endif
 
 #define HAL_RX_RECEPTION_TYPE_SU	0
 #define HAL_RX_RECEPTION_TYPE_MU_MIMO	1
@@ -225,9 +221,9 @@ enum hal_eht_ppdu_sig_cmn_type {
  */
 struct hal_mon_packet_info {
 	uint64_t sw_cookie;
-	uint32_t dma_length : 16,
-		 msdu_continuation : 1,
-		 truncated : 1;
+	uint16_t dma_length;
+	bool msdu_continuation;
+	bool truncated;
 };
 
 /*
@@ -240,34 +236,34 @@ struct hal_mon_packet_info {
  * @first_msdu: first msdu
  * @decap_type: decap type
  * @last_msdu: last msdu
+ * @buffer_len: buffer len
+ * @frag_len: frag len
+ * @msdu_len: msdu len
+ * @msdu_index: msdu index
+ * @user_rssi: user rssi
  * @l3_header_padding: L3 padding header
  * @stbc: stbc enabled
  * @sgi: SGI value
  * @reception_type: reception type
- * @msdu_index: msdu index
- * @buffer_len: buffer len
- * @frag_len: frag len
- * @msdu_len: msdu len
- * @user_rssi: user rssi
  */
 struct hal_rx_mon_msdu_info {
-	uint32_t first_buffer : 1,
-		 last_buffer : 1,
-		 first_mpdu : 1,
-		 mpdu_length_err : 1,
-		 fcs_err : 1,
-		 first_msdu : 1,
-		 decap_type : 3,
-		 last_msdu : 1,
-		 l3_header_padding : 3,
-		 stbc : 1,
-		 sgi : 2,
-		 reception_type : 3,
-		 msdu_index : 4;
-	uint16_t buffer_len : 12;
-	uint16_t frag_len : 12;
+	uint8_t first_buffer;
+	uint8_t last_buffer;
+	uint8_t first_mpdu;
+	uint8_t mpdu_length_err;
+	uint8_t fcs_err;
+	uint8_t first_msdu;
+	uint8_t decap_type;
+	uint8_t last_msdu;
+	uint16_t buffer_len;
+	uint16_t frag_len;
 	uint16_t msdu_len;
-	int16_t user_rssi;
+	uint8_t msdu_index;
+	int8_t user_rssi;
+	uint8_t l3_header_padding;
+	uint8_t stbc;
+	uint8_t sgi;
+	uint8_t reception_type;
 };
 
 /*
@@ -278,20 +274,14 @@ struct hal_rx_mon_msdu_info {
  * @overflow_err: overflow error
  * @decrypt_err: decrypt error
  * @mpdu_start_received: MPDU start received
- * @full_pkt: Full MPDU received
- * @first_rx_hdr_rcvd: First rx_hdr received
- * @truncated: truncated MPDU
  */
 struct hal_rx_mon_mpdu_info {
-	uint32_t decap_type : 8,
-		 mpdu_length_err : 1,
-		 fcs_err : 1,
-		 overflow_err : 1,
-		 decrypt_err : 1,
-		 mpdu_start_received : 1,
-		 full_pkt : 1,
-		 first_rx_hdr_rcvd : 1,
-		 truncated : 1;
+	uint8_t decap_type;
+	bool mpdu_length_err;
+	bool fcs_err;
+	bool overflow_err;
+	bool decrypt_err;
+	bool mpdu_start_received;
 };
 
 /**
@@ -342,40 +332,6 @@ enum {
 	DP_PPDU_STATUS_START,
 	DP_PPDU_STATUS_DONE,
 };
-
-/**
- * struct hal_rx_ppdu_drop_cnt - PPDU drop count
- * @ppdu_drop_cnt: PPDU drop count
- * @mpdu_drop_cnt: MPDU drop count
- * @end_of_ppdu_drop_cnt: End of PPDU drop count
- * @tlv_drop_cnt: TLV drop count
- */
-struct hal_rx_ppdu_drop_cnt {
-	uint8_t ppdu_drop_cnt;
-	uint16_t mpdu_drop_cnt;
-	uint8_t end_of_ppdu_drop_cnt;
-	uint16_t tlv_drop_cnt;
-};
-
-static inline QDF_STATUS
-hal_rx_reo_ent_get_src_link_id(hal_soc_handle_t hal_soc_hdl,
-			       hal_rxdma_desc_t rx_desc,
-			       uint8_t *src_link_id)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	if (!hal_soc || !hal_soc->ops) {
-		hal_err("hal handle is NULL");
-		QDF_BUG(0);
-		return QDF_STATUS_E_INVAL;
-	}
-
-	if (hal_soc->ops->hal_rx_reo_ent_get_src_link_id)
-		return hal_soc->ops->hal_rx_reo_ent_get_src_link_id(rx_desc,
-								    src_link_id);
-
-	return QDF_STATUS_E_INVAL;
-}
 
 /**
  * hal_rx_reo_ent_buf_paddr_get: Gets the physical address and
@@ -594,53 +550,18 @@ enum {
 	HAL_SGI_3_2_US,
 };
 
-#ifdef WLAN_FEATURE_11BE
-enum {
-	HAL_FULL_RX_BW_20,
-	HAL_FULL_RX_BW_40,
-	HAL_FULL_RX_BW_80,
-	HAL_FULL_RX_BW_160,
-	HAL_FULL_RX_BW_320,
-};
-#else
 enum {
 	HAL_FULL_RX_BW_20,
 	HAL_FULL_RX_BW_40,
 	HAL_FULL_RX_BW_80,
 	HAL_FULL_RX_BW_160,
 };
-#endif
 
 enum {
 	HAL_RX_TYPE_SU,
 	HAL_RX_TYPE_MU_MIMO,
 	HAL_RX_TYPE_MU_OFDMA,
 	HAL_RX_TYPE_MU_OFDMA_MIMO,
-};
-
-enum {
-	HAL_RX_TYPE_DL,
-	HAL_RX_TYPE_UL,
-};
-
-/*
- * enum
- * @HAL_RECEPTION_TYPE_SU: Basic SU reception
- * @HAL_RECEPTION_TYPE_DL_MU_MIMO: DL MU_MIMO reception
- * @HAL_RECEPTION_TYPE_DL_MU_OFMA: DL MU_OFMA reception
- * @HAL_RECEPTION_TYPE_DL_MU_OFDMA_MIMO: DL MU_OFDMA_MIMO reception
- * @HAL_RECEPTION_TYPE_UL_MU_MIMO: UL MU_MIMO reception
- * @HAL_RECEPTION_TYPE_UL_MU_OFDMA: UL MU_OFMA reception
- * @HAL_RECEPTION_TYPE_UL_MU_OFDMA_MIMO: UL MU_OFDMA_MIMO reception
- */
-enum {
-	HAL_RECEPTION_TYPE_SU,
-	HAL_RECEPTION_TYPE_DL_MU_MIMO,
-	HAL_RECEPTION_TYPE_DL_MU_OFMA,
-	HAL_RECEPTION_TYPE_DL_MU_OFDMA_MIMO,
-	HAL_RECEPTION_TYPE_UL_MU_MIMO,
-	HAL_RECEPTION_TYPE_UL_MU_OFDMA,
-	HAL_RECEPTION_TYPE_UL_MU_OFDMA_MIMO
 };
 
 /**
@@ -668,12 +589,12 @@ enum {
 struct hal_rx_ppdu_common_info {
 	uint32_t ppdu_id;
 	uint64_t ppdu_timestamp;
-	uint16_t mpdu_cnt_fcs_ok;
-	uint8_t mpdu_cnt_fcs_err;
-	uint8_t num_users;
+	uint32_t mpdu_cnt_fcs_ok;
+	uint32_t mpdu_cnt_fcs_err;
 	uint32_t mpdu_fcs_ok_bitmap[HAL_RX_NUM_WORDS_PER_PPDU_BITMAP];
 	uint32_t last_ppdu_id;
-	uint16_t mpdu_cnt;
+	uint32_t mpdu_cnt;
+	uint8_t num_users;
 };
 
 /**
@@ -683,7 +604,7 @@ struct hal_rx_ppdu_common_info {
  */
 struct hal_rx_msdu_payload_info {
 	uint8_t *first_msdu_payload;
-	uint8_t payload_len;
+	uint32_t payload_len;
 };
 
 /**
@@ -692,32 +613,32 @@ struct hal_rx_msdu_payload_info {
  * @frame_control: frame control from each MPDU
  * @to_ds_flag: flag indicate to_ds bit
  * @mac_addr2_valid: flag indicate if mac_addr2 is valid
- * @mcast_bcast: multicast/broadcast
  * @mac_addr2: mac address2 in wh
+ * @mcast_bcast: multicast/broadcast
  */
 struct hal_rx_nac_info {
-	uint32_t fc_valid : 1,
-		 frame_control : 16,
-		 to_ds_flag : 1,
-		 mac_addr2_valid : 1,
-		 mcast_bcast : 1;
+	uint8_t fc_valid;
+	uint16_t frame_control;
+	uint8_t to_ds_flag;
+	uint8_t mac_addr2_valid;
 	uint8_t mac_addr2[QDF_MAC_ADDR_SIZE];
+	uint8_t mcast_bcast;
 };
 
 /**
  * struct hal_rx_ppdu_msdu_info - struct for msdu info from HW TLVs
- * @fse_metadata: cached FSE metadata value received in the MSDU END TLV
  * @cce_metadata: cached CCE metadata value received in the MSDU_END TLV
  * @is_flow_idx_timeout: flag to indicate if flow search timeout occurred
  * @is_flow_idx_invalid: flag to indicate if flow idx is valid or not
+ * @fse_metadata: cached FSE metadata value received in the MSDU END TLV
  * @flow_idx: flow idx matched in FSE received in the MSDU END TLV
  */
 struct hal_rx_ppdu_msdu_info {
+	uint16_t cce_metadata;
+	bool is_flow_idx_timeout;
+	bool is_flow_idx_invalid;
 	uint32_t fse_metadata;
-	uint32_t cce_metadata : 16,
-		 is_flow_idx_timeout : 1,
-		 is_flow_idx_invalid : 1;
-	uint32_t flow_idx : 20;
+	uint32_t flow_idx;
 };
 
 #if defined(WLAN_CFR_ENABLE) && defined(WLAN_ENH_CFR_ENABLE)
@@ -731,7 +652,7 @@ struct hal_rx_ppdu_msdu_info {
  */
 struct hal_rx_ppdu_cfr_user_info {
 	uint8_t peer_macaddr[QDF_MAC_ADDR_SIZE];
-	uint16_t ast_index;
+	uint32_t ast_index;
 };
 
 /**
@@ -816,7 +737,7 @@ struct hal_rx_ppdu_cfr_user_info {
  *    6: 18 Mbps
  *    7: 9 Mbps
  *
- * @gi_type: Indicates the guard interval.
+ * @gi_type: Indicates the gaurd interval.
  *    0: 0.8 us
  *    1: 0.4 us
  *    2: 1.6 us
@@ -830,6 +751,7 @@ struct hal_rx_ppdu_cfr_info {
 	uint8_t chan_capture_status;
 	uint8_t rtt_che_buffer_pointer_high8;
 	uint32_t rtt_che_buffer_pointer_low32;
+	struct hal_rx_ppdu_cfr_user_info cfr_user_info[HAL_MAX_UL_MU_USERS];
 	int16_t rtt_cfo_measurement;
 	uint32_t agc_gain_info0;
 	uint32_t agc_gain_info1;
@@ -848,7 +770,7 @@ struct mon_rx_info {
 	uint16_t qos_control;
 	uint8_t mac_addr1_valid;
 	uint8_t mac_addr1[QDF_MAC_ADDR_SIZE];
-	uint16_t user_id;
+	uint32_t user_id;
 };
 
 struct mon_rx_user_info {
@@ -858,9 +780,9 @@ struct mon_rx_user_info {
 
 #ifdef QCA_SUPPORT_SCAN_SPCL_VAP_STATS
 struct hal_rx_frm_type_info {
-	uint8_t rx_mgmt_cnt;
-	uint8_t rx_ctrl_cnt;
-	uint8_t rx_data_cnt;
+	uint32_t rx_mgmt_cnt;
+	uint32_t rx_ctrl_cnt;
+	uint32_t rx_data_cnt;
 };
 #else
 struct hal_rx_frm_type_info {};
@@ -1206,6 +1128,11 @@ enum ieee80211_eht_ru_size {
 				 (HAL_EHT_RU_996x3 << HAL_RU_SHIFT(HAL_80_2, 0)) |	\
 				 (HAL_EHT_RU_484 << HAL_RU_SHIFT(HAL_80_3, 0)))
 
+/* EHT Reception Type */
+#define HAL_RX_TYPE_MU_MIMO		1
+#define HAL_RX_TYPE_MU_OFDMA		2
+#define HAL_RX_TYPE_MU_OFMDA_MIMO	3
+
 #define HAL_RX_MON_MAX_AGGR_SIZE	128
 
 /**
@@ -1239,15 +1166,6 @@ struct hal_rx_u_sig_info {
 		 num_eht_sig_sym : 5;
 };
 
-#ifdef WLAN_SUPPORT_CTRL_FRAME_STATS
-struct hal_rx_user_ctrl_frm_info {
-	uint8_t bar : 1,
-		ndpa : 1;
-};
-#else
-struct hal_rx_user_ctrl_frm_info {};
-#endif /* WLAN_SUPPORT_CTRL_FRAME_STATS */
-
 struct hal_rx_ppdu_info {
 	struct hal_rx_ppdu_common_info com_info;
 	struct hal_rx_u_sig_info u_sig_info;
@@ -1259,9 +1177,9 @@ struct hal_rx_ppdu_info {
 	struct hal_rx_msdu_payload_info fcs_ok_msdu_info;
 	struct hal_rx_nac_info nac_info;
 	/* status ring PPDU start and end state */
-	uint8_t rx_state;
+	uint32_t rx_state;
 	/* MU user id for status ring TLV */
-	uint8_t user_id;
+	uint32_t user_id;
 	/* MPDU/MSDU truncated to 128 bytes header start addr in status skb */
 	unsigned char *data;
 	/* MPDU/MSDU truncated to 128 bytes header real length */
@@ -1293,9 +1211,9 @@ struct hal_rx_ppdu_info {
 	/* EHT SIG user info */
 	uint32_t eht_sig_user_info;
 	/*per user mpdu count */
-	uint8_t mpdu_count[HAL_MAX_UL_MU_USERS];
+	uint16_t mpdu_count[HAL_MAX_UL_MU_USERS];
 	/*per user msdu count */
-	uint8_t msdu_count[HAL_MAX_UL_MU_USERS];
+	uint16_t msdu_count[HAL_MAX_UL_MU_USERS];
 	/* Placeholder to update per user last processed msdu’s info */
 	struct hal_rx_mon_msdu_info  msdu[HAL_MAX_UL_MU_USERS];
 	/* Placeholder to update per user last processed mpdu’s info */
@@ -1304,22 +1222,10 @@ struct hal_rx_ppdu_info {
 	struct hal_mon_packet_info packet_info;
 #ifdef QCA_MONITOR_2_0_SUPPORT
 	 /* per user per MPDU queue */
-	qdf_nbuf_queue_t mpdu_q[HAL_MAX_UL_MU_USERS];
+	qdf_nbuf_t mpdu_q[HAL_MAX_UL_MU_USERS][HAL_RX_MAX_MPDU];
 #endif
 	 /* ppdu info list element */
 	TAILQ_ENTRY(hal_rx_ppdu_info) ppdu_list_elem;
-	 /* ppdu info free list element */
-	TAILQ_ENTRY(hal_rx_ppdu_info) ppdu_free_list_elem;
-	/* placeholder to track if RX_HDR is received */
-	uint8_t rx_hdr_rcvd[HAL_MAX_UL_MU_USERS];
-	/* Per user BAR and NDPA bit flag */
-	struct hal_rx_user_ctrl_frm_info ctrl_frm_info[HAL_MAX_UL_MU_USERS];
-	/* PPDU end user stats count */
-	uint8_t end_user_stats_cnt;
-	/* PPDU start user info count */
-	uint8_t start_user_info_cnt;
-	/* PPDU drop cnt */
-	struct hal_rx_ppdu_drop_cnt drop_cnt;
 };
 
 static inline uint32_t
@@ -1380,7 +1286,7 @@ static inline void hal_rx_proc_phyrx_other_receive_info_tlv(struct hal_soc *hal_
  * @rx_tlv_hdr: pointer to TLV header
  * @ppdu_info: pointer to ppdu_info
  * @hal_soc: HAL soc handle
- * @nbuf: PPDU status network buffer
+ * @nbuf: PPDU status netowrk buffer
  *
  * Return: HAL_TLV_STATUS_PPDU_NOT_DONE or HAL_TLV_STATUS_PPDU_DONE from tlv
  */

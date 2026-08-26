@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -37,7 +37,6 @@
 #include "wlan_utility.h"
 #include "wlan_osif_request_manager.h"
 #include "wlan_mlme_ucfg_api.h"
-#include "wlan_tdls_ucfg_api.h"
 
 #define NAN_CMD_MAX_SIZE 2048
 
@@ -221,7 +220,7 @@ static void os_if_get_ndi_vdev_by_ifname_cb(struct wlan_objmgr_psoc *psoc,
  * Return : vdev object if found, NULL otherwise
  */
 static struct wlan_objmgr_vdev *
-os_if_get_ndi_vdev_by_ifname(struct wlan_objmgr_psoc *psoc, const char *ifname)
+os_if_get_ndi_vdev_by_ifname(struct wlan_objmgr_psoc *psoc, char *ifname)
 {
 	QDF_STATUS status;
 	struct ndi_find_vdev_filter filter = {0};
@@ -300,7 +299,7 @@ static int os_if_nan_ndi_open(struct wlan_objmgr_psoc *psoc,
 #endif
 
 static int __os_if_nan_process_ndi_create(struct wlan_objmgr_psoc *psoc,
-					  const char *iface_name,
+					  char *iface_name,
 					  struct nlattr **tb)
 {
 	int ret;
@@ -345,7 +344,7 @@ static int __os_if_nan_process_ndi_create(struct wlan_objmgr_psoc *psoc,
 }
 
 static int
-osif_nla_str(struct nlattr **tb, size_t attr_id, const char **out_str)
+osif_nla_str(struct nlattr **tb, size_t attr_id, char **out_str)
 {
 	if (!tb || !tb[attr_id])
 		return -EINVAL;
@@ -373,7 +372,7 @@ static int osif_net_dev_from_vdev(struct wlan_objmgr_vdev *vdev,
 }
 
 static int osif_net_dev_from_ifname(struct wlan_objmgr_psoc *psoc,
-				    const char *iface_name,
+				    char *iface_name,
 				    struct net_device **out_net_dev)
 {
 	struct wlan_objmgr_vdev *vdev;
@@ -402,7 +401,7 @@ static int os_if_nan_process_ndi_create(struct wlan_objmgr_psoc *psoc,
 					struct wireless_dev *wdev)
 {
 	struct osif_vdev_sync *vdev_sync;
-	const char *ifname;
+	char *ifname;
 	int errno;
 
 	osif_debug("enter");
@@ -453,7 +452,7 @@ static int os_if_nan_process_ndi_create(struct wlan_objmgr_psoc *psoc,
 	struct device *dev;
 	struct net_device *net_dev;
 	struct osif_vdev_sync *vdev_sync;
-	const char *ifname;
+	char *ifname;
 	int errno;
 
 	osif_debug("enter");
@@ -492,7 +491,7 @@ destroy_sync:
 #endif
 
 static int __os_if_nan_process_ndi_delete(struct wlan_objmgr_psoc *psoc,
-					  const char *iface_name,
+					  char *iface_name,
 					  struct nlattr **tb)
 {
 	uint8_t vdev_id;
@@ -543,7 +542,7 @@ static int os_if_nan_process_ndi_delete(struct wlan_objmgr_psoc *psoc,
 {
 	struct net_device *net_dev;
 	struct osif_vdev_sync *vdev_sync;
-	const char *ifname;
+	char *ifname;
 	int errno;
 
 	osif_debug("enter");
@@ -579,7 +578,7 @@ static int os_if_nan_process_ndi_delete(struct wlan_objmgr_psoc *psoc,
 {
 	struct net_device *net_dev;
 	struct osif_vdev_sync *vdev_sync;
-	const char *ifname;
+	char *ifname;
 	int errno;
 
 	osif_debug("enter");
@@ -683,8 +682,7 @@ static int os_if_nan_parse_security_params(struct nlattr **tb,
 
 /**
  * __os_if_nan_process_ndp_initiator_req() - NDP initiator request handler
- * @psoc: psoc object
- * @iface_name: interface name
+ * @ctx: hdd context
  * @tb: parsed NL attribute list
  *
  * tb will contain following vendor attributes:
@@ -704,7 +702,7 @@ static int os_if_nan_parse_security_params(struct nlattr **tb,
  * Return:  0 on success or error code on failure
  */
 static int __os_if_nan_process_ndp_initiator_req(struct wlan_objmgr_psoc *psoc,
-						 const char *iface_name,
+						 char *iface_name,
 						 struct nlattr **tb)
 {
 	int ret = 0;
@@ -828,7 +826,7 @@ static int os_if_nan_process_ndp_initiator_req(struct wlan_objmgr_psoc *psoc,
 {
 	struct net_device *net_dev;
 	struct osif_vdev_sync *vdev_sync;
-	const char *ifname;
+	char *ifname;
 	int errno;
 
 	errno = osif_nla_str(tb, QCA_WLAN_VENDOR_ATTR_NDP_IFACE_STR, &ifname);
@@ -852,7 +850,7 @@ static int os_if_nan_process_ndp_initiator_req(struct wlan_objmgr_psoc *psoc,
 
 /**
  * __os_if_nan_process_ndp_responder_req() - NDP responder request handler
- * @psoc: psoc object
+ * @nan_ctx: hdd context
  * @tb: parsed NL attribute list
  *
  * tb includes following vendor attributes:
@@ -877,7 +875,7 @@ static int __os_if_nan_process_ndp_responder_req(struct wlan_objmgr_psoc *psoc,
 	enum nan_datapath_state state;
 	struct wlan_objmgr_vdev *nan_vdev = NULL;
 	struct nan_datapath_responder_req req = {0};
-	const char *iface_name;
+	char *iface_name;
 	int errno;
 
 	if (!tb[QCA_WLAN_VENDOR_ATTR_NDP_RESPONSE_CODE]) {
@@ -1231,7 +1229,7 @@ static inline uint32_t osif_ndp_get_ndp_initiator_rsp_len(void)
 /**
  * os_if_ndp_initiator_rsp_handler() - NDP initiator response handler
  * @vdev: pointer to vdev object
- * @rsp: response parameters
+ * @rsp_params: response parameters
  *
  * Following vendor event is sent to cfg80211:
  * QCA_WLAN_VENDOR_ATTR_NDP_SUBCMD =
@@ -1412,7 +1410,7 @@ static inline uint32_t osif_ndp_get_ndp_req_ind_len(
 /**
  * os_if_ndp_indication_handler() - NDP indication handler
  * @vdev: pointer to vdev object
- * @event: indication parameters
+ * @ind_params: indication parameters
  *
  * Following vendor event is sent to cfg80211:
  * QCA_WLAN_VENDOR_ATTR_NDP_SUBCMD =
@@ -1647,7 +1645,7 @@ static QDF_STATUS os_if_ndp_confirm_pack_ch_info(struct sk_buff *event,
 /**
  * os_if_ndp_confirm_ind_handler() - NDP confirm indication handler
  * @vdev: pointer to vdev object
- * @ndp_confirm: indication parameters
+ * @ind_params: indication parameters
  *
  * Following vendor event is sent to cfg80211:
  * QCA_WLAN_VENDOR_ATTR_NDP_SUBCMD =
@@ -1789,7 +1787,7 @@ static inline uint32_t osif_ndp_get_ndp_end_rsp_len(void)
 /**
  * os_if_ndp_end_rsp_handler() - NDP end response handler
  * @vdev: pointer to vdev object
- * @rsp: response parameters
+ * @rsp_params: response parameters
  *
  * Following vendor event is sent to cfg80211:
  * QCA_WLAN_VENDOR_ATTR_NDP_SUBCMD =
@@ -1866,7 +1864,7 @@ static inline uint32_t osif_ndp_get_ndp_end_ind_len(
 /**
  * os_if_ndp_end_ind_handler() - NDP end indication handler
  * @vdev: pointer to vdev object
- * @end_ind: indication parameters
+ * @ind_params: indication parameters
  *
  * Following vendor event is sent to cfg80211:
  * QCA_WLAN_VENDOR_ATTR_NDP_SUBCMD =
@@ -1928,8 +1926,8 @@ ndp_end_ind_nla_failed:
 
 /**
  * os_if_new_peer_ind_handler() - NDP new peer indication handler
- * @vdev: vdev object
- * @peer_ind: indication parameters
+ * @adapter: pointer to adapter context
+ * @ind_params: indication parameters
  *
  * Return: none
  */
@@ -1970,36 +1968,9 @@ static void os_if_new_peer_ind_handler(struct wlan_objmgr_vdev *vdev,
 }
 
 /**
- * os_if_ndp_end_all_handler: Handler for NDP_END_ALL request cmd
- * @vdev: pointer to vdev object
- *
- * Return: None
- */
-static void os_if_ndp_end_all_handler(struct wlan_objmgr_vdev *vdev)
-{
-	struct nan_vdev_priv_obj *vdev_nan_obj;
-	struct osif_request *request;
-
-	vdev_nan_obj = nan_get_vdev_priv_obj(vdev);
-	if (!vdev_nan_obj) {
-		osif_err("vdev_nan_obj is NULL");
-		return;
-	}
-
-	request = osif_request_get(vdev_nan_obj->disable_context);
-	if (!request) {
-		osif_debug("Obsolete request");
-		return;
-	}
-
-	osif_request_complete(request);
-	osif_request_put(request);
-}
-
-/**
  * os_if_peer_departed_ind_handler() - Handle NDP peer departed indication
- * @vdev: vdev object
- * @peer_ind: indication parameters
+ * @adapter: pointer to adapter context
+ * @ind_params: indication parameters
  *
  * Return: none
  */
@@ -2029,10 +2000,6 @@ static void os_if_peer_departed_ind_handler(struct wlan_objmgr_vdev *vdev,
 	cb_obj.peer_departed_ind(vdev_id, peer_ind->sta_id,
 				&peer_ind->peer_mac_addr,
 				(active_peers == 0 ? true : false));
-
-	/* if no peer left, stop wait timer for NDP_END_ALL` */
-	if (!active_peers)
-		os_if_ndp_end_all_handler(vdev);
 }
 
 static inline uint32_t osif_ndp_get_ndi_create_rsp_len(void)
@@ -2053,8 +2020,7 @@ static inline uint32_t osif_ndp_get_ndi_create_rsp_len(void)
 
 /**
  * os_if_ndp_iface_create_rsp_handler() - NDP iface create response handler
- * @psoc: soc object
- * @vdev: vdev object
+ * @adapter: pointer to adapter context
  * @rsp_params: response parameters
  *
  * The function is expected to send a response back to the user space
@@ -2170,8 +2136,7 @@ close_ndi:
 
 /**
  * os_if_ndp_iface_delete_rsp_handler() - NDP iface delete response handler
- * @psoc: soc object
- * @vdev: vdev object
+ * @adapter: pointer to adapter context
  * @rsp_params: response parameters
  *
  * Return: none
@@ -2369,6 +2334,39 @@ ndp_sch_ind_nla_failed:
 	kfree_skb(vendor_event);
 }
 
+/**
+ * os_if_ndp_host_update_handler() - NDP Host update handler
+ * @vdev: vdev object pointer
+ * @evt: pointer to host update event
+ *
+ * Return: none
+ */
+static void os_if_ndp_host_update_handler(struct wlan_objmgr_vdev *vdev,
+					  void *evt)
+{
+	struct nan_vdev_priv_obj *vdev_nan_obj;
+	struct nan_datapath_host_event *event;
+	struct osif_request *request;
+
+	vdev_nan_obj = nan_get_vdev_priv_obj(vdev);
+	if (!vdev_nan_obj) {
+		osif_err("vdev_nan_obj is NULL");
+		return;
+	}
+
+	request = osif_request_get(vdev_nan_obj->disable_context);
+	if (!request) {
+		osif_debug("Obsolete request");
+		return;
+	}
+
+	event = osif_request_priv(request);
+	qdf_mem_copy(event, evt, sizeof(*event));
+
+	osif_request_complete(request);
+	osif_request_put(request);
+}
+
 static void os_if_nan_datapath_event_handler(struct wlan_objmgr_psoc *psoc,
 					     struct wlan_objmgr_vdev *vdev,
 					     uint32_t type, void *msg)
@@ -2406,6 +2404,9 @@ static void os_if_nan_datapath_event_handler(struct wlan_objmgr_psoc *psoc,
 		break;
 	case NDP_SCHEDULE_UPDATE:
 		os_if_ndp_sch_update_ind_handler(vdev, msg);
+		break;
+	case NDP_HOST_UPDATE:
+		os_if_ndp_host_update_handler(vdev, msg);
 		break;
 	default:
 		break;
@@ -2503,18 +2504,8 @@ void os_if_nan_ndi_session_end(struct wlan_objmgr_vdev *vdev)
 	 * to be informed in that case (response is not expected)
 	 */
 	state = ucfg_nan_get_ndi_state(vdev);
-
-	/*
-	 * With NDP Delete Vendor command, hdd_ndi_delete function modifies NDI
-	 * state to delete "NAN_DATA_NDI_DELETING_STATE".
-	 * But when user issues DEL Virtual Intf cmd, hdd_ndi_delete does not
-	 * call and NDI state remains to created "NAN_DATA_NDI_CREATED_STATE".
-	 */
-	if (state == NAN_DATA_NDI_CREATED_STATE) {
-		osif_debug("NDI interface is just created: %u", state);
-		return;
-	} else if (state != NAN_DATA_NDI_DELETING_STATE &&
-		   state != NAN_DATA_DISCONNECTED_STATE) {
+	if (state != NAN_DATA_NDI_DELETING_STATE &&
+	    state != NAN_DATA_DISCONNECTED_STATE) {
 		osif_err("NDI interface deleted: state: %u", state);
 		return;
 	}
@@ -2576,37 +2567,6 @@ failure:
 }
 
 /**
- * os_if_nan_handle_sr_nan_concurrency() - Handle NAN concurrency for Spatial
- * Reuse
- * @nan_evt: NAN Event parameters
- *
- * Module calls callback to send SR event to userspace.
- *
- * Return: none
- */
-#ifdef WLAN_FEATURE_SR
-static void
-os_if_nan_handle_sr_nan_concurrency(struct nan_event_params *nan_evt) {
-	void (*nan_sr_conc_callback)(struct nan_event_params *nan_evt);
-	struct nan_psoc_priv_obj *psoc_obj =
-				nan_get_psoc_priv_obj(nan_evt->psoc);
-
-	if (!psoc_obj) {
-		nan_err("nan psoc priv object is NULL");
-		return;
-	}
-
-	nan_sr_conc_callback = psoc_obj->cb_obj.nan_sr_concurrency_update;
-	if (nan_sr_conc_callback)
-		nan_sr_conc_callback(nan_evt);
-}
-#else
-static void
-os_if_nan_handle_sr_nan_concurrency(struct nan_event_params *nan_evt)
-{}
-#endif
-
-/**
  * os_if_nan_discovery_event_handler() - NAN Discovery Interface event handler
  * @nan_evt: NAN Event parameters
  *
@@ -2629,8 +2589,6 @@ static void os_if_nan_discovery_event_handler(struct nan_event_params *nan_evt)
 		osif_err("null pdev");
 		return;
 	}
-	os_if_nan_handle_sr_nan_concurrency(nan_evt);
-
 	os_priv = wlan_pdev_get_ospriv(pdev);
 
 	vendor_event =
@@ -2788,15 +2746,15 @@ int os_if_process_nan_req(struct wlan_objmgr_pdev *pdev, uint8_t vdev_id,
 	}
 
 	/*
-	 * If target does not support NAN DBS, stop the opportunistic timer.
-	 * Opportunistic timer gets triggered as soon as a DBS use case is
-	 * completed and hw_mode would be set to SMM when the timer(5 seconds)
-	 * expires.
-	 * This is to make sure that HW mode is not set to DBS by NAN Enable
-	 * request. NAN state machine will remain unaffected in this case.
+	 * If target does not support NAN DBS, send request with type GENERIC.
+	 * These will be treated as passthrough by the driver. This is to make
+	 * sure that HW mode is not set to DBS by NAN Enable request. NAN state
+	 * machine will remain unaffected in this case.
 	 */
-	if (!NAN_CONCURRENCY_SUPPORTED(psoc))
+	if (!NAN_CONCURRENCY_SUPPORTED(psoc)) {
 		policy_mgr_check_and_stop_opportunistic_timer(psoc, vdev_id);
+		return os_if_nan_generic_req(psoc, tb);
+	}
 
 	/*
 	 * Send all requests other than Enable/Disable as type GENERIC.

@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -97,20 +96,23 @@ cdp_update_filter_neighbour_peers(ol_txrx_soc_handle soc,
 }
 #endif /* ATH_SUPPORT_NAC || ATH_SUPPORT_NAC_RSSI*/
 
+#ifdef WLAN_SUPPORT_SCS
 /**
- * @brief update the monitor buffer and status filter
+ * @brief enable/disable the SCS feature.
  * @details
- *  This defines interface function to set/reset monitor filter
- *  in case of special vap (scan radio)
- *
+ * This defines interface function to enable/disable the SCS
+ * procedure based data parameters so that the data path layer
+ * can access it.
  * @param soc - the pointer to soc object
  * @param vdev_id - id of the pointer to vdev
- * @param cmd - add/del entry into peer table
- * @return - QDF_STATUS
+ * @param macaddr - the address of neighbour peer
+ * @param is_active - Bit to indicate SCS active/inactive
  */
 static inline QDF_STATUS
-cdp_update_mon_mac_filter(ol_txrx_soc_handle soc,
-			  uint8_t vdev_id, uint32_t cmd)
+cdp_enable_scs_params(ol_txrx_soc_handle soc,
+		      struct qdf_mac_addr *macaddr,
+		      uint8_t vdev_id,
+		      bool is_active)
 {
 	if (!soc || !soc->ops) {
 		dp_cdp_debug("Invalid Instance:");
@@ -119,12 +121,50 @@ cdp_update_mon_mac_filter(ol_txrx_soc_handle soc,
 	}
 
 	if (!soc->ops->ctrl_ops ||
-	    !soc->ops->ctrl_ops->txrx_update_mon_mac_filter)
+	    !soc->ops->ctrl_ops->txrx_enable_scs_params)
 		return QDF_STATUS_E_FAILURE;
-
-	return soc->ops->ctrl_ops->txrx_update_mon_mac_filter
-			(soc, vdev_id, cmd);
+	return soc->ops->ctrl_ops->txrx_enable_scs_params
+		(soc, macaddr, vdev_id, is_active);
 }
+
+/**
+ * @brief cdp_record_scs_params() - record the SCS data
+ * and send it to the data path
+ *
+ * @param soc - the pointer to soc object
+ * @param vdev_id - id of the pointer to vdev
+ * @param macaddr - the address of neighbour peer
+ * @param scs_params - Structure having SCS params
+ * obtained from handshake
+ * @param entry_ctr - Index # of the entry in the
+ * node database having a non-zero SCSID
+ * @param scs_sessions - Number of SCS sessions
+ *
+ * @details
+ * Interface function to record the SCS procedure
+ * based data parameters so that the data path layer can access it.
+ * @return - QDF_STATUS
+ */
+static inline QDF_STATUS
+cdp_record_scs_params(ol_txrx_soc_handle soc,
+		      struct qdf_mac_addr *macaddr, uint8_t vdev_id,
+		      struct cdp_scs_params *scs_params,
+		      uint8_t entry_ctr, uint8_t scs_sessions)
+{
+	if (!soc || !soc->ops) {
+		dp_cdp_debug("Invalid Instance:");
+		QDF_BUG(0);
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	if (!soc->ops->ctrl_ops ||
+	    !soc->ops->ctrl_ops->txrx_record_scs_params)
+		return QDF_STATUS_E_FAILURE;
+	return soc->ops->ctrl_ops->txrx_record_scs_params
+		(soc, macaddr, vdev_id, scs_params,
+		 entry_ctr, scs_sessions);
+}
+#endif
 
 #ifdef WLAN_SUPPORT_MSCS
 /**
@@ -922,14 +962,12 @@ cdp_get_pldev(ol_txrx_soc_handle soc, uint8_t pdev_id)
  * @pdev_id: ID of the physical device object
  * @enable: Enable or disable CFR
  * @filter_val: Flag to select filter for monitor mode
- * @cfr_enable_monitor_mode: Flag to be enabled when scan radio is brought up
- * in special vap mode
  */
 static inline void
 cdp_cfr_filter(ol_txrx_soc_handle soc,
 	       uint8_t pdev_id,
-	       bool enable, struct cdp_monitor_filter *filter_val,
-	       bool cfr_enable_monitor_mode)
+	       bool enable,
+	       struct cdp_monitor_filter *filter_val)
 {
 	if (!soc || !soc->ops) {
 		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_FATAL,
@@ -941,8 +979,7 @@ cdp_cfr_filter(ol_txrx_soc_handle soc,
 	if (!soc->ops->cfr_ops || !soc->ops->cfr_ops->txrx_cfr_filter)
 		return;
 
-	soc->ops->cfr_ops->txrx_cfr_filter(soc, pdev_id, enable, filter_val,
-					   cfr_enable_monitor_mode);
+	soc->ops->cfr_ops->txrx_cfr_filter(soc, pdev_id, enable, filter_val);
 }
 
 /**
@@ -1038,6 +1075,33 @@ cdp_cfr_clr_dbg_stats(ol_txrx_soc_handle soc, uint8_t pdev_id)
 		return;
 
 	soc->ops->cfr_ops->txrx_clear_cfr_dbg_stats(soc, pdev_id);
+}
+
+/**
+ * cdp_enable_mon_reap_timer() - enable/disable reap timer
+ * @soc: Datapath soc handle
+ * @pdev_id: id of objmgr pdev
+ * @enable: enable/disable reap timer of monitor status ring
+ *
+ * Return: none
+ */
+static inline void
+cdp_enable_mon_reap_timer(ol_txrx_soc_handle soc, uint8_t pdev_id,
+			  bool enable)
+{
+	if (!soc || !soc->ops) {
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_FATAL,
+			  "%s invalid instance", __func__);
+		QDF_BUG(0);
+		return;
+	}
+
+	if (!soc->ops->cfr_ops ||
+	    !soc->ops->cfr_ops->txrx_enable_mon_reap_timer)
+		return;
+
+	return soc->ops->cfr_ops->txrx_enable_mon_reap_timer(soc, pdev_id,
+							     enable);
 }
 #endif
 
@@ -1141,7 +1205,7 @@ cdp_dump_pdev_rx_protocol_tag_stats(ol_txrx_soc_handle soc,
   * cdp_vdev_config_for_nac_rssi(): To invoke dp callback for nac rssi config
   * @soc: soc pointer
   * @vdev_id: id of vdev
-  * @nac_cmd: specifies nac_rss config action add, del, list
+  * @nac_cmd: specfies nac_rss config action add, del, list
   * @bssid: Neighbour bssid
   * @client_macaddr: Non-Associated client MAC
   * @chan_num: channel number to scan
@@ -1256,7 +1320,7 @@ cdp_dump_rx_flow_tag_stats(ol_txrx_soc_handle soc, uint8_t pdev_id,
 #endif /* WLAN_SUPPORT_RX_FLOW_TAG */
 
 /**
- * cdp_txrx_peer_flush_frags() - flush frags for peer
+ * cdp_peer_flush_frags() - flush frags for peer
  *
  * @soc - pointer to the soc
  * @vdev - the data virtual device object
@@ -1283,7 +1347,7 @@ void cdp_txrx_peer_flush_frags(ol_txrx_soc_handle soc, uint8_t vdev_id,
 							 peer_mac);
 }
 
-#if defined(WLAN_FEATURE_TSF_UPLINK_DELAY) || defined(WLAN_CONFIG_TX_DELAY)
+#ifdef WLAN_FEATURE_TSF_UPLINK_DELAY
 /**
  * cdp_set_delta_tsf() - wrapper function to set delta_tsf
  * @soc: SOC TXRX handle
@@ -1307,8 +1371,7 @@ static inline void cdp_set_delta_tsf(ol_txrx_soc_handle soc, uint8_t vdev_id,
 
 	soc->ops->ctrl_ops->txrx_set_delta_tsf(soc, vdev_id, delta_tsf);
 }
-#endif
-#ifdef WLAN_FEATURE_TSF_UPLINK_DELAY
+
 /**
  * cdp_set_tsf_ul_delay_report() - Enable or disable reporting uplink delay
  * @soc: SOC TXRX handle
@@ -1364,54 +1427,5 @@ static inline QDF_STATUS cdp_get_uplink_delay(ol_txrx_soc_handle soc,
 	return soc->ops->ctrl_ops->txrx_get_uplink_delay(soc, vdev_id, val);
 }
 #endif /* WLAN_FEATURE_TSF_UPLINK_DELAY */
-
-#ifdef QCA_UNDECODED_METADATA_SUPPORT
-/**
- * cdp_txrx_set_pdev_phyrx_error_mask() - set phyrx error mask
- * @soc: opaque soc handle
- * @pdev_id: id of data path pdev handle
- * @mask1: mask to configure 0 to 31 phy error
- * @mask2: mask to configure 32 to 63 phy error
- *
- * Return: status: 0 - Success, non-zero: Failure
- */
-static inline
-QDF_STATUS cdp_txrx_set_pdev_phyrx_error_mask(ol_txrx_soc_handle soc,
-					      uint8_t pdev_id, uint32_t mask,
-					      uint32_t mask_cont)
-{
-	if (!soc || !soc->ops) {
-		dp_cdp_debug("Invalid Instance:");
-		QDF_BUG(0);
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	if (!soc->ops->ctrl_ops ||
-	    !soc->ops->ctrl_ops->txrx_set_pdev_phyrx_error_mask)
-		return QDF_STATUS_E_FAILURE;
-
-	return soc->ops->ctrl_ops->txrx_set_pdev_phyrx_error_mask
-			(soc, pdev_id, mask, mask_cont);
-}
-
-static inline
-QDF_STATUS cdp_txrx_get_pdev_phyrx_error_mask(ol_txrx_soc_handle soc,
-					      uint8_t pdev_id, uint32_t *mask,
-					      uint32_t *mask_cont)
-{
-	if (!soc || !soc->ops) {
-		dp_cdp_debug("Invalid Instance:");
-		QDF_BUG(0);
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	if (!soc->ops->ctrl_ops ||
-	    !soc->ops->ctrl_ops->txrx_get_pdev_phyrx_error_mask)
-		return QDF_STATUS_E_FAILURE;
-
-	return soc->ops->ctrl_ops->txrx_get_pdev_phyrx_error_mask
-			(soc, pdev_id, mask, mask_cont);
-}
-#endif
 
 #endif /* _CDP_TXRX_CTRL_H_ */

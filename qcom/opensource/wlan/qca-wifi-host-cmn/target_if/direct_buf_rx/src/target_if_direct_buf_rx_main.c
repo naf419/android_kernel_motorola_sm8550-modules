@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -823,8 +823,6 @@ QDF_STATUS target_if_direct_buf_rx_psoc_create_handler(
 		goto attach_error;
 	}
 
-	dbr_psoc_obj->handler_ctx = WMI_RX_UMAC_CTX;
-
 	return status;
 
 attach_error:
@@ -1391,7 +1389,7 @@ static QDF_STATUS target_if_dbr_fill_ring(struct wlan_objmgr_pdev *pdev,
 	struct direct_buf_rx_buf_info *dbr_buf_pool;
 	void *buf_vaddr_unaligned, *buf_vaddr_aligned;
 	QDF_STATUS status;
-	uint8_t offset = 0;
+	uint8_t offset;
 
 	direct_buf_rx_enter();
 
@@ -1519,7 +1517,7 @@ static QDF_STATUS target_if_dbr_init_ring(struct wlan_objmgr_pdev *pdev,
 	ring_params.num_entries = num_entries;
 	srng = hal_srng_setup(dbr_psoc_obj->hal_soc, DIR_BUF_RX_DMA_SRC,
 			      mod_param->mod_id,
-			      mod_param->pdev_id, &ring_params, 0);
+			      mod_param->pdev_id, &ring_params);
 
 	if (!srng) {
 		direct_buf_rx_err("srng setup failed");
@@ -1683,8 +1681,6 @@ static QDF_STATUS target_if_init_dbr_ring(struct wlan_objmgr_pdev *pdev,
 		direct_buf_rx_err("DBR ring init failed %d", status);
 		return status;
 	}
-
-	mod_param->srng_initialized = true;
 
 	/* Send CFG request command to firmware */
 	status = target_if_dbr_cfg_tgt(pdev, mod_param);
@@ -2336,13 +2332,6 @@ QDF_STATUS target_if_deinit_dbr_ring(struct wlan_objmgr_pdev *pdev,
 	}
 	direct_buf_rx_debug("mod_param %pK, dbr_ring_cap %pK",
 			    mod_param, mod_param->dbr_ring_cap);
-
-	if (!mod_param->srng_initialized) {
-		direct_buf_rx_err("module(%d) srng(%d) was not initialized",
-				  mod_id, srng_id);
-		return QDF_STATUS_SUCCESS;
-	}
-
 	target_if_dbr_deinit_srng(pdev, mod_param);
 	if (mod_param->dbr_ring_cap)
 		qdf_mem_free(mod_param->dbr_ring_cap);
@@ -2351,8 +2340,6 @@ QDF_STATUS target_if_deinit_dbr_ring(struct wlan_objmgr_pdev *pdev,
 		qdf_mem_free(mod_param->dbr_ring_cfg);
 	mod_param->dbr_ring_cfg = NULL;
 
-	mod_param->srng_initialized = false;
-
 	return QDF_STATUS_SUCCESS;
 }
 
@@ -2360,28 +2347,18 @@ QDF_STATUS target_if_direct_buf_rx_register_events(
 				struct wlan_objmgr_psoc *psoc)
 {
 	QDF_STATUS ret;
-	struct direct_buf_rx_psoc_obj *dbr_psoc_obj;
 
 	if (!psoc || !GET_WMI_HDL_FROM_PSOC(psoc)) {
 		direct_buf_rx_err("psoc or psoc->tgt_if_handle is null");
 		return QDF_STATUS_E_INVAL;
-	}
-	dbr_psoc_obj = wlan_objmgr_psoc_get_comp_private_obj(
-			psoc,
-			WLAN_TARGET_IF_COMP_DIRECT_BUF_RX);
-
-	if (!dbr_psoc_obj) {
-		direct_buf_rx_err("dir buf rx psoc object is null");
-		return QDF_STATUS_E_FAILURE;
 	}
 
 	ret = wmi_unified_register_event_handler(
 			get_wmi_unified_hdl_from_psoc(psoc),
 			wmi_dma_buf_release_event_id,
 			target_if_direct_buf_rx_rsp_event_handler,
-			dbr_psoc_obj->handler_ctx);
+			WMI_RX_UMAC_CTX);
 
-	direct_buf_rx_info("DBR Handler Context %d", dbr_psoc_obj->handler_ctx);
 	if (QDF_IS_STATUS_ERROR(ret))
 		direct_buf_rx_debug("event handler not supported, ret=%d", ret);
 

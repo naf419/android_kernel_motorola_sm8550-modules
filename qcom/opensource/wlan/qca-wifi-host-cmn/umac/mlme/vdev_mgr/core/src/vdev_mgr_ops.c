@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -41,7 +41,6 @@
 #include <wlan_mlo_mgr_ap.h>
 #endif
 #include <wlan_vdev_mgr_utils_api.h>
-#include <wlan_vdev_mgr_api.h>
 
 #ifdef QCA_VDEV_STATS_HW_OFFLOAD_SUPPORT
 /**
@@ -114,21 +113,6 @@ static void vdev_mgr_reset_vdev_stats_id(struct wlan_objmgr_vdev *vdev,
 {}
 #endif /* QCA_VDEV_STATS_HW_OFFLOAD_SUPPORT */
 
-#ifdef WLAN_FEATURE_11BE_MLO
-static inline void
-vdev_mgr_param_mld_mac_addr_copy(struct wlan_objmgr_vdev *vdev,
-				 struct vdev_create_params *param)
-{
-	WLAN_ADDR_COPY(param->mlo_mac, wlan_vdev_mlme_get_mldaddr(vdev));
-}
-#else /* WLAN_FEATURE_11BE_MLO */
-static inline void
-vdev_mgr_param_mld_mac_addr_copy(struct wlan_objmgr_vdev *vdev,
-				 struct vdev_create_params *param)
-{
-}
-#endif /* WLAN_FEATURE_11BE_MLO */
-
 static QDF_STATUS vdev_mgr_create_param_update(
 					struct vdev_mlme_obj *mlme_obj,
 					struct vdev_create_params *param)
@@ -163,7 +147,9 @@ static QDF_STATUS vdev_mgr_create_param_update(
 	vdev_mgr_alloc_vdev_stats_id(vdev, param);
 	param->vdev_stats_id_valid =
 	((param->vdev_stats_id != CDP_INVALID_VDEV_STATS_ID) ? true : false);
-	vdev_mgr_param_mld_mac_addr_copy(vdev, param);
+#ifdef WLAN_FEATURE_11BE_MLO
+	WLAN_ADDR_COPY(param->mlo_mac, wlan_vdev_mlme_get_mldaddr(vdev));
+#endif
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -326,20 +312,10 @@ vdev_mgr_start_param_update_mlo(struct vdev_mlme_obj *mlme_obj,
 	    !wlan_vdev_mlme_is_mlo_link_vdev(vdev))
 		param->mlo_flags.mlo_assoc_link = 1;
 
-	if ((wlan_vdev_mlme_get_opmode(vdev) == QDF_STA_MODE) &&
-	    wlan_vdev_mlme_cap_get(vdev, WLAN_VDEV_C_EMLSR_CAP)) {
-		param->mlo_flags.emlsr_support  = 1;
-		mlme_debug("eMLSR support=%d", param->mlo_flags.emlsr_support);
-	}
+	vdev_mgr_start_param_update_mlo_mcast(vdev, param);
 
-	if (wlan_vdev_mlme_get_opmode(vdev) == QDF_SAP_MODE) {
-		if (wlan_vdev_mlme_op_flags_get(
-			vdev, WLAN_VDEV_OP_MLO_LINK_ADD))
-			param->mlo_flags.mlo_link_add  = 1;
-
-		vdev_mgr_start_param_update_mlo_mcast(vdev, param);
+	if (wlan_vdev_mlme_get_opmode(vdev) == QDF_SAP_MODE)
 		vdev_mgr_start_param_update_mlo_partner(vdev, param);
-	}
 }
 #else
 static void
@@ -371,7 +347,7 @@ static QDF_STATUS vdev_mgr_start_param_update(
 {
 	struct wlan_channel *des_chan;
 	uint32_t dfs_reg;
-	bool is_stadfs_en = false;
+	bool set_agile = false, dfs_set_cfreq2 = false, is_stadfs_en = false;
 	struct wlan_objmgr_vdev *vdev;
 	struct wlan_objmgr_pdev *pdev;
 	enum QDF_OPMODE op_mode;
@@ -482,6 +458,19 @@ static QDF_STATUS vdev_mgr_start_param_update(
 	}
 	wlan_vdev_mlme_get_ssid(vdev, param->ssid.ssid, &param->ssid.length);
 
+	if (des_chan->ch_phymode == WLAN_PHYMODE_11AC_VHT80 ||
+	    des_chan->ch_phymode == WLAN_PHYMODE_11AXA_HE80) {
+		tgt_dfs_find_vht80_precac_chan_freq(pdev,
+						    des_chan->ch_phymode,
+						    des_chan->ch_freq_seg1,
+						    &param->channel.cfreq1,
+						    &param->channel.cfreq2,
+						    &param->channel.phy_mode,
+						    &dfs_set_cfreq2,
+						    &set_agile);
+		param->channel.dfs_set_cfreq2 = dfs_set_cfreq2;
+		param->channel.set_agile = set_agile;
+	}
 	wlan_objmgr_pdev_release_ref(pdev, WLAN_MLME_SB_ID);
 	return QDF_STATUS_SUCCESS;
 }
@@ -611,22 +600,11 @@ static QDF_STATUS vdev_mgr_up_param_update(
 {
 	struct vdev_mlme_mbss_11ax *mbss;
 	struct wlan_objmgr_vdev *vdev;
-	uint8_t bssid[QDF_MAC_ADDR_SIZE];
 
 	vdev = mlme_obj->vdev;
 	param->vdev_id = wlan_vdev_get_id(vdev);
 	param->assoc_id = mlme_obj->proto.sta.assoc_id;
-
 	mbss = &mlme_obj->mgmt.mbss_11ax;
-	wlan_vdev_mgr_get_param_bssid(vdev, bssid);
-	mlme_debug("trans BSSID "QDF_MAC_ADDR_FMT"non-trans BSSID"QDF_MAC_ADDR_FMT"profile_num %d, profile_idx %d",
-		   QDF_MAC_ADDR_REF(mbss->trans_bssid),
-		   QDF_MAC_ADDR_REF(mbss->non_trans_bssid),
-		  mbss->profile_idx, mbss->profile_num);
-	if ((qdf_mem_cmp(bssid, mbss->trans_bssid, QDF_MAC_ADDR_SIZE)) &&
-	    (qdf_mem_cmp(bssid, mbss->non_trans_bssid, QDF_MAC_ADDR_SIZE)))
-		return QDF_STATUS_SUCCESS;
-
 	param->profile_idx = mbss->profile_idx;
 	param->profile_num = mbss->profile_num;
 	qdf_mem_copy(param->trans_bssid, mbss->trans_bssid, QDF_MAC_ADDR_SIZE);
@@ -701,14 +679,8 @@ QDF_STATUS vdev_mgr_up_send(struct vdev_mlme_obj *mlme_obj)
 		if (is_6g_sap_fd_enabled) {
 			fils_param.fd_period = DEFAULT_FILS_DISCOVERY_PERIOD;
 		} else {
-			if (wlan_vdev_mlme_feat_ext2_cap_get(vdev,
-					WLAN_VDEV_FEXT2_20TU_PRB_RESP)) {
-				fils_param.send_prb_rsp_frame = true;
-				fils_param.fd_period =
-					DEFAULT_PROBE_RESP_PERIOD;
-			} else {
-				mlme_err("SAP FD and 20TU Prb both are disabled");
-			}
+			fils_param.send_prb_rsp_frame = true;
+			fils_param.fd_period = DEFAULT_PROBE_RESP_PERIOD;
 		}
 		status = tgt_vdev_mgr_fils_enable_send(mlme_obj,
 						       &fils_param);

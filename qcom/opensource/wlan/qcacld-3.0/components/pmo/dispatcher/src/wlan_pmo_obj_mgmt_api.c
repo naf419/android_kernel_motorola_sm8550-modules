@@ -292,17 +292,13 @@ out:
 	return QDF_STATUS_SUCCESS;
 }
 
-QDF_STATUS pmo_vdev_ready(struct wlan_objmgr_vdev *vdev,
-			  struct qdf_mac_addr *bridgeaddr)
+QDF_STATUS pmo_vdev_ready(struct wlan_objmgr_vdev *vdev)
 {
 	QDF_STATUS status;
 
 	status = pmo_vdev_get_ref(vdev);
 	if (QDF_IS_STATUS_ERROR(status))
 		return status;
-
-	/* Set Bridge MAC address */
-	pmo_set_vdev_bridge_addr(vdev, bridgeaddr);
 
 	/* Register static configuration with firmware */
 	pmo_register_wow_wakeup_events(vdev);
@@ -892,4 +888,21 @@ wlan_pmo_get_go_mode_bus_suspend(struct wlan_objmgr_psoc *psoc)
 		return false;
 
 	return pmo_psoc_ctx->psoc_cfg.is_bus_suspend_enabled_in_go_mode;
+}
+
+bool wlan_pmo_enable_ssr_on_page_fault(struct wlan_objmgr_psoc *psoc)
+{
+	return pmo_enable_ssr_on_page_fault(psoc);
+}
+
+uint8_t
+wlan_pmo_get_max_pagefault_wakeups_for_ssr(struct wlan_objmgr_psoc *psoc)
+{
+	return pmo_get_max_pagefault_wakeups_for_ssr(psoc);
+}
+
+uint32_t
+wlan_pmo_get_interval_for_pagefault_wakeup_counts(struct wlan_objmgr_psoc *psoc)
+{
+	return pmo_get_interval_for_pagefault_wakeup_counts(psoc);
 }

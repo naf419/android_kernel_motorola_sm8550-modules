@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -78,7 +77,6 @@ const struct nla_policy cfr_config_policy[
 						.type = NLA_U32},
 };
 
-#ifdef WLAN_ENH_CFR_ENABLE
 static void
 wlan_hdd_transport_mode_cfg(struct wlan_objmgr_pdev *pdev,
 			    uint8_t vdev_id, uint32_t pid,
@@ -104,6 +102,8 @@ wlan_hdd_transport_mode_cfg(struct wlan_objmgr_pdev *pdev,
 	else
 		pa->nl_cb.cfr_nl_cb = NULL;
 }
+
+#ifdef WLAN_ENH_CFR_ENABLE
 
 #define DEFAULT_CFR_NSS 0xff
 #define DEFAULT_CFR_BW  0xf
@@ -291,7 +291,7 @@ wlan_cfg80211_cfr_set_config(struct wlan_objmgr_vdev *vdev,
 				(uint32_t)(ul_mu_user_mask & 0xffffffff);
 		params.ul_mu_user_mask_lower =
 				(uint32_t)(ul_mu_user_mask >> 32);
-		hdd_debug("set ul mu user mask");
+		hdd_debug("set ul mu user maks");
 		ucfg_cfr_set_ul_mu_user_mask(vdev, &params);
 	}
 
@@ -456,10 +456,11 @@ wlan_cfg80211_peer_cfr_capture_cfg_adrastea(struct hdd_adapter *adapter,
 			QCA_WLAN_VENDOR_ATTR_PEER_CFR_ENABLE]);
 	}
 
-	vdev = hdd_objmgr_get_vdev_by_user(adapter, WLAN_CFR_ID);
-	if (!vdev) {
-		hdd_err("can't get vdev");
-		return -EINVAL;
+	vdev = adapter->vdev;
+	status = hdd_objmgr_get_vdev_by_user(vdev, WLAN_CFR_ID);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_err("failed to get vdev");
+		return status;
 	}
 
 	pdev = wlan_vdev_get_pdev(vdev);
@@ -585,10 +586,11 @@ wlan_cfg80211_peer_cfr_capture_cfg_adrastea(struct hdd_adapter *adapter,
 	if (tb[id])
 		is_start_capture = nla_get_flag(tb[id]);
 
-	vdev = hdd_objmgr_get_vdev_by_user(adapter, WLAN_CFR_ID);
-	if (!vdev) {
-		hdd_err("can't get vdev");
-		return -EINVAL;
+	vdev = adapter->vdev;
+	status = hdd_objmgr_get_vdev_by_user(vdev, WLAN_CFR_ID);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_err("failed to get vdev");
+		return status;
 	}
 
 	pdev = wlan_vdev_get_pdev(vdev);

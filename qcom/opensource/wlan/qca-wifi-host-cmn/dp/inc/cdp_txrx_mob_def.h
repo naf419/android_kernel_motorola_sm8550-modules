@@ -441,7 +441,7 @@ struct ol_txrx_ocb_set_chan {
 /**
  * @brief Parameter type to pass WMM setting to ol_txrx_set_wmm_param
  * @details
- *   The struct is used to specify information to update TX WMM scheduler.
+ *   The struct is used to specify informaiton to update TX WMM scheduler.
  */
 struct ol_tx_ac_param_t {
 	uint32_t aifs;
@@ -502,6 +502,9 @@ typedef void (*ol_txrx_vdev_peer_remove_cb)(void *handle, uint8_t *bssid,
 typedef void (*tx_pause_callback)(uint8_t vdev_id,
 		enum netif_action_type action,
 		enum netif_reason_type reason);
+
+typedef void (*ipa_uc_op_cb_type)(uint8_t *op_msg,
+			void *osif_ctxt);
 
 /**
  * struct ol_rx_inv_peer_params - rx invalid peer data parameters

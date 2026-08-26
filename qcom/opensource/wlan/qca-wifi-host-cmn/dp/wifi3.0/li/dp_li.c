@@ -22,14 +22,9 @@
 #include <dp_htt.h>
 #include "dp_li.h"
 #include "dp_li_tx.h"
-#include "dp_tx_desc.h"
 #include "dp_li_rx.h"
 #include "dp_peer.h"
-#include <wlan_utility.h>
 #include "dp_ipa.h"
-#ifdef WIFI_MONITOR_SUPPORT
-#include <dp_mon_1.0.h>
-#endif
 
 #if defined(WLAN_MAX_PDEVS) && (WLAN_MAX_PDEVS == 1)
 static struct wlan_cfg_tcl_wbm_ring_num_map g_tcl_wbm_map_array[MAX_TCL_DATA_RINGS] = {
@@ -45,13 +40,7 @@ static struct wlan_cfg_tcl_wbm_ring_num_map g_tcl_wbm_map_array[MAX_TCL_DATA_RIN
 static struct wlan_cfg_tcl_wbm_ring_num_map g_tcl_wbm_map_array[MAX_TCL_DATA_RINGS] = {
 	{.tcl_ring_num = 0, .wbm_ring_num = 0, .wbm_rbm_id = HAL_LI_WBM_SW0_BM_ID, .for_ipa = 0},
 	{1, 1, HAL_LI_WBM_SW1_BM_ID, 0},
-	{2, 2, HAL_LI_WBM_SW2_BM_ID, 0},
-	/*
-	 * Although using wbm_ring 4, wbm_ring 3 is mentioned in order to match
-	 * with the tx_mask in dp_service_srngs. Please be careful while using
-	 * this table anywhere else.
-	 */
-	{3, 3, HAL_LI_WBM_SW4_BM_ID, 0}
+	{2, 2, HAL_LI_WBM_SW2_BM_ID, 0}
 };
 #endif
 
@@ -193,11 +182,6 @@ static QDF_STATUS dp_peer_map_attach_li(struct dp_soc *soc)
 	return QDF_STATUS_SUCCESS;
 }
 #endif
-
-static QDF_STATUS dp_peer_setup_li(struct dp_soc *soc, struct dp_peer *peer)
-{
-	return QDF_STATUS_SUCCESS;
-}
 
 qdf_size_t dp_get_soc_context_size_li(void)
 {
@@ -374,190 +358,28 @@ dp_rxdma_ring_sel_cfg_li(struct dp_soc *soc)
 }
 #endif
 
-#ifdef QCA_DP_ENABLE_TX_COMP_RING4
-static inline
-void dp_deinit_txcomp_ring4(struct dp_soc *soc)
-{
-	if (soc) {
-		wlan_minidump_remove(soc->tx_comp_ring[3].base_vaddr_unaligned,
-				     soc->tx_comp_ring[3].alloc_size,
-				     soc->ctrl_psoc, WLAN_MD_DP_SRNG_TX_COMP,
-				     "Transmit_completion_ring");
-		dp_srng_deinit(soc, &soc->tx_comp_ring[3], WBM2SW_RELEASE, 0);
-	}
-}
-
-static inline
-QDF_STATUS dp_init_txcomp_ring4(struct dp_soc *soc)
-{
-	if (soc) {
-		if (dp_srng_init(soc, &soc->tx_comp_ring[3],
-				 WBM2SW_RELEASE, WBM2SW_TXCOMP_RING4_NUM, 0)) {
-			dp_err("%pK: dp_srng_init failed for rx_rel_ring",
-			       soc);
-			return QDF_STATUS_E_FAILURE;
-		}
-		wlan_minidump_log(soc->tx_comp_ring[3].base_vaddr_unaligned,
-				  soc->tx_comp_ring[3].alloc_size,
-				  soc->ctrl_psoc, WLAN_MD_DP_SRNG_TX_COMP,
-				  "Transmit_completion_ring");
-	}
-	return QDF_STATUS_SUCCESS;
-}
-
-static inline
-void dp_free_txcomp_ring4(struct dp_soc *soc)
-{
-	if (soc)
-		dp_srng_free(soc, &soc->tx_comp_ring[3]);
-}
-
-static inline
-QDF_STATUS dp_alloc_txcomp_ring4(struct dp_soc *soc, uint32_t tx_comp_ring_size,
-				 uint32_t cached)
-{
-	if (soc) {
-		if (dp_srng_alloc(soc, &soc->tx_comp_ring[3], WBM2SW_RELEASE,
-				  tx_comp_ring_size, cached)) {
-			dp_err("dp_srng_alloc failed for tx_comp_ring");
-			return QDF_STATUS_E_FAILURE;
-		}
-	}
-	return QDF_STATUS_SUCCESS;
-}
-#else
-static inline
-void dp_deinit_txcomp_ring4(struct dp_soc *soc)
-{
-}
-
-static inline
-QDF_STATUS dp_init_txcomp_ring4(struct dp_soc *soc)
-{
-	return QDF_STATUS_SUCCESS;
-}
-
-static inline
-void dp_free_txcomp_ring4(struct dp_soc *soc)
-{
-}
-
-static inline
-QDF_STATUS dp_alloc_txcomp_ring4(struct dp_soc *soc, uint32_t tx_comp_ring_size,
-				 uint32_t cached)
-{
-	return QDF_STATUS_SUCCESS;
-}
-#endif
-
 static void dp_soc_srng_deinit_li(struct dp_soc *soc)
 {
-	/* Tx Complete ring */
-	dp_deinit_txcomp_ring4(soc);
 }
 
 static void dp_soc_srng_free_li(struct dp_soc *soc)
 {
-	dp_free_txcomp_ring4(soc);
 }
 
 static QDF_STATUS dp_soc_srng_alloc_li(struct dp_soc *soc)
 {
-	uint32_t tx_comp_ring_size;
-	uint32_t cached = WLAN_CFG_DST_RING_CACHED_DESC;
-	struct wlan_cfg_dp_soc_ctxt *soc_cfg_ctx;
-
-	soc_cfg_ctx = soc->wlan_cfg_ctx;
-
-	tx_comp_ring_size = wlan_cfg_tx_comp_ring_size(soc_cfg_ctx);
-	/* Disable cached desc if NSS offload is enabled */
-	if (wlan_cfg_get_dp_soc_nss_cfg(soc_cfg_ctx))
-		cached = 0;
-
-	if (dp_alloc_txcomp_ring4(soc, tx_comp_ring_size, cached))
-		goto fail1;
 	return QDF_STATUS_SUCCESS;
-fail1:
-	dp_soc_srng_free_li(soc);
-	return QDF_STATUS_E_NOMEM;
 }
 
 static QDF_STATUS dp_soc_srng_init_li(struct dp_soc *soc)
 {
-	/* Tx comp ring 3 */
-	if (dp_init_txcomp_ring4(soc))
-		goto fail1;
-
 	return QDF_STATUS_SUCCESS;
-fail1:
-	/*
-	 * Cleanup will be done as part of soc_detach, which will
-	 * be called on pdev attach failure
-	 */
-	dp_soc_srng_deinit_li(soc);
-	return QDF_STATUS_E_FAILURE;
 }
 
 static void dp_tx_implicit_rbm_set_li(struct dp_soc *soc,
 				      uint8_t tx_ring_id,
 				      uint8_t bm_id)
 {
-}
-
-static QDF_STATUS dp_txrx_set_vdev_param_li(struct dp_soc *soc,
-					    struct dp_vdev *vdev,
-					    enum cdp_vdev_param_type param,
-					    cdp_config_param_type val)
-{
-	return QDF_STATUS_SUCCESS;
-}
-
-bool
-dp_rx_intrabss_handle_nawds_li(struct dp_soc *soc, struct dp_txrx_peer *ta_peer,
-			       qdf_nbuf_t nbuf_copy,
-			       struct cdp_tid_rx_stats *tid_stats)
-{
-	return false;
-}
-
-static void dp_rx_word_mask_subscribe_li(struct dp_soc *soc,
-					 uint32_t *msg_word,
-					 void *rx_filter)
-{
-}
-
-static struct dp_peer *dp_find_peer_by_destmac_li(struct dp_soc *soc,
-						  uint8_t *dest_mac,
-						  uint8_t vdev_id)
-{
-	struct dp_peer *peer = NULL;
-	struct dp_ast_entry *ast_entry = NULL;
-	uint16_t peer_id;
-
-	qdf_spin_lock_bh(&soc->ast_lock);
-	ast_entry = dp_peer_ast_hash_find_by_vdevid(soc, dest_mac, vdev_id);
-
-	if (!ast_entry) {
-		qdf_spin_unlock_bh(&soc->ast_lock);
-		dp_err("NULL ast entry");
-		return NULL;
-	}
-
-	peer_id = ast_entry->peer_id;
-	qdf_spin_unlock_bh(&soc->ast_lock);
-
-	if (peer_id == HTT_INVALID_PEER)
-		return NULL;
-
-	peer = dp_peer_get_ref_by_id(soc, peer_id,
-				     DP_MOD_ID_SAWF);
-	return peer;
-}
-
-static void dp_get_rx_hash_key_li(struct dp_soc *soc,
-				  struct cdp_lro_hash_config *lro_hash)
-{
-	dp_get_rx_hash_key_bytes(lro_hash);
 }
 
 static void dp_peer_get_reo_hash_li(struct dp_vdev *vdev,
@@ -577,15 +399,10 @@ static bool dp_reo_remap_config_li(struct dp_soc *soc,
 	return dp_reo_remap_config(soc, remap0, remap1, remap2);
 }
 
-static struct dp_soc *dp_rx_replensih_soc_get_li(struct dp_soc *soc,
-						 uint8_t chip_id)
-{
-	return soc;
-}
-
-static QDF_STATUS dp_txrx_get_vdev_mcast_param_li(struct dp_soc *soc,
-						  struct dp_vdev *vdev,
-						  cdp_config_param_type *val)
+static QDF_STATUS dp_txrx_set_vdev_param_li(struct dp_soc *soc,
+					    struct dp_vdev *vdev,
+					    enum cdp_vdev_param_type param,
+					    cdp_config_param_type val)
 {
 	return QDF_STATUS_SUCCESS;
 }
@@ -595,7 +412,6 @@ void dp_initialize_arch_ops_li(struct dp_arch_ops *arch_ops)
 #ifndef QCA_HOST_MODE_WIFI_DISABLED
 	arch_ops->tx_hw_enqueue = dp_tx_hw_enqueue_li;
 	arch_ops->dp_rx_process = dp_rx_process_li;
-	arch_ops->dp_tx_send_fast = dp_tx_send;
 	arch_ops->tx_comp_get_params_from_hal_desc =
 		dp_tx_comp_get_params_from_hal_desc_li;
 	arch_ops->dp_tx_process_htt_completion =
@@ -606,16 +422,11 @@ void dp_initialize_arch_ops_li(struct dp_arch_ops *arch_ops)
 	arch_ops->dp_tx_desc_pool_deinit = dp_tx_desc_pool_deinit_li;
 	arch_ops->dp_rx_desc_pool_init = dp_rx_desc_pool_init_li;
 	arch_ops->dp_rx_desc_pool_deinit = dp_rx_desc_pool_deinit_li;
-	arch_ops->dp_tx_compute_hw_delay = dp_tx_compute_tx_delay_li;
-	arch_ops->dp_rx_chain_msdus = dp_rx_chain_msdus_li;
 #else
 	arch_ops->dp_rx_desc_pool_init = dp_rx_desc_pool_init_generic;
 	arch_ops->dp_rx_desc_pool_deinit = dp_rx_desc_pool_deinit_generic;
 #endif
 	arch_ops->txrx_get_context_size = dp_get_context_size_li;
-#ifdef WIFI_MONITOR_SUPPORT
-	arch_ops->txrx_get_mon_context_size = dp_mon_get_context_size_li;
-#endif
 	arch_ops->txrx_soc_attach = dp_soc_attach_li;
 	arch_ops->txrx_soc_detach = dp_soc_detach_li;
 	arch_ops->txrx_soc_init = dp_soc_init_li;
@@ -630,48 +441,36 @@ void dp_initialize_arch_ops_li(struct dp_arch_ops *arch_ops)
 	arch_ops->txrx_vdev_detach = dp_vdev_detach_li;
 	arch_ops->txrx_peer_map_attach = dp_peer_map_attach_li;
 	arch_ops->txrx_peer_map_detach = dp_peer_map_detach_li;
-	arch_ops->get_rx_hash_key = dp_get_rx_hash_key_li;
-	arch_ops->txrx_peer_setup = dp_peer_setup_li;
 	arch_ops->dp_rx_desc_cookie_2_va =
 			dp_rx_desc_cookie_2_va_li;
-	arch_ops->dp_rx_intrabss_handle_nawds = dp_rx_intrabss_handle_nawds_li;
-	arch_ops->dp_rx_word_mask_subscribe = dp_rx_word_mask_subscribe_li;
 	arch_ops->dp_rxdma_ring_sel_cfg = dp_rxdma_ring_sel_cfg_li;
 	arch_ops->dp_rx_peer_metadata_peer_id_get =
 					dp_rx_peer_metadata_peer_id_get_li;
 	arch_ops->soc_cfg_attach = dp_soc_cfg_attach_li;
 	arch_ops->tx_implicit_rbm_set = dp_tx_implicit_rbm_set_li;
-	arch_ops->txrx_set_vdev_param = dp_txrx_set_vdev_param_li;
-	arch_ops->txrx_print_peer_stats = dp_print_peer_txrx_stats_li;
-	arch_ops->dp_peer_rx_reorder_queue_setup =
-					dp_peer_rx_reorder_queue_setup_li;
-	arch_ops->dp_find_peer_by_destmac = dp_find_peer_by_destmac_li;
 	arch_ops->peer_get_reo_hash = dp_peer_get_reo_hash_li;
 	arch_ops->reo_remap_config = dp_reo_remap_config_li;
-	arch_ops->dp_rx_replenish_soc_get = dp_rx_replensih_soc_get_li;
-	arch_ops->get_reo_qdesc_addr = dp_rx_get_reo_qdesc_addr_li;
-	arch_ops->txrx_get_vdev_mcast_param = dp_txrx_get_vdev_mcast_param_li;
+	arch_ops->txrx_set_vdev_param = dp_txrx_set_vdev_param_li;
 }
 
-#ifdef QCA_DP_TX_HW_SW_NBUF_DESC_PREFETCH
-void dp_tx_comp_get_prefetched_params_from_hal_desc(
-					struct dp_soc *soc,
-					void *tx_comp_hal_desc,
-					struct dp_tx_desc_s **r_tx_desc)
+#ifdef CONFIG_DP_PKT_ADD_TIMESTAMP
+void dp_pkt_add_timestamp(struct dp_vdev *vdev,
+			  enum qdf_pkt_timestamp_index index, uint64_t time,
+			  qdf_nbuf_t nbuf)
 {
-	uint8_t pool_id;
-	uint32_t tx_desc_id;
+	if (qdf_unlikely(qdf_is_dp_pkt_timestamp_enabled())) {
+		uint64_t tsf_time;
 
-	tx_desc_id = hal_tx_comp_get_desc_id(tx_comp_hal_desc);
-	pool_id = (tx_desc_id & DP_TX_DESC_ID_POOL_MASK) >>
-		DP_TX_DESC_ID_POOL_OS;
+		if (vdev->get_tsf_time) {
+			vdev->get_tsf_time(vdev->osif_vdev, time, &tsf_time);
+			qdf_add_dp_pkt_timestamp(nbuf, index, tsf_time);
+		}
+	}
+}
 
-	/* Find Tx descriptor */
-	*r_tx_desc = dp_tx_desc_find(soc, pool_id,
-			(tx_desc_id & DP_TX_DESC_ID_PAGE_MASK) >>
-			DP_TX_DESC_ID_PAGE_OS,
-			(tx_desc_id & DP_TX_DESC_ID_OFFSET_MASK) >>
-			DP_TX_DESC_ID_OFFSET_OS);
-	qdf_prefetch((uint8_t *)*r_tx_desc);
+void dp_pkt_get_timestamp(uint64_t *time)
+{
+	if (qdf_unlikely(qdf_is_dp_pkt_timestamp_enabled()))
+		*time = qdf_get_log_timestamp();
 }
 #endif

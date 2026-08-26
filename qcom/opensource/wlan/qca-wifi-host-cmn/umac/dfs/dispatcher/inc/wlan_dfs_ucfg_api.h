@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  *
  * Permission to use, copy, modify, and/or distribute this software for
@@ -86,8 +85,7 @@ struct dfs_to_mlme {
 			uint8_t ieee,
 			uint16_t freq,
 			uint16_t vhtop_ch_freq_seg2,
-			uint64_t flags,
-			uint16_t dfs_radar_bitmap);
+			uint64_t flags);
 #ifdef CONFIG_CHAN_FREQ_API
 	QDF_STATUS (*mlme_start_csa_for_freq)(struct wlan_objmgr_pdev *pdev,
 					      uint8_t ieee_chan, uint16_t freq,
@@ -154,7 +152,7 @@ struct dfs_to_mlme {
 						    enum wlan_phymode des_mode);
 #endif
 #endif
-#if defined(QCA_SUPPORT_DFS_CHAN_POSTNOL) || defined(QCA_DFS_BW_EXPAND)
+#ifdef QCA_SUPPORT_DFS_CHAN_POSTNOL
 	QDF_STATUS
 	(*mlme_postnol_chan_switch)(struct wlan_objmgr_pdev *pdev,
 				    qdf_freq_t des_chan_freq,
@@ -175,10 +173,8 @@ struct dfs_to_mlme {
 					     uint64_t dfs_ch_flags,
 					     int *cac_timeout);
 #endif
-#if defined(WLAN_DFS_PARTIAL_OFFLOAD) && defined(HOST_DFS_SPOOF_TEST)
 	QDF_STATUS (*mlme_rebuild_chan_list_with_non_dfs_channels)
 			(struct wlan_objmgr_pdev *pdev);
-#endif
 	QDF_STATUS (*mlme_restart_vaps_with_non_dfs_chan)
 			(struct wlan_objmgr_pdev *pdev, int no_chans_avail);
 	bool (*mlme_check_allowed_prim_chanlist)
@@ -197,10 +193,8 @@ struct dfs_to_mlme {
 			(struct wlan_objmgr_pdev *pdev);
 	void (*mlme_release_radar_mode_switch_lock)
 			(struct wlan_objmgr_pdev *pdev);
-#if defined(WLAN_DFS_PARTIAL_OFFLOAD) && defined(HOST_DFS_SPOOF_TEST)
 	QDF_STATUS (*mlme_proc_spoof_success)
 			(struct wlan_objmgr_pdev *pdev);
-#endif
 };
 
 extern struct dfs_to_mlme global_dfs_to_mlme;
@@ -294,6 +288,18 @@ QDF_STATUS ucfg_dfs_override_precac_timeout(struct wlan_objmgr_pdev *pdev,
  */
 QDF_STATUS ucfg_dfs_set_precac_enable(struct wlan_objmgr_pdev *pdev,
 				      uint32_t value);
+
+/**
+ * ucfg_dfs_get_legacy_precac_enable() - Get the legacy precac enable flag.
+ * @pdev: Pointer to DFS pdev object.
+ * @buff: Pointer to save precac_enable value.
+ *
+ * Wrapper function for dfs_is_legacy_precac_enabled() and returns the
+ * legacy precac enable flag for partial offload chipsets.
+ * This function called from outside of dfs component.
+ */
+QDF_STATUS ucfg_dfs_get_legacy_precac_enable(struct wlan_objmgr_pdev *pdev,
+					     bool *buff);
 
 /**
  * ucfg_dfs_get_agile_precac_enable() - Get agile precac enable flag.

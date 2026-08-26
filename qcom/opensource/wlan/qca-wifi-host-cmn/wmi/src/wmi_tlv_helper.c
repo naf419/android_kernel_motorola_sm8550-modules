@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2019 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -536,7 +536,7 @@ wmitlv_check_and_pad_tlvs(void *os_handle, void *param_struc_ptr,
 	if (attr_struct_ptr.cmd_num_tlv > g_wmi_static_max_cmd_param_tlvs) {
 		/* Error: Expecting more TLVs that accommodated for static structure  */
 		wmi_tlv_print_error
-			("%s: Error: Expecting more TLVs that accommodated for static structure. Expected:%d Accommodated:%d\n",
+			("%s: Error: Expecting more TLVs that accommodated for static structure. Expected:%d Accomodated:%d\n",
 			__func__, attr_struct_ptr.cmd_num_tlv,
 			g_wmi_static_max_cmd_param_tlvs);
 		return error;
@@ -661,9 +661,7 @@ wmitlv_check_and_pad_tlvs(void *os_handle, void *param_struc_ptr,
 			    || (WMITLV_TAG_ARRAY_BYTE ==
 				attr_struct_ptr.tag_id)
 			    || (WMITLV_TAG_ARRAY_FIXED_STRUC ==
-				attr_struct_ptr.tag_id) ||
-				(WMITLV_TAG_ARRAY_INT16 ==
-					attr_struct_ptr.tag_id)) {
+				attr_struct_ptr.tag_id)) {
 				tlv_size_diff = 0;
 				num_of_elems =
 					curr_tlv_len /
@@ -768,7 +766,7 @@ wmitlv_check_and_pad_tlvs(void *os_handle, void *param_struc_ptr,
 					    (param_buf_len <
 					    buf_idx + curr_tlv_len +
 					    num_padding_bytes * num_of_elems)) {
-						wmi_tlv_print_error("%s: Insufficient buffer\n",
+						wmi_tlv_print_error("%s: Insufficent buffer\n",
 								    __func__);
 						goto
 						Error_wmitlv_check_and_pad_tlvs;
@@ -789,7 +787,7 @@ wmitlv_check_and_pad_tlvs(void *os_handle, void *param_struc_ptr,
 					}
 
 					/* Move subsequent elements of array down by number of
-					 * bytes to be padded for one element and also set
+					 * bytes to be padded for one element and alse set
 					 * padding bytes to zero */
 					tlv_buf_ptr = buf_ptr;
 					for (i = 0; i < num_of_elems - 1; i++) {
@@ -1170,7 +1168,7 @@ wmi_versions_are_compatible(wmi_abi_version *vers1, wmi_abi_version *vers2)
  * Return: 0 if success. Return < 0 if failure.
  */
 static int
-wmi_versions_can_downgrade(int num_allowlist,
+wmi_versions_can_downgrade(int num_whitelist,
 			   wmi_whitelist_version_info *version_whitelist_table,
 			   wmi_abi_version *my_vers,
 			   wmi_abi_version *opp_vers,
@@ -1199,9 +1197,7 @@ wmi_versions_can_downgrade(int num_allowlist,
 			/* Opposite party is newer. Incompatible and cannot downgrade. */
 			can_try_to_downgrade = false;
 		} else if (my_minor_vers > opp_minor_vers) {
-			/* Opposite party is older. Check allowlist if
-			 * we can downgrade
-			 */
+			/* Opposite party is older. Check whitelist if we can downgrade */
 			can_try_to_downgrade = true;
 		} else {
 			/* Same version */
@@ -1223,26 +1219,26 @@ wmi_versions_can_downgrade(int num_allowlist,
 		uint8_t downgraded = false;
 		int i;
 
-		for (i = 0; i < num_allowlist; i++) {
-			if (version_whitelist_table[i].major != my_major_vers)
+		for (i = 0; i < num_whitelist; i++) {
+			if (version_whitelist_table[i].major != my_major_vers) {
 				continue;       /* skip */
-			if (version_whitelist_table[i].namespace_0 !=
-				my_vers->abi_version_ns_0 ||
-			    version_whitelist_table[i].namespace_1 !=
-				my_vers->abi_version_ns_1 ||
-			    version_whitelist_table[i].namespace_2 !=
-				my_vers->abi_version_ns_2 ||
-			    version_whitelist_table[i].namespace_3 !=
-				my_vers->abi_version_ns_3) {
+			}
+			if ((version_whitelist_table[i].namespace_0 !=
+			     my_vers->abi_version_ns_0)
+			    || (version_whitelist_table[i].namespace_1 !=
+				my_vers->abi_version_ns_1)
+			    || (version_whitelist_table[i].namespace_2 !=
+				my_vers->abi_version_ns_2)
+			    || (version_whitelist_table[i].namespace_3 !=
+				my_vers->abi_version_ns_3)) {
 				continue;       /* skip */
 			}
 			if (version_whitelist_table[i].minor ==
 			    downgraded_minor_vers) {
 				/* Found the next version that I can downgrade */
 				wmi_tlv_print_error
-					("%s: Note: found a allowlist entry to downgrade. wh. list ver: %d,%d,0x%x 0x%x 0x%x 0x%x\n",
-					__func__,
-					version_whitelist_table[i].major,
+					("%s: Note: found a whitelist entry to downgrade. wh. list ver: %d,%d,0x%x 0x%x 0x%x 0x%x\n",
+					__func__, version_whitelist_table[i].major,
 					version_whitelist_table[i].minor,
 					version_whitelist_table[i].namespace_0,
 					version_whitelist_table[i].namespace_1,
@@ -1254,9 +1250,7 @@ wmi_versions_can_downgrade(int num_allowlist,
 			}
 		}
 		if (!downgraded) {
-			break;  /* Done since we did not find any allowlist
-				 * to downgrade version
-				 */
+			break;  /* Done since we did not find any whitelist to downgrade version */
 		}
 	}
 	wmi_tlv_OS_MEMCPY(out_vers, my_vers, sizeof(wmi_abi_version));
@@ -1281,7 +1275,7 @@ wmi_versions_can_downgrade(int num_allowlist,
  *
  * This routine will compare and set the WMI ABI version.
  * First, compare my version with the opposite side's version.
- * If incompatible, then check the allowlist to see if our side can downgrade.
+ * If incompatible, then check the whitelist to see if our side can downgrade.
  * Finally, fill in the final ABI version into the output, out_vers.
  * Return 0 if the output version is compatible
  * Else return 1 if the output version is incompatible
@@ -1289,7 +1283,7 @@ wmi_versions_can_downgrade(int num_allowlist,
  * Return: 0 if the output version is compatible else < 0.
  */
 int
-wmi_cmp_and_set_abi_version(int num_allowlist,
+wmi_cmp_and_set_abi_version(int num_whitelist,
 			    wmi_whitelist_version_info *
 			    version_whitelist_table,
 			    struct _wmi_abi_version *my_vers,
@@ -1315,11 +1309,9 @@ wmi_cmp_and_set_abi_version(int num_allowlist,
 	wmi_tlv_OS_MEMCPY(out_vers, my_vers, sizeof(wmi_abi_version));
 	if (!wmi_versions_are_compatible(my_vers, opp_vers)) {
 		/* Our host version and the given firmware version are incompatible. */
-		if (wmi_versions_can_downgrade(num_allowlist,
-					       version_whitelist_table,
-					       my_vers,
-					       opp_vers,
-					       out_vers)) {
+		if (wmi_versions_can_downgrade
+			    (num_whitelist, version_whitelist_table, my_vers, opp_vers,
+			    out_vers)) {
 			/* We can downgrade our host versions to match firmware. */
 			wmi_tlv_print_error
 				("%s: Host downgraded WMI Versions to match fw. Ret version: Mj=%d, Mn=%d, bd=%d, ns0=0x%x ns1:0x%x ns2:0x%x ns3:0x%x\n",

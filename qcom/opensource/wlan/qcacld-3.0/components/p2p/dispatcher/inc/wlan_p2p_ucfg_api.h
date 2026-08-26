@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2017-2018, 2020-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -37,7 +36,6 @@ struct p2p_ps_config;
 struct p2p_lo_start;
 struct p2p_lo_event;
 struct p2p_protocol_callbacks;
-struct mcc_quota_info;
 
 /**
  * p2p_rx_callback() - Callback for rx mgmt frame
@@ -87,20 +85,6 @@ typedef void (*p2p_lo_event_callback)(void *user_data,
  */
 typedef void (*p2p_event_callback)(void *user_data,
 	struct p2p_event *p2p_event);
-
-/**
- * mcc_quota_event_callback() - Callback for mcc quota
- * @psoc: psoc object
- * @vdev: vdev object
- * @mcc_quota: mcc quota event information
- *
- * Callback to notify mcc quota event.
- *
- * Return: None
- */
-typedef QDF_STATUS (*mcc_quota_event_callback)(struct wlan_objmgr_psoc *psoc,
-					       struct wlan_objmgr_vdev *vdev,
-					       struct mcc_quota_info *mcc_quota);
 
 /**
  * struct p2p_start_param - p2p soc start parameters. Below callbacks
@@ -379,27 +363,6 @@ bool ucfg_p2p_check_random_mac(struct wlan_objmgr_psoc *soc, uint32_t vdev_id,
 QDF_STATUS ucfg_p2p_register_callbacks(struct wlan_objmgr_psoc *soc,
 	    struct p2p_protocol_callbacks *cb_obj);
 
-#ifdef WLAN_FEATURE_MCC_QUOTA
-/**
- * ucfg_p2p_register_mcc_quota_event_os_if_cb() - Register OS IF mcc quota
- * event callback
- * @psoc: soc object
- * @cb: os if callback for mcc quota event
- *
- * Return: QDF_STATUS_SUCCESS for success
- */
-QDF_STATUS
-ucfg_p2p_register_mcc_quota_event_os_if_cb(struct wlan_objmgr_psoc *psoc,
-					   mcc_quota_event_callback cb);
-#else
-static inline QDF_STATUS
-ucfg_p2p_register_mcc_quota_event_os_if_cb(struct wlan_objmgr_psoc *psoc,
-					   mcc_quota_event_callback cb)
-{
-	return QDF_STATUS_SUCCESS;
-}
-#endif
-
 /**
  * ucfg_p2p_status_scan() - Show P2P connection status when scanning
  * @vdev: vdev context
@@ -464,27 +427,4 @@ bool ucfg_p2p_is_roam_config_disabled(struct wlan_objmgr_psoc *psoc)
 {
 	return cfg_p2p_is_roam_config_disabled(psoc);
 }
-
-/**
- * ucfg_p2p_get_indoor_ch_support() - Get indoor channel support
- * for P2P GO
- *
- * @psoc: pointer to psoc obj
- *
- * Get the indoor channel support for P2P GO
- *
- * Return: p2p go supported on indoor channel
- */
-bool ucfg_p2p_get_indoor_ch_support(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_p2p_is_p2p_go_noa_in_progress() - Check whether P2P GO single shot noa
- * is in progress or not
- * @pdev: PDEV object manager for P2P GO
- * @vdev_id: vdev id
- *
- * Return: True/False
- */
-bool ucfg_p2p_is_p2p_go_noa_in_progress(struct wlan_objmgr_pdev *pdev,
-					uint8_t vdev_id);
 #endif /* _WLAN_P2P_UCFG_API_H_ */

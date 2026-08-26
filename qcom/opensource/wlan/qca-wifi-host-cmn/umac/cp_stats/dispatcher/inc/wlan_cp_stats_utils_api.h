@@ -148,24 +148,6 @@ QDF_STATUS wlan_cp_stats_comp_obj_cfg(
 		void *cmn_obj,
 		void *data);
 
-/**
- * wlan_cp_stats_vdev_ucast_rx_pnerr() - public API to umac for updating
- * vdev rx_pnerr stats
- * @vdev: pointer to vdev
- *
- * Return: None
- */
-void wlan_cp_stats_vdev_ucast_rx_pnerr(struct wlan_objmgr_vdev *vdev);
-
-/**
- * wlan_cp_stats_peer_rx_pnerr() - public API to umac for updating
- * peer rx_pnerr stats
- * @peer: pointer to peer
- *
- * Return: None
- */
-void wlan_cp_stats_peer_rx_pnerr(struct wlan_objmgr_peer *peer);
-
 #if defined(WLAN_SUPPORT_TWT) && defined(WLAN_TWT_CONV_SUPPORTED)
 /**
  * tgt_cp_stats_twt_get_session_evt_handler() - twt get sessions evt handler
@@ -187,15 +169,6 @@ tgt_cp_stats_twt_get_session_evt_handler(
 	return QDF_STATUS_E_NOSUPPORT;
 }
 #endif
-
-#else /* QCA_SUPPORT_CP_STATS */
-static inline
-void wlan_cp_stats_vdev_ucast_rx_pnerr(struct wlan_objmgr_vdev *vdev)
-{}
-
-static inline
-void wlan_cp_stats_peer_rx_pnerr(struct wlan_objmgr_peer *peer)
-{}
 
 #endif /* QCA_SUPPORT_CP_STATS */
 #endif /* __WLAN_CP_STATS_UTILS_API_H__ */

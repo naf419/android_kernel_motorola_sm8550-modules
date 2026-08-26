@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2017-2019, 2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -40,7 +39,7 @@ QDF_STATUS pmo_init(void);
 /**
  * pmo_deinit() - De initialize pmo_ctx context.
  *
- * This function De initializes power manager offloads (a.k.a pmo) context.
+ * This function De initializes power manager offloads (a.k.a pmo) contex.
  *
  * Return: QDF_STATUS_SUCCESS - in case of success else return error
  */
@@ -85,7 +84,6 @@ QDF_STATUS pmo_vdev_object_created_notification(struct wlan_objmgr_vdev *vdev,
 /**
  * pmo_vdev_ready() - handles vdev ready in firmware event
  * @vdev: vdev which is ready in firmware
- * @bridgeaddr: Bridge MAC address
  *
  * Objmgr vdev_create event does not guarantee vdev creation in firmware.
  * Any logic that would normally go in the vdev_create event, but needs to
@@ -93,8 +91,7 @@ QDF_STATUS pmo_vdev_object_created_notification(struct wlan_objmgr_vdev *vdev,
  *
  * Return QDF_STATUS
  */
-QDF_STATUS pmo_vdev_ready(struct wlan_objmgr_vdev *vdev,
-			  struct qdf_mac_addr *bridgeaddr);
+QDF_STATUS pmo_vdev_ready(struct wlan_objmgr_vdev *vdev);
 
 /**
  * pmo_vdev_object_destroyed_notification(): pmo vdev delete handler
@@ -294,6 +291,34 @@ wlan_pmo_get_sap_mode_bus_suspend(struct wlan_objmgr_psoc *psoc);
 bool
 wlan_pmo_get_go_mode_bus_suspend(struct wlan_objmgr_psoc *psoc);
 
+/*
+ * wlan_pmo_enable_ssr_on_page_fault: Enable/disable ssr on pagefault
+ * @psoc: objmgr psoc
+ *
+ * Return: True if SSR is enabled on pagefault
+ */
+bool wlan_pmo_enable_ssr_on_page_fault(struct wlan_objmgr_psoc *psoc);
+
+/*
+ * wlan_pmo_get_max_pagefault_wakeups_for_ssr: get max pagefault wakeups for ssr
+ * @psoc: objmgr psoc
+ *
+ * Return: Max pagefault wakeups for SSR
+ */
+uint8_t
+wlan_pmo_get_max_pagefault_wakeups_for_ssr(struct wlan_objmgr_psoc *psoc);
+
+/*
+ * wlan_pmo_get_interval_for_pagefault_wakeup_counts: get ssr interval for
+ * pagefault
+ * @psoc: objmgr psoc
+ *
+ * Return: SSR interval for pagefault
+ */
+uint32_t
+wlan_pmo_get_interval_for_pagefault_wakeup_counts(
+						struct wlan_objmgr_psoc *psoc);
+
 #else /* WLAN_POWER_MANAGEMENT_OFFLOAD */
 
 static inline QDF_STATUS pmo_init(void)
@@ -325,7 +350,7 @@ pmo_vdev_object_created_notification(struct wlan_objmgr_vdev *vdev, void *arg)
 }
 
 static inline QDF_STATUS
-pmo_vdev_ready(struct wlan_objmgr_vdev *vdev, struct qdf_mac_addr *bridgeaddr)
+pmo_vdev_ready(struct wlan_objmgr_vdev *vdev)
 {
 	return QDF_STATUS_SUCCESS;
 }
@@ -455,6 +480,25 @@ static inline bool
 wlan_pmo_get_go_mode_bus_suspend(struct wlan_objmgr_psoc *psoc)
 {
 	return false;
+}
+
+static inline bool
+wlan_pmo_enable_ssr_on_page_fault(struct wlan_objmgr_psoc *psoc)
+{
+	return 0;
+}
+
+
+static inline uint8_t
+wlan_pmo_get_max_pagefault_wakeups_for_ssr(struct wlan_objmgr_psoc *psoc)
+{
+	return 0;
+}
+
+static inline uint32_t
+wlan_pmo_get_interval_for_pagefault_wakeup_counts(struct wlan_objmgr_psoc *psoc)
+{
+	return 0;
 }
 
 #endif /* WLAN_POWER_MANAGEMENT_OFFLOAD */

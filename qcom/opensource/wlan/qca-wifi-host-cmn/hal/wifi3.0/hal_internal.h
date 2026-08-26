@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -97,26 +97,6 @@ extern bool is_hal_verbose_debug_enabled;
  */
 #define HAL_GET_NUM_DWORDS(num)	((num) >> 2)
 
-struct hal_hw_cc_config {
-	uint32_t lut_base_addr_31_0;
-	uint32_t cc_global_en:1,
-		 page_4k_align:1,
-		 cookie_offset_msb:5,
-		 cookie_page_msb:5,
-		 lut_base_addr_39_32:8,
-		 wbm2sw6_cc_en:1,
-		 wbm2sw5_cc_en:1,
-		 wbm2sw4_cc_en:1,
-		 wbm2sw3_cc_en:1,
-		 wbm2sw2_cc_en:1,
-		 wbm2sw1_cc_en:1,
-		 wbm2sw0_cc_en:1,
-		 wbm2fw_cc_en:1,
-		 error_path_cookie_conv_en:1,
-		 release_path_cookie_conv_en:1,
-		 reserved:2;
-};
-
 /*
  * dp_hal_soc - opaque handle for DP HAL soc
  */
@@ -158,13 +138,6 @@ typedef struct hal_buf_info *hal_buf_info_t;
 
 struct rx_msdu_desc_info;
 typedef struct rx_msdu_desc_info *rx_msdu_desc_info_t;
-
-/**
- * Opaque handler for PPE VP config.
- */
-union hal_tx_ppe_vp_config;
-union hal_tx_cmn_config_ppe;
-union hal_tx_bank_config;
 
 /* TBD: This should be movded to shared HW header file */
 enum hal_srng_ring_id {
@@ -273,20 +246,18 @@ enum hal_srng_ring_id {
 	/* 163-167 unused */
 	HAL_SRNG_SW2RXMON_BUF0 = 168,
 	/* 169-175 unused */
+	HAL_SRNG_SW2TXMON_BUF0 = 176,
 	/* 177-183 unused */
 	HAL_SRNG_DMAC_CMN_ID_END = 183,
 	/* LMAC rings - The following set will be replicated for each LMAC */
 	HAL_SRNG_LMAC1_ID_START = 184,
 	HAL_SRNG_WMAC1_SW2RXDMA0_BUF0 = HAL_SRNG_LMAC1_ID_START,
-	HAL_SRNG_WMAC1_SW2RXDMA1_BUF,
 #ifdef IPA_OFFLOAD
 	HAL_SRNG_WMAC1_SW2RXDMA0_BUF1,
-#ifdef IPA_WDI3_VLAN_SUPPORT
 	HAL_SRNG_WMAC1_SW2RXDMA0_BUF2,
-#endif
-#endif
-#ifdef FEATURE_DIRECT_LINK
-	HAL_SRNG_WMAC1_RX_DIRECT_LINK_SW_REFILL_RING,
+	HAL_SRNG_WMAC1_SW2RXDMA1_BUF,
+#else
+	HAL_SRNG_WMAC1_SW2RXDMA1_BUF,
 #endif
 	HAL_SRNG_WMAC1_SW2RXDMA2_BUF,
 	HAL_SRNG_WMAC1_SW2RXDMA0_STATBUF,
@@ -298,14 +269,11 @@ enum hal_srng_ring_id {
 #ifdef WLAN_FEATURE_CIF_CFR
 	HAL_SRNG_WIFI_POS_SRC_DMA_RING,
 	HAL_SRNG_DIR_BUF_RX_SRC_DMA_RING,
-	HAL_SRNG_DIR_BUF_RX_SRC_DMA_RING1,
 #else
 	HAL_SRNG_DIR_BUF_RX_SRC_DMA_RING,
-	HAL_SRNG_DIR_BUF_RX_SRC_DMA_RING1,
 #endif
 	HAL_SRNG_WMAC1_TXMON2SW0,
-	HAL_SRNG_SW2TXMON_BUF0,
-	HAL_SRNG_LMAC1_ID_END = (HAL_SRNG_SW2TXMON_BUF0 + 2),
+	HAL_SRNG_LMAC1_ID_END = (HAL_SRNG_WMAC1_TXMON2SW0 + 3),
 };
 
 #define HAL_RXDMA_MAX_RING_SIZE 0xFFFF
@@ -360,7 +328,6 @@ enum SRNG_REGISTERS {
 	DST_MSI1_BASE_LSB,
 	DST_MSI1_BASE_MSB,
 	DST_MSI1_DATA,
-	DST_MISC_1,
 #ifdef CONFIG_BERYLLIUM
 	DST_MSI2_BASE_LSB,
 	DST_MSI2_BASE_MSB,
@@ -386,9 +353,6 @@ enum SRNG_REGISTERS {
 	SRC_BASE_MSB,
 	SRC_CONSUMER_INT_SETUP_IX0,
 	SRC_CONSUMER_INT_SETUP_IX1,
-#ifdef DP_UMAC_HW_RESET_SUPPORT
-	SRC_CONSUMER_PREFETCH_TIMER,
-#endif
 	SRNG_REGISTER_MAX,
 };
 
@@ -447,7 +411,6 @@ typedef struct hal_ring_handle *hal_ring_handle_t;
  * @work_scheduled_time: work scheduled time (qdf_log_timestamp)
  * @dequeue_time: dequeue time (qdf_log_timestamp)
  * @cpu_id: record cpuid when schedule work
- * @ring_id: saved srng id
  */
 struct hal_reg_write_q_elem {
 	struct hal_srng *srng;
@@ -459,7 +422,6 @@ struct hal_reg_write_q_elem {
 	qdf_time_t work_scheduled_time;
 	qdf_time_t dequeue_time;
 	int cpu_id;
-	qdf_atomic_t ring_id;
 };
 
 /**
@@ -531,117 +493,6 @@ struct hal_offload_info {
 	uint32_t tcp_ack_num;
 	uint32_t flow_id;
 };
-
-#ifdef WLAN_DP_SRNG_USAGE_WM_TRACKING
-/**
- * enum hal_srng_high_wm_bin - BIN for SRNG high watermark
- * @HAL_SRNG_HIGH_WM_BIN_BELOW_50_PERCENT: <50% SRNG entries used
- * @HAL_SRNG_HIGH_WM_BIN_50_to_60: 50-60% SRNG entries used
- * @HAL_SRNG_HIGH_WM_BIN_60_to_70: 60-70% SRNG entries used
- * @HAL_SRNG_HIGH_WM_BIN_70_to_80: 70-80% SRNG entries used
- * @HAL_SRNG_HIGH_WM_BIN_80_to_90: 80-90% SRNG entries used
- * @HAL_SRNG_HIGH_WM_BIN_90_to_100: 90-100% SRNG entries used
- */
-enum hal_srng_high_wm_bin {
-	HAL_SRNG_HIGH_WM_BIN_BELOW_50_PERCENT,
-	HAL_SRNG_HIGH_WM_BIN_50_to_60,
-	HAL_SRNG_HIGH_WM_BIN_60_to_70,
-	HAL_SRNG_HIGH_WM_BIN_70_to_80,
-	HAL_SRNG_HIGH_WM_BIN_80_to_90,
-	HAL_SRNG_HIGH_WM_BIN_90_to_100,
-	HAL_SRNG_HIGH_WM_BIN_MAX,
-};
-
-/**
- * struct hal_srng_high_wm_info - SRNG usage high watermark info
- * @val: highest number of entries used in SRNG
- * @timestamp: Timestamp when the max num entries were in used for a SRNG
- * @bin_thresh: threshold for each bins
- * @bins: Bins for srng usage
- */
-struct hal_srng_high_wm_info {
-	uint32_t val;
-	uint64_t timestamp;
-	uint32_t bin_thresh[HAL_SRNG_HIGH_WM_BIN_MAX];
-	uint32_t bins[HAL_SRNG_HIGH_WM_BIN_MAX];
-};
-#endif
-
-#define DEFAULT_TSF_ID 1
-
-/**
- * enum hal_scratch_reg_enum - Enum to indicate scratch register values
- * @PMM_QTIMER_GLOBAL_OFFSET_LO_US - QTIMER GLOBAL OFFSET LOW
- * @PMM_QTIMER_GLOBAL_OFFSET_HI_US - QTIMER GLOBAL OFFSET HIGH
- * @PMM_MAC0_TSF1_OFFSET_LO_US - MAC0 TSF1 OFFSET LOW
- * @PMM_MAC0_TSF1_OFFSET_HI_US - MAC0 TSF1 OFFSET HIGH
- * @PMM_MAC0_TSF2_OFFSET_LO_US - MAC0 TSF2 OFFSET LOW
- * @PMM_MAC0_TSF2_OFFSET_HI_US - MAC0 TSF2 OFFSET HIGH
- * @PMM_MAC1_TSF1_OFFSET_LO_US - MAC1 TSF1 OFFSET LOW
- * @PMM_MAC1_TSF1_OFFSET_HI_US - MAC1 TSF1 OFFSET HIGH
- * @PMM_MAC1_TSF2_OFFSET_LO_US - MAC1 TSF2 OFFSET LOW
- * @PMM_MAC1_TSF2_OFFSET_HI_US - MAC1 TSF2 OFFSET HIGH
- * @PMM_MLO_OFFSET_LO_US - MLO OFFSET LOW
- * @PMM_MLO_OFFSET_HI_US - MLO OFFSET HIGH
- * @PMM_TQM_CLOCK_OFFSET_LO_US - TQM CLOCK OFFSET LOW
- * @PMM_TQM_CLOCK_OFFSET_HI_US - TQM CLOCK OFFSET HIGH
- * @PMM_Q6_CRASH_REASON - Q6 CRASH REASON
- * @PMM_SCRATCH_TWT_OFFSET - TWT OFFSET
- * @PMM_PMM_REG_MAX - Max PMM REG value
- */
-enum hal_scratch_reg_enum {
-	PMM_QTIMER_GLOBAL_OFFSET_LO_US,
-	PMM_QTIMER_GLOBAL_OFFSET_HI_US,
-	PMM_MAC0_TSF1_OFFSET_LO_US,
-	PMM_MAC0_TSF1_OFFSET_HI_US,
-	PMM_MAC0_TSF2_OFFSET_LO_US,
-	PMM_MAC0_TSF2_OFFSET_HI_US,
-	PMM_MAC1_TSF1_OFFSET_LO_US,
-	PMM_MAC1_TSF1_OFFSET_HI_US,
-	PMM_MAC1_TSF2_OFFSET_LO_US,
-	PMM_MAC1_TSF2_OFFSET_HI_US,
-	PMM_MLO_OFFSET_LO_US,
-	PMM_MLO_OFFSET_HI_US,
-	PMM_TQM_CLOCK_OFFSET_LO_US,
-	PMM_TQM_CLOCK_OFFSET_HI_US,
-	PMM_Q6_CRASH_REASON,
-	PMM_SCRATCH_TWT_OFFSET,
-	PMM_PMM_REG_MAX
-};
-
-/**
- * hal_get_tsf_enum(): API to get the enum corresponding to the mac and tsf id
- *
- * @tsf_id: tsf id
- * @mac_id: mac id
- * @enum_lo: Pointer to update low scratch register
- * @enum_hi: Pointer to update hi scratch register
- *
- * Return: void
- */
-static inline void
-hal_get_tsf_enum(uint32_t tsf_id, uint32_t mac_id,
-		 enum hal_scratch_reg_enum *tsf_enum_low,
-		 enum hal_scratch_reg_enum *tsf_enum_hi)
-{
-	if (mac_id == 0) {
-		if (tsf_id == 0) {
-			*tsf_enum_low = PMM_MAC0_TSF1_OFFSET_LO_US;
-			*tsf_enum_hi = PMM_MAC0_TSF1_OFFSET_HI_US;
-		} else if (tsf_id == 1) {
-			*tsf_enum_low = PMM_MAC0_TSF2_OFFSET_LO_US;
-			*tsf_enum_hi = PMM_MAC0_TSF2_OFFSET_HI_US;
-		}
-	} else if (mac_id == 1) {
-		if (tsf_id == 0) {
-			*tsf_enum_low = PMM_MAC1_TSF1_OFFSET_LO_US;
-			*tsf_enum_hi = PMM_MAC1_TSF1_OFFSET_HI_US;
-		} else if (tsf_id == 1) {
-			*tsf_enum_low = PMM_MAC1_TSF2_OFFSET_LO_US;
-			*tsf_enum_hi = PMM_MAC1_TSF2_OFFSET_HI_US;
-		}
-	}
-}
 
 /* Common SRNG ring structure for source and destination rings */
 struct hal_srng {
@@ -791,13 +642,6 @@ struct hal_srng {
 	/* srng specific delayed write stats */
 	struct hal_reg_write_srng_stats wstats;
 #endif
-#ifdef WLAN_DP_SRNG_USAGE_WM_TRACKING
-	struct hal_srng_high_wm_info high_wm;
-#endif
-	/* Timer threshold to issue ring pointer update - in micro seconds */
-	uint16_t pointer_timer_threshold;
-	/* Number threshold of ring entries to issue pointer update */
-	uint8_t pointer_num_threshold;
 };
 
 /* HW SRNG configuration table */
@@ -811,7 +655,6 @@ struct hal_hw_srng_config {
 	enum hal_srng_dir ring_dir;
 	uint32_t max_size;
 	bool nf_irq_support;
-	bool dmac_cmn_ring;
 };
 
 #define MAX_SHADOW_REGISTERS 40
@@ -873,26 +716,6 @@ enum hal_reo_cmd_type {
 	CMD_UPDATE_RX_REO_QUEUE = 5
 };
 
-/**
- * enum hal_tx_mcast_mlo_reinject_notify
- * @HAL_TX_MCAST_MLO_REINJECT_FW_NOTIFY: MLO Mcast reinject routed to FW
- * @HAL_TX_MCAST_MLO_REINJECT_TQM_NOTIFY: MLO Mcast reinject routed to TQM
- */
-enum hal_tx_mcast_mlo_reinject_notify {
-	HAL_TX_MCAST_MLO_REINJECT_FW_NOTIFY = 0,
-	HAL_TX_MCAST_MLO_REINJECT_TQM_NOTIFY,
-};
-
-/**
- * enum hal_tx_vdev_mismatch_notify
- * @HAL_TX_VDEV_MISMATCH_TQM_NOTIFY: vdev mismatch exception routed to TQM
- * @HAL_TX_VDEV_MISMATCH_FW_NOTIFY: vdev mismatch exception routed to FW
- */
-enum hal_tx_vdev_mismatch_notify {
-	HAL_TX_VDEV_MISMATCH_TQM_NOTIFY = 0,
-	HAL_TX_VDEV_MISMATCH_FW_NOTIFY,
-};
-
 struct hal_rx_pkt_capture_flags {
 	uint8_t encrypt_type;
 	uint8_t fragment_flag;
@@ -905,20 +728,14 @@ struct hal_rx_pkt_capture_flags {
 struct hal_hw_txrx_ops {
 	/* init and setup */
 	void (*hal_srng_dst_hw_init)(struct hal_soc *hal,
-				     struct hal_srng *srng, bool idle_check,
-				     uint32_t idx);
+				     struct hal_srng *srng);
 	void (*hal_srng_src_hw_init)(struct hal_soc *hal,
-				     struct hal_srng *srng, bool idle_check,
-				     uint32_t idx);
-
-	void (*hal_srng_hw_disable)(struct hal_soc *hal,
-				    struct hal_srng *srng);
+				     struct hal_srng *srng);
 	void (*hal_get_hw_hptp)(struct hal_soc *hal,
 				hal_ring_handle_t hal_ring_hdl,
 				uint32_t *headp, uint32_t *tailp,
 				uint8_t ring_type);
-	void (*hal_reo_setup)(struct hal_soc *hal_soc, void *reoparams,
-			      int qref_reset);
+	void (*hal_reo_setup)(struct hal_soc *hal_soc, void *reoparams);
 	void (*hal_setup_link_idle_list)(
 				struct hal_soc *hal_soc,
 				qdf_dma_addr_t scatter_bufs_base_paddr[],
@@ -961,28 +778,6 @@ struct hal_hw_txrx_ops {
 	void (*hal_tx_init_cmd_credit_ring)(hal_soc_handle_t hal_soc_hdl,
 					    hal_ring_handle_t hal_ring_hdl);
 	uint32_t (*hal_tx_comp_get_buffer_source)(void *hal_desc);
-	uint32_t (*hal_tx_get_num_ppe_vp_tbl_entries)(
-					hal_soc_handle_t hal_soc_hdl);
-
-	void (*hal_reo_config_reo2ppe_dest_info)(hal_soc_handle_t hal_soc_hdl);
-
-	void (*hal_tx_set_ppe_cmn_cfg)(hal_soc_handle_t hal_soc_hdl,
-				       union hal_tx_cmn_config_ppe *cmn_cfg);
-	void (*hal_tx_set_ppe_vp_entry)(hal_soc_handle_t hal_soc_hdl,
-					union hal_tx_ppe_vp_config *vp_cfg,
-					int ppe_vp_idx);
-	void (*hal_tx_set_ppe_pri2tid)(hal_soc_handle_t hal_soc_hdl,
-				       uint32_t val,
-				       uint8_t map_no);
-	void (*hal_tx_update_ppe_pri2tid)(hal_soc_handle_t hal_soc_hdl,
-					  uint8_t pri,
-					  uint8_t tid);
-	void (*hal_tx_dump_ppe_vp_entry)(hal_soc_handle_t hal_soc_hdl);
-	void (*hal_tx_enable_pri2tid_map)(hal_soc_handle_t hal_soc_hdl,
-					  bool value, uint8_t ppe_vp_idx);
-	void (*hal_tx_config_rbm_mapping_be)(hal_soc_handle_t hal_soc_hdl,
-					     hal_ring_handle_t hal_ring_hdl,
-					     uint8_t rbm_id);
 
 	/* rx */
 	uint32_t (*hal_rx_msdu_start_nss_get)(uint8_t *);
@@ -1006,10 +801,6 @@ struct hal_hw_txrx_ops {
 					       void *ppdu_info,
 					       hal_soc_handle_t hal_soc_hdl,
 					       qdf_nbuf_t nbuf);
-
-	void (*hal_rx_wbm_rel_buf_paddr_get)(hal_ring_desc_t rx_desc,
-					     struct hal_buf_info *buf_info);
-
 	void (*hal_rx_wbm_err_info_get)(void *wbm_desc,
 				void *wbm_er_info);
 	void (*hal_rx_dump_mpdu_start_tlv)(void *mpdustart,
@@ -1023,7 +814,6 @@ struct hal_hw_txrx_ops {
 	/* rx */
 	uint8_t (*hal_rx_get_rx_fragment_number)(uint8_t *buf);
 	uint8_t (*hal_rx_msdu_end_da_is_mcbc_get)(uint8_t *buf);
-	uint8_t (*hal_rx_msdu_end_is_tkip_mic_err)(uint8_t *buf);
 	uint8_t (*hal_rx_msdu_end_sa_is_valid_get)(uint8_t *buf);
 	uint16_t (*hal_rx_msdu_end_sa_idx_get)(uint8_t *buf);
 	uint32_t (*hal_rx_desc_is_first_msdu)(void *hw_desc_addr);
@@ -1035,7 +825,7 @@ struct hal_hw_txrx_ops {
 	uint8_t (*hal_rx_msdu_end_last_msdu_get)(uint8_t *buf);
 	bool (*hal_rx_get_mpdu_mac_ad4_valid)(uint8_t *buf);
 	uint32_t (*hal_rx_mpdu_start_sw_peer_id_get)(uint8_t *buf);
-	uint32_t (*hal_rx_tlv_peer_meta_data_get)(uint8_t *buf);
+	uint32_t (*hal_rx_mpdu_peer_meta_data_get)(uint8_t *buf);
 	uint32_t (*hal_rx_mpdu_get_to_ds)(uint8_t *buf);
 	uint32_t (*hal_rx_mpdu_get_fr_ds)(uint8_t *buf);
 	uint8_t (*hal_rx_get_mpdu_frame_control_valid)(uint8_t *buf);
@@ -1100,17 +890,9 @@ struct hal_hw_txrx_ops {
 	uint32_t (*hal_rx_mpdu_start_offset_get)(void);
 	uint32_t (*hal_rx_mpdu_end_offset_get)(void);
 	uint32_t (*hal_rx_pkt_tlv_offset_get)(void);
-	uint32_t (*hal_rx_msdu_end_wmask_get)(void);
-	uint32_t (*hal_rx_mpdu_start_wmask_get)(void);
 	void * (*hal_rx_flow_setup_fse)(uint8_t *rx_fst,
 					uint32_t table_offset,
 					uint8_t *rx_flow);
-	void * (*hal_rx_flow_get_tuple_info)(uint8_t *rx_fst,
-					     uint32_t hal_hash,
-					     uint8_t *tuple_info);
-	QDF_STATUS (*hal_rx_flow_delete_entry)(uint8_t *fst,
-					       void *fse);
-	uint32_t (*hal_rx_fst_get_fse_size)(void);
 	void (*hal_compute_reo_remap_ix2_ix3)(uint32_t *ring,
 					      uint32_t num_rings,
 					      uint32_t *remap1,
@@ -1132,7 +914,6 @@ struct hal_hw_txrx_ops {
 							   uint32_t *reo_destination_indication);
 	uint8_t (*hal_tx_get_num_tcl_banks)(void);
 	uint32_t (*hal_get_reo_qdesc_size)(uint32_t ba_window_size, int tid);
-	uint16_t (*hal_get_rx_max_ba_window)(int tid);
 
 	void (*hal_set_link_desc_addr)(void *desc, uint32_t cookie,
 				       qdf_dma_addr_t link_desc_paddr,
@@ -1171,15 +952,7 @@ struct hal_hw_txrx_ops {
 				       void *msdu_desc_info, uint32_t dst_ind,
 				       uint32_t nbuf_len);
 	void (*hal_mpdu_desc_info_set)(hal_soc_handle_t hal_soc_hdl,
-				       void *ent_desc,
-				       void *mpdu_desc_info,
-				       uint32_t seq_no);
-#ifdef DP_UMAC_HW_RESET_SUPPORT
-	void (*hal_unregister_reo_send_cmd)(struct hal_soc *hal_soc);
-	void (*hal_register_reo_send_cmd)(struct hal_soc *hal_soc);
-	void (*hal_reset_rx_reo_tid_q)(struct hal_soc *hal_soc,
-				       void *hw_qdesc_vaddr, uint32_t size);
-#endif
+				       void *mpdu_desc_info, uint32_t seq_no);
 	uint32_t (*hal_rx_tlv_sgi_get)(uint8_t *buf);
 	uint32_t (*hal_rx_tlv_get_freq)(uint8_t *buf);
 	uint8_t (*hal_rx_msdu_get_keyid)(uint8_t *buf);
@@ -1229,13 +1002,10 @@ struct hal_hw_txrx_ops {
 	void (*hal_rx_tlv_populate_mpdu_desc_info)(uint8_t *buf,
 						   void *mpdu_desc_info_hdl);
 	uint8_t *(*hal_get_reo_ent_desc_qdesc_addr)(uint8_t *desc);
-	uint64_t (*hal_rx_get_qdesc_addr)(uint8_t *dst_ring_desc,
+	uint8_t *(*hal_rx_get_qdesc_addr)(uint8_t *dst_ring_desc,
 					  uint8_t *buf);
 	void (*hal_set_reo_ent_desc_reo_dest_ind)(uint8_t *desc,
 						  uint32_t dst_ind);
-	QDF_STATUS
-	(*hal_rx_reo_ent_get_src_link_id)(hal_rxdma_desc_t rx_desc,
-					  uint8_t *src_link_id);
 
 	/* REO CMD and STATUS */
 	int (*hal_reo_send_cmd)(hal_soc_handle_t hal_soc_hdl,
@@ -1248,62 +1018,9 @@ struct hal_hw_txrx_ops {
 					    uint32_t tlv, int *num_ref);
 	uint8_t (*hal_get_tlv_hdr_size)(void);
 	uint8_t (*hal_get_idle_link_bm_id)(uint8_t chip_id);
-
-	bool (*hal_txmon_is_mon_buf_addr_tlv)(void *tx_tlv_hdr);
-	void (*hal_txmon_populate_packet_info)(void *tx_tlv_hdr,
-					       void *pkt_info);
-	/* TX MONITOR */
-#ifdef QCA_MONITOR_2_0_SUPPORT
-	uint32_t (*hal_txmon_status_parse_tlv)(void *data_ppdu_info,
-					       void *prot_ppdu_info,
-					       void *data_status_info,
-					       void *prot_status_info,
-					       void *tx_tlv_hdr,
-					       qdf_frag_t status_frag);
-	uint32_t (*hal_txmon_status_get_num_users)(void *tx_tlv_hdr,
-						   uint8_t *num_users);
-#endif /* QCA_MONITOR_2_0_SUPPORT */
-	QDF_STATUS (*hal_reo_shared_qaddr_setup)(hal_soc_handle_t hal_soc_hdl);
-	void (*hal_reo_shared_qaddr_init)(hal_soc_handle_t hal_soc_hdl,
-					  int qref_reset);
-	void (*hal_reo_shared_qaddr_detach)(hal_soc_handle_t hal_soc_hdl);
-	void (*hal_reo_shared_qaddr_write)(hal_soc_handle_t hal_soc_hdl,
-					   uint16_t peer_id,
-					   int tid,
-					   qdf_dma_addr_t hw_qdesc_paddr);
 #ifdef WLAN_FEATURE_MARK_FIRST_WAKEUP_PACKET
 	uint8_t (*hal_get_first_wow_wakeup_packet)(uint8_t *buf);
 #endif
-	void (*hal_reo_shared_qaddr_cache_clear)(hal_soc_handle_t hal_soc_hdl);
-	uint32_t (*hal_rx_tlv_l3_type_get)(uint8_t *buf);
-	void (*hal_tx_vdev_mismatch_routing_set)(hal_soc_handle_t hal_soc_hdl,
-			enum hal_tx_vdev_mismatch_notify config);
-	void (*hal_tx_mcast_mlo_reinject_routing_set)(
-			hal_soc_handle_t hal_soc_hdl,
-			enum hal_tx_mcast_mlo_reinject_notify config);
-	void (*hal_cookie_conversion_reg_cfg_be)(hal_soc_handle_t hal_soc_hdl,
-						 struct hal_hw_cc_config
-						 *cc_cfg);
-	void (*hal_tx_populate_bank_register)(hal_soc_handle_t hal_soc_hdl,
-					      union hal_tx_bank_config *config,
-					      uint8_t bank_id);
-	void (*hal_tx_vdev_mcast_ctrl_set)(hal_soc_handle_t hal_soc_hdl,
-					   uint8_t vdev_id,
-					   uint8_t mcast_ctrl_val);
-	void (*hal_get_tsf_time)(hal_soc_handle_t hal_soc_hdl, uint32_t tsf_id,
-				 uint32_t mac_id, uint64_t *tsf,
-				 uint64_t *tsf_sync_soc_time);
-	void (*hal_get_tsf2_scratch_reg)(hal_soc_handle_t hal_soc_hdl,
-					 uint8_t mac_id, uint64_t *value);
-	void (*hal_get_tqm_scratch_reg)(hal_soc_handle_t hal_soc_hdl,
-					uint64_t *value);
-#ifdef FEATURE_DIRECT_LINK
-	QDF_STATUS (*hal_srng_set_msi_config)(hal_ring_handle_t ring_hdl,
-					      void *ring_params);
-#endif
-	void (*hal_tx_ring_halt_set)(hal_soc_handle_t hal_soc_hdl);
-	void (*hal_tx_ring_halt_reset)(hal_soc_handle_t hal_soc_hdl);
-	bool (*hal_tx_ring_halt_poll)(hal_soc_handle_t hal_soc_hdl);
 };
 
 /**
@@ -1360,36 +1077,6 @@ struct hal_reg_write_fail_history {
 };
 #endif
 
-/**
- * struct reo_queue_ref_table - Reo qref LUT addr
- * @mlo_reo_qref_table_vaddr: MLO table vaddr
- * @non_mlo_reo_qref_table_vaddr: Non MLO table vaddr
- * @mlo_reo_qref_table_paddr: MLO table paddr
- * @non_mlo_reo_qref_table_paddr: Non MLO table paddr
- * @reo_qref_table_en: Enable flag
- */
-struct reo_queue_ref_table {
-	uint64_t *mlo_reo_qref_table_vaddr;
-	uint64_t *non_mlo_reo_qref_table_vaddr;
-	qdf_dma_addr_t mlo_reo_qref_table_paddr;
-	qdf_dma_addr_t non_mlo_reo_qref_table_paddr;
-	uint8_t reo_qref_table_en;
-};
-
-/**
- * union hal_shadow_reg_cfg - Shadow register config
- * @addr: Place holder where shadow address is saved
- * @v2: shadow config v2 format
- * @v3: shadow config v3 format
- */
-union hal_shadow_reg_cfg {
-	uint32_t addr;
-	struct pld_shadow_reg_v2_cfg v2;
-#ifdef CONFIG_SHADOW_V3
-	struct pld_shadow_reg_v3_cfg v3;
-#endif
-};
-
 #ifdef HAL_RECORD_SUSPEND_WRITE
 #define HAL_SUSPEND_WRITE_HISTORY_MAX 256
 
@@ -1428,7 +1115,6 @@ struct hal_soc {
 	/* Device base address for ce - qca5018 target */
 	void *dev_base_addr_ce;
 
-	void *dev_base_addr_cmem;
 	/* HAL internal state for all SRNG rings.
 	 * TODO: See if this is required
 	 */
@@ -1446,10 +1132,9 @@ struct hal_soc {
 	uint8_t reo_res_bitmap;
 	uint8_t index;
 	uint32_t target_type;
-	uint32_t version;
 
 	/* shadow register configuration */
-	union hal_shadow_reg_cfg shadow_config[MAX_SHADOW_REGISTERS];
+	struct pld_shadow_reg_v2_cfg shadow_config[MAX_SHADOW_REGISTERS];
 	int num_shadow_registers_configured;
 	bool use_register_windowing;
 	uint32_t register_window;
@@ -1490,13 +1175,11 @@ struct hal_soc {
 #endif
 	/* flag to indicate cmn dmac rings in berryllium */
 	bool dmac_cmn_src_rxbuf_ring;
-	/* Reo queue ref table items */
-	struct reo_queue_ref_table reo_qref;
 };
 
 #if defined(FEATURE_HAL_DELAYED_REG_WRITE)
 /**
- *  hal_delayed_reg_write() - delayed register write
+ *  hal_delayed_reg_write() - delayed regiter write
  * @hal_soc: HAL soc handle
  * @srng: hal srng
  * @addr: iomem address
@@ -1516,8 +1199,7 @@ void hal_qca6390_attach(struct hal_soc *hal_soc);
 void hal_qca6290_attach(struct hal_soc *hal_soc);
 void hal_qca8074_attach(struct hal_soc *hal_soc);
 void hal_kiwi_attach(struct hal_soc *hal_soc);
-void hal_qcn9224v1_attach(struct hal_soc *hal_soc);
-void hal_qcn9224v2_attach(struct hal_soc *hal_soc);
+void hal_qcn9224_attach(struct hal_soc *hal_soc);
 /*
  * hal_soc_to_dp_hal_roc - API to convert hal_soc to opaque
  * dp_hal_soc handle type
@@ -1555,50 +1237,4 @@ struct hal_srng *hal_ring_handle_to_hal_srng(hal_ring_handle_t hal_ring)
 {
 	return (struct hal_srng *)hal_ring;
 }
-
-/* Size of REO queue reference table in Host
- * 2k peers * 17 tids * 8bytes(rx_reo_queue_reference)
- * = 278528 bytes
- */
-#define REO_QUEUE_REF_NON_ML_TABLE_SIZE 278528
-/* Calculated based on 512 MLO peers */
-#define REO_QUEUE_REF_ML_TABLE_SIZE 69632
-#define HAL_ML_PEER_ID_START 0x2000
-#define HAL_PEER_ID_IS_MLO(peer_id) ((peer_id) & HAL_ML_PEER_ID_START)
-
-/*
- * REO2PPE destination indication
- */
-#define REO2PPE_DST_IND 6
-#define REO2PPE_DST_RING 11
-#define REO2PPE_RULE_FAIL_FB 0x2000
-
-/**
- * enum hal_pkt_type - Type of packet type reported by HW
- * @HAL_DOT11A: 802.11a PPDU type
- * @HAL_DOT11B: 802.11b PPDU type
- * @HAL_DOT11N_MM: 802.11n Mixed Mode PPDU type
- * @HAL_DOT11AC: 802.11ac PPDU type
- * @HAL_DOT11AX: 802.11ax PPDU type
- * @HAL_DOT11BA: 802.11ba (WUR) PPDU type
- * @HAL_DOT11BE: 802.11be PPDU type
- * @HAL_DOT11AZ: 802.11az (ranging) PPDU type
- * @HAL_DOT11N_GF: 802.11n Green Field PPDU type
- *
- * Enum indicating the packet type reported by HW in rx_pkt_tlvs (RX data)
- * or WBM2SW ring entry's descriptor (TX data completion)
- */
-enum hal_pkt_type {
-	HAL_DOT11A = 0,
-	HAL_DOT11B = 1,
-	HAL_DOT11N_MM = 2,
-	HAL_DOT11AC = 3,
-	HAL_DOT11AX = 4,
-	HAL_DOT11BA = 5,
-	HAL_DOT11BE = 6,
-	HAL_DOT11AZ = 7,
-	HAL_DOT11N_GF = 8,
-	HAL_DOT11_MAX,
-};
-
 #endif /* _HAL_INTERNAL_H_ */

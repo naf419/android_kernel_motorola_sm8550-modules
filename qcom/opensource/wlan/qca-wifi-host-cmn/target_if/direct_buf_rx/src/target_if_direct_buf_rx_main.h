@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -176,8 +176,6 @@ struct direct_buf_rx_module_debug {
  * @dbr_ring_cfg: Pointer to direct buf rx ring config struct
  * @dbr_buf_pool: Pointer to direct buf rx buffer pool struct
  * @dbr_rsp_handler: Pointer to direct buf rx response handler for the module
- * @srng_initialized: Whether the DBR ring is successfully initialized for this
- * @pdev_id @srng_id
  */
 struct direct_buf_rx_module_param {
 	enum DBR_MODULE mod_id;
@@ -189,7 +187,6 @@ struct direct_buf_rx_module_param {
 	struct direct_buf_rx_buf_info *dbr_buf_pool;
 	bool (*dbr_rsp_handler)(struct wlan_objmgr_pdev *pdev,
 				struct direct_buf_rx_data *dbr_data);
-	bool srng_initialized;
 };
 
 /**
@@ -218,7 +215,6 @@ struct direct_buf_rx_pdev_obj {
  * @mem_list: list for holding the large memories during the entire
  *  PSOC lifetime
  * @mem_list_lock: spin lock for the memory list
- * handler_ctx: Direct DMA event handler context
  */
 struct direct_buf_rx_psoc_obj {
 	void *hal_soc;
@@ -228,12 +224,11 @@ struct direct_buf_rx_psoc_obj {
 	qdf_list_t mem_list[WLAN_UMAC_MAX_PDEVS];
 	qdf_spinlock_t mem_list_lock;
 #endif
-	enum wmi_rx_exec_ctx handler_ctx;
 };
 
 /**
  * struct module_ring_params - Direct buf ring params for module
- * @num_bufs: Number of buffers allotted to this module
+ * @num_bufs: Number of buffers alloted to this module
  * @buf_size: size of buffers
  */
 struct module_ring_params {

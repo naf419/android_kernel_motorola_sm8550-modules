@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -136,25 +136,6 @@ hal_rx_msdu_start_nss_get_6750(uint8_t *buf)
 	mimo_ss_bitmap = HAL_RX_MSDU_START_MIMO_SS_BITMAP(msdu_start);
 
 	return qdf_get_hweight8(mimo_ss_bitmap);
-}
-
-/**
- * hal_rx_msdu_start_get_len_6750(): API to get the MSDU length
- * from rx_msdu_start TLV
- *
- * @ buf: pointer to the start of RX PKT TLV headers
- * Return: (uint32_t)msdu length
- */
-static uint32_t hal_rx_msdu_start_get_len_6750(uint8_t *buf)
-{
-	struct rx_pkt_tlvs *pkt_tlvs = (struct rx_pkt_tlvs *)buf;
-	struct rx_msdu_start *msdu_start =
-				&pkt_tlvs->msdu_start_tlv.rx_msdu_start;
-	uint32_t msdu_len;
-
-	msdu_len = HAL_RX_MSDU_START_MSDU_LEN_GET(msdu_start);
-
-	return msdu_len;
 }
 
 /**
@@ -613,25 +594,6 @@ static uint32_t hal_rx_msdu_end_l3_hdr_padding_get_6750(uint8_t *buf)
 	l3_header_padding = HAL_RX_MSDU_END_L3_HEADER_PADDING_GET(msdu_end);
 
 	return l3_header_padding;
-}
-
-/**
- * hal_rx_tlv_l3_type_get_6750: API to get the l3 type from
- * from rx_msdu_end tlv
- *
- * @buf: pointer to the start of RX PKT TLV headers
- * Return: uint32_t(l3 type)
- */
-static inline uint32_t
-hal_rx_tlv_l3_type_get_6750(uint8_t *buf)
-{
-	struct rx_pkt_tlvs *pkt_tlvs = (struct rx_pkt_tlvs *)buf;
-	struct rx_msdu_end *msdu_end = &pkt_tlvs->msdu_end_tlv.rx_msdu_end;
-	uint32_t l3_type;
-
-	l3_type =  HAL_RX_MSDU_END_L3_TYPE_GET(msdu_end);
-
-	return l3_type;
 }
 
 /*
@@ -1493,7 +1455,7 @@ bool hal_rx_get_fisa_timeout_6750(uint8_t *buf)
  *
  *@rx_tlv_hdr: start address of rx_pkt_tlvs
  *
- * Return: true if RX_MPDU_START is valid, else false.
+ * Return: true if RX_MPDU_START is valied, else false.
  */
 static uint8_t hal_rx_mpdu_start_tlv_tag_valid_6750(void *rx_tlv_hdr)
 {
@@ -1790,10 +1752,10 @@ static uint32_t hal_rx_flow_get_cmem_fse_ts_6750(struct hal_soc *hal_soc,
  * hal_rx_flow_get_cmem_fse_6750() - Get FSE from CMEM
  * @hal_soc: hal_soc reference
  * @fse_offset: CMEM FSE offset
- * @fse: reference where FSE will be copied
+ * @fse: referece where FSE will be copied
  * @len: length of FSE
  *
- * Return: If read is successful or not
+ * Return: If read is succesfull or not
  */
 static void
 hal_rx_flow_get_cmem_fse_6750(struct hal_soc *hal_soc, uint32_t fse_offset,
@@ -1989,7 +1951,6 @@ static void hal_hw_txrx_ops_attach_qca6750(struct hal_soc *hal_soc)
 					hal_rx_desc_is_first_msdu_6750;
 	hal_soc->ops->hal_rx_msdu_end_l3_hdr_padding_get =
 		hal_rx_msdu_end_l3_hdr_padding_get_6750;
-	hal_soc->ops->hal_rx_tlv_l3_type_get = hal_rx_tlv_l3_type_get_6750;
 	hal_soc->ops->hal_rx_encryption_info_valid =
 					hal_rx_encryption_info_valid_6750;
 	hal_soc->ops->hal_rx_print_pn = hal_rx_print_pn_6750;
@@ -2003,14 +1964,12 @@ static void hal_hw_txrx_ops_attach_qca6750(struct hal_soc *hal_soc)
 					hal_rx_get_mpdu_mac_ad4_valid_6750;
 	hal_soc->ops->hal_rx_mpdu_start_sw_peer_id_get =
 		hal_rx_mpdu_start_sw_peer_id_get_6750;
-	hal_soc->ops->hal_rx_tlv_peer_meta_data_get =
+	hal_soc->ops->hal_rx_mpdu_peer_meta_data_get =
 		hal_rx_mpdu_peer_meta_data_get_li;
 	hal_soc->ops->hal_rx_mpdu_get_to_ds = hal_rx_mpdu_get_to_ds_6750;
 	hal_soc->ops->hal_rx_mpdu_get_fr_ds = hal_rx_mpdu_get_fr_ds_6750;
 	hal_soc->ops->hal_rx_get_mpdu_frame_control_valid =
 		hal_rx_get_mpdu_frame_control_valid_6750;
-	hal_soc->ops->hal_rx_get_frame_ctrl_field =
-		hal_rx_get_frame_ctrl_field_li;
 	hal_soc->ops->hal_rx_mpdu_get_addr1 = hal_rx_mpdu_get_addr1_6750;
 	hal_soc->ops->hal_rx_mpdu_get_addr2 = hal_rx_mpdu_get_addr2_6750;
 	hal_soc->ops->hal_rx_mpdu_get_addr3 = hal_rx_mpdu_get_addr3_6750;
@@ -2087,11 +2046,6 @@ static void hal_hw_txrx_ops_attach_qca6750(struct hal_soc *hal_soc)
 					hal_rx_pkt_tlv_offset_get_generic;
 #endif
 	hal_soc->ops->hal_rx_flow_setup_fse = hal_rx_flow_setup_fse_6750;
-	hal_soc->ops->hal_rx_flow_get_tuple_info =
-					hal_rx_flow_get_tuple_info_li;
-	 hal_soc->ops->hal_rx_flow_delete_entry =
-					hal_rx_flow_delete_entry_li;
-	hal_soc->ops->hal_rx_fst_get_fse_size = hal_rx_fst_get_fse_size_li;
 	hal_soc->ops->hal_compute_reo_remap_ix2_ix3 =
 					hal_compute_reo_remap_ix2_ix3_6750;
 
@@ -2105,14 +2059,12 @@ static void hal_hw_txrx_ops_attach_qca6750(struct hal_soc *hal_soc)
 		hal_rx_msdu_get_reo_destination_indication_6750;
 	hal_soc->ops->hal_setup_link_idle_list =
 				hal_setup_link_idle_list_generic_li;
+	hal_soc->ops->hal_compute_reo_remap_ix0 =
+				hal_compute_reo_remap_ix0_6750;
 #ifdef WLAN_FEATURE_MARK_FIRST_WAKEUP_PACKET
 	hal_soc->ops->hal_get_first_wow_wakeup_packet =
 		hal_get_first_wow_wakeup_packet_6750;
 #endif
-	hal_soc->ops->hal_compute_reo_remap_ix0 =
-				hal_compute_reo_remap_ix0_6750;
-	hal_soc->ops->hal_rx_tlv_msdu_len_get =
-				hal_rx_msdu_start_get_len_6750;
 };
 
 struct hal_hw_srng_config hw_srng_table_6750[] = {

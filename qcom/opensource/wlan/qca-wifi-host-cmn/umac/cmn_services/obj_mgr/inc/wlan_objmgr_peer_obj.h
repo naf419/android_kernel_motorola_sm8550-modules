@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -174,7 +174,6 @@ struct wlan_objmgr_peer_objmgr {
  * struct wlan_objmgr_peer -  PEER common object
  * @psoc_peer:        peer list node for psoc's qdf list
  * @vdev_peer:        peer list node for vdev's qdf list
- * @free_node:        peer list node for free in a delayed work
  * @macaddr[]:        Peer MAC address
  * @peer_mlme:	      Peer MLME common structure
  * @peer_objmgr:      Peer Object manager common structure
@@ -189,9 +188,6 @@ struct wlan_objmgr_peer_objmgr {
 struct wlan_objmgr_peer {
 	qdf_list_node_t psoc_peer;
 	qdf_list_node_t vdev_peer;
-#ifdef FEATURE_DELAYED_PEER_OBJ_DESTROY
-	qdf_list_node_t free_node;
-#endif
 	uint8_t macaddr[QDF_MAC_ADDR_SIZE];
 	uint8_t pdev_id;
 	struct wlan_objmgr_peer_mlme peer_mlme;
@@ -215,7 +211,7 @@ struct wlan_objmgr_peer {
  * @peer_type: peer type (AP/STA)
  * @macaddr: MAC address
  *
- * Creates Peer object, initializes with default values
+ * Creates Peer object, intializes with default values
  * Attaches to psoc and vdev objects
  * Invokes the registered notifiers to create component object
  *
@@ -238,40 +234,6 @@ struct wlan_objmgr_peer *wlan_objmgr_peer_obj_create(
  * Return: SUCCESS/FAILURE
  */
 QDF_STATUS wlan_objmgr_peer_obj_delete(struct wlan_objmgr_peer *peer);
-
-#ifdef FEATURE_DELAYED_PEER_OBJ_DESTROY
-/**
- * wlan_delayed_peer_obj_free_init() - Init for delayed peer obj freed queue
- * @data: PDEV object
- *
- * Initialize main data structures to process peer obj destroy in a delayed
- * workqueue.
- *
- * Return: QDF_STATUS_SUCCESS on success else a QDF error.
- */
-QDF_STATUS wlan_delayed_peer_obj_free_init(void *data);
-
-/**
- * wlan_delayed_peer_obj_free_deinit() - De-Init delayed peer freed processing
- * @data: PDEV object
- *
- * De-initialize main data structures to process peer obj freed in a delayed
- * workqueue.
- *
- * Return: QDF_STATUS_SUCCESS on success else a QDF error.
- */
-QDF_STATUS wlan_delayed_peer_obj_free_deinit(void *data);
-#else
-static inline QDF_STATUS wlan_delayed_peer_obj_free_init(void *data)
-{
-	return QDF_STATUS_SUCCESS;
-}
-
-static inline QDF_STATUS wlan_delayed_peer_obj_free_deinit(void *data)
-{
-	return QDF_STATUS_SUCCESS;
-}
-#endif
 
 /**
  ** APIs to attach/detach component objects

@@ -67,13 +67,6 @@ typedef struct sk_buff *__qdf_nbuf_t;
  */
 typedef struct sk_buff_head __qdf_nbuf_queue_head_t;
 
-/**
- * typedef __qdf_nbuf_get_shinfo for skb_shinfo linux struct
- *
- * This is used for skb shared info via linux skb shinfo APIs
- */
-typedef struct skb_shared_info *__qdf_nbuf_shared_info_t;
-
 #define QDF_NBUF_CB_TX_MAX_OS_FRAGS 1
 
 #define QDF_SHINFO_SIZE    SKB_DATA_ALIGN(sizeof(struct skb_shared_info))
@@ -89,9 +82,6 @@ typedef struct skb_shared_info *__qdf_nbuf_shared_info_t;
 #define QDF_NBUF_CB_PACKET_TYPE_DHCP   4
 #define QDF_NBUF_CB_PACKET_TYPE_ICMP   5
 #define QDF_NBUF_CB_PACKET_TYPE_ICMPv6 6
-#define QDF_NBUF_CB_PACKET_TYPE_DHCPV6 7
-#define QDF_NBUF_CB_PACKET_TYPE_END_INDICATION 8
-#define QDF_NBUF_CB_PACKET_TYPE_TCP_ACK 9
 
 #define RADIOTAP_BASE_HEADER_LEN sizeof(struct ieee80211_radiotap_header)
 
@@ -127,7 +117,7 @@ typedef union {
  *
  * Notes:
  *   1. Hard limited to 48 bytes. Please count your bytes
- *   2. The size of this structure has to be easily calculable and
+ *   2. The size of this structure has to be easily calculatable and
  *      consistently so: do not use any conditional compile flags
  *   3. Split into a common part followed by a tx/rx overlay
  *   4. There is only one extra frag, which represents the HTC/HTT header
@@ -156,8 +146,7 @@ typedef union {
  * @rx.dev.priv_cb_m.exc_frm: exception frame
  * @rx.dev.priv_cb_m.ipa_smmu_map: do IPA smmu map
  * @rx.dev.priv_cb_m.reo_dest_ind_or_sw_excpt: reo destination indication or
-					     sw exception bit from ring desc
- * @rx.dev.priv_cb_m.lmac_id: lmac id for RX packet
+					     sw execption bit from ring desc
  * @rx.dev.priv_cb_m.tcp_seq_num: TCP sequence number
  * @rx.dev.priv_cb_m.tcp_ack_num: TCP ACK number
  * @rx.dev.priv_cb_m.lro_ctx: LRO context
@@ -230,7 +219,7 @@ typedef union {
  * @tx.flags.bits.flag_chfrag_cont: middle or part of MSDU in an AMSDU
  * @tx.flags.bits.flag_chfrag_end: last MSDU in an AMSDU
  * @tx.flags.bits.flag_ext_header: extended flags
- * @tx.flags.bits.is_critical: flag indicating a critical frame
+ * @tx.flags.bits.reserved: reserved
  * @tx.trace: combined structure for DP and protocol trace
  * @tx.trace.packet_stat: {NBUF_TX_PKT_[(HDD)|(TXRX_ENQUEUE)|(TXRX_DEQUEUE)|
  *                       +          (TXRX)|(HTT)|(HTC)|(HIF)|(CE)|(FREE)]
@@ -281,7 +270,7 @@ struct qdf_nbuf_cb {
 						 exc_frm:1,
 						 ipa_smmu_map:1,
 						 reo_dest_ind_or_sw_excpt:5,
-						 lmac_id:2,
+						 reserved:2,
 						 reserved1:16;
 					uint32_t tcp_seq_num;
 					uint32_t tcp_ack_num;
@@ -369,7 +358,7 @@ struct qdf_nbuf_cb {
 						flag_chfrag_cont:1,
 						flag_chfrag_end:1,
 						flag_ext_header:1,
-						is_critical:1;
+						reserved:1;
 				} bits;
 				uint8_t u8;
 			} flags;
@@ -378,13 +367,13 @@ struct qdf_nbuf_cb {
 					is_packet_priv:1;
 				uint8_t packet_track:3,
 					to_fw:1,
-					/* used only for hl */
-					htt2_frm:1,
-					proto_type:3;
+					proto_type:4;
 				uint8_t dp_trace:1,
 					is_bcast:1,
 					is_mcast:1,
-					packet_type:4,
+					packet_type:3,
+					/* used only for hl*/
+					htt2_frm:1,
 					print:1;
 			} trace;
 			unsigned char *vaddr;
@@ -529,9 +518,6 @@ QDF_COMPILE_TIME_ASSERT(qdf_nbuf_cb_size,
 		((skb)->cb))->u.tx.flags.bits.flag_ext_header)
 #define QDF_NBUF_CB_TX_EXTRA_FRAG_WORDSTR_FLAGS(skb) \
 	(((struct qdf_nbuf_cb *)((skb)->cb))->u.tx.flags.u8)
-
-#define QDF_NBUF_CB_TX_EXTRA_IS_CRITICAL(skb) \
-	(((struct qdf_nbuf_cb *)((skb)->cb))->u.tx.flags.bits.is_critical)
 /* End of Tx Flags Accessor Macros */
 
 /* Tx trace accessor macros */
@@ -813,9 +799,6 @@ __qdf_nbuf_t
 __qdf_nbuf_alloc(__qdf_device_t osdev, size_t size, int reserve, int align,
 		 int prio, const char *func, uint32_t line);
 
-__qdf_nbuf_t __qdf_nbuf_alloc_simple(__qdf_device_t osdev, size_t size,
-				     const char *func, uint32_t line);
-
 /**
  * __qdf_nbuf_alloc_no_recycler() - Allocates skb
  * @size: Size to be allocated for skb
@@ -831,32 +814,6 @@ __qdf_nbuf_t __qdf_nbuf_alloc_simple(__qdf_device_t osdev, size_t size,
  */
 __qdf_nbuf_t __qdf_nbuf_alloc_no_recycler(size_t size, int reserve, int align,
 					  const char *func, uint32_t line);
-
-/**
- * __qdf_nbuf_page_frag_alloc() - Allocate nbuf from @pf_cache page
- *				  fragment cache
- * @osdev: Device handle
- * @size: Netbuf requested size
- * @reserve: headroom to start with
- * @align: Align
- * @pf_cache: Reference to page fragment cache
- * @func: Function name of the call site
- * @line: line number of the call site
- *
- * This allocates a nbuf, aligns if needed and reserves some space in the front,
- * since the reserve is done after alignment the reserve value if being
- * unaligned will result in an unaligned address.
- *
- * It will call kernel page fragment APIs for allocation of skb->head, prefer
- * this API for buffers that are allocated and freed only once i.e., for
- * reusable buffers.
- *
- * Return: nbuf or %NULL if no memory
- */
-__qdf_nbuf_t
-__qdf_nbuf_page_frag_alloc(__qdf_device_t osdev, size_t size, int reserve,
-			   int align, __qdf_frag_cache_t *pf_cache,
-			   const char *func, uint32_t line);
 
 /**
  * __qdf_nbuf_clone() - clone the nbuf (copy is readonly)
@@ -919,12 +876,8 @@ bool __qdf_nbuf_data_is_ipv4_dhcp_pkt(uint8_t *data);
 bool __qdf_nbuf_data_is_ipv6_dhcp_pkt(uint8_t *data);
 bool __qdf_nbuf_data_is_ipv6_mdns_pkt(uint8_t *data);
 bool __qdf_nbuf_data_is_ipv4_eapol_pkt(uint8_t *data);
-bool __qdf_nbuf_data_is_ipv4_igmp_pkt(uint8_t *data);
-bool __qdf_nbuf_data_is_ipv6_igmp_pkt(uint8_t *data);
 bool __qdf_nbuf_data_is_ipv4_arp_pkt(uint8_t *data);
 bool __qdf_nbuf_is_bcast_pkt(__qdf_nbuf_t nbuf);
-bool __qdf_nbuf_is_mcast_replay(__qdf_nbuf_t nbuf);
-bool __qdf_nbuf_is_arp_local(struct sk_buff *skb);
 bool __qdf_nbuf_data_is_arp_req(uint8_t *data);
 bool __qdf_nbuf_data_is_arp_rsp(uint8_t *data);
 uint32_t __qdf_nbuf_get_arp_src_ip(uint8_t *data);
@@ -941,8 +894,6 @@ bool __qdf_nbuf_data_is_tcp_ack(uint8_t *data);
 uint16_t __qdf_nbuf_data_get_tcp_src_port(uint8_t *data);
 uint16_t __qdf_nbuf_data_get_tcp_dst_port(uint8_t *data);
 bool __qdf_nbuf_data_is_icmpv4_req(uint8_t *data);
-bool __qdf_nbuf_data_is_icmpv4_redirect(uint8_t *data);
-bool __qdf_nbuf_data_is_icmpv6_redirect(uint8_t *data);
 bool __qdf_nbuf_data_is_icmpv4_rsp(uint8_t *data);
 uint32_t __qdf_nbuf_get_icmpv4_src_ip(uint8_t *data);
 uint32_t __qdf_nbuf_get_icmpv4_tgt_ip(uint8_t *data);
@@ -953,12 +904,6 @@ enum qdf_proto_subtype  __qdf_nbuf_data_get_icmp_subtype(uint8_t *data);
 enum qdf_proto_subtype  __qdf_nbuf_data_get_icmpv6_subtype(uint8_t *data);
 uint8_t __qdf_nbuf_data_get_ipv4_proto(uint8_t *data);
 uint8_t __qdf_nbuf_data_get_ipv6_proto(uint8_t *data);
-uint8_t __qdf_nbuf_data_get_ipv4_tos(uint8_t *data);
-uint8_t __qdf_nbuf_data_get_ipv6_tc(uint8_t *data);
-void __qdf_nbuf_data_set_ipv4_tos(uint8_t *data, uint8_t tos);
-void __qdf_nbuf_data_set_ipv6_tc(uint8_t *data, uint8_t tc);
-bool __qdf_nbuf_is_ipv4_last_fragment(struct sk_buff *skb);
-bool __qdf_nbuf_is_ipv4_v6_pure_tcp_ack(struct sk_buff *skb);
 
 #ifdef QDF_NBUF_GLOBAL_COUNT
 int __qdf_nbuf_count_get(void);
@@ -1147,25 +1092,6 @@ int __qdf_nbuf_shared(struct sk_buff *skb);
 static inline size_t __qdf_nbuf_get_nr_frags(struct sk_buff *skb)
 {
 	return skb_shinfo(skb)->nr_frags;
-}
-
-/**
- * __qdf_nbuf_get_nr_frags_in_fraglist() - return the number of fragments
- * @skb: sk buff
- *
- * This API returns a total number of fragments from the fraglist
- * Return: total number of fragments
- */
-static inline uint32_t __qdf_nbuf_get_nr_frags_in_fraglist(struct sk_buff *skb)
-{
-	uint32_t num_frag = 0;
-	struct sk_buff *list = NULL;
-
-	num_frag = skb_shinfo(skb)->nr_frags;
-	skb_walk_frags(skb, list)
-		num_frag += skb_shinfo(list)->nr_frags;
-
-	return num_frag;
 }
 
 /*
@@ -1501,18 +1427,6 @@ __qdf_nbuf_append_ext_list(struct sk_buff *skb_head,
 }
 
 /**
- * __qdf_nbuf_get_shinfo() - return the shared info of the skb
- * @skb: Pointer to network buffer
- *
- * Return: skb shared info from head buf
- */
-static inline
-struct skb_shared_info *__qdf_nbuf_get_shinfo(struct sk_buff *head_buf)
-{
-	return skb_shinfo(head_buf);
-}
-
-/**
  * __qdf_nbuf_get_ext_list() - Get the link to extended nbuf list.
  * @head_buf: Network buf holding head segment (single)
  *
@@ -1834,37 +1748,6 @@ __qdf_nbuf_queue_insert_head(__qdf_nbuf_queue_t *qhead, __qdf_nbuf_t skb)
 }
 
 /**
- * __qdf_nbuf_queue_remove_last() - remove a skb from the tail of the queue
- * @qhead: Queue head
- *
- * This is a lockless version. Driver should take care of the locks
- *
- * Return: skb or NULL
- */
-static inline struct sk_buff *
-__qdf_nbuf_queue_remove_last(__qdf_nbuf_queue_t *qhead)
-{
-	__qdf_nbuf_t tmp_tail, node = NULL;
-
-	if (qhead->head) {
-		qhead->qlen--;
-		tmp_tail = qhead->tail;
-		node = qhead->head;
-		if (qhead->head == qhead->tail) {
-			qhead->head = NULL;
-			qhead->tail = NULL;
-			return node;
-		} else {
-			while (tmp_tail != node->next)
-			       node = node->next;
-			qhead->tail = node;
-			return node->next;
-		}
-	}
-	return node;
-}
-
-/**
  * __qdf_nbuf_queue_remove() - remove a skb from the head of the queue
  * @qhead: Queue head
  *
@@ -2114,38 +1997,6 @@ __qdf_nbuf_copy_expand(struct sk_buff *buf, int headroom, int tailroom)
 }
 
 /**
- * __qdf_nbuf_has_fraglist() - check buf has fraglist
- * @buf: Network buf instance
- *
- * Return: True, if buf has frag_list else return False
- */
-static inline bool
-__qdf_nbuf_has_fraglist(struct sk_buff *buf)
-{
-	return skb_has_frag_list(buf);
-}
-
-/**
- * __qdf_nbuf_get_last_frag_list_nbuf() - Get last frag_list nbuf
- * @buf: Network buf instance
- *
- * Return: Network buf instance
- */
-static inline struct sk_buff *
-__qdf_nbuf_get_last_frag_list_nbuf(struct sk_buff *buf)
-{
-	struct sk_buff *list;
-
-	if (!__qdf_nbuf_has_fraglist(buf))
-		return NULL;
-
-	for (list = skb_shinfo(buf)->frag_list; list->next; list = list->next)
-		;
-
-	return list;
-}
-
-/**
  * __qdf_nbuf_get_ref_fraglist() - get reference to fragments
  * @buf: Network buf instance
  *
@@ -2285,17 +2136,6 @@ static inline size_t __qdf_nbuf_l2l3l4_hdr_len(struct sk_buff *skb)
 }
 
 /**
- * __qdf_nbuf_get_tcp_hdr_len() - return TCP header length of the skb
- * @skb: sk buff
- *
- * Return: size of TCP header length
- */
-static inline size_t __qdf_nbuf_get_tcp_hdr_len(struct sk_buff *skb)
-{
-	return tcp_hdrlen(skb);
-}
-
-/**
  * __qdf_nbuf_is_nonlinear() - test whether the nbuf is nonlinear or not
  * @buf: sk buff
  *
@@ -2326,7 +2166,7 @@ static inline uint32_t __qdf_nbuf_tcp_seq(struct sk_buff *skb)
  *
  * Return: data pointer to typecast into your priv structure
  */
-static inline char *
+static inline uint8_t *
 __qdf_nbuf_get_priv_ptr(struct sk_buff *skb)
 {
 	return &skb->cb[8];
@@ -2372,19 +2212,6 @@ __qdf_nbuf_get_queue_mapping(struct sk_buff *skb)
 }
 
 /**
- * __qdf_nbuf_set_queue_mapping() - get the queue mapping set by linux kernel
- *
- * @buf: sk buff
- * @val: queue_id
- *
- */
-static inline void
-__qdf_nbuf_set_queue_mapping(struct sk_buff *skb, uint16_t val)
-{
-	skb_set_queue_mapping(skb, val);
-}
-
-/**
  * __qdf_nbuf_set_timestamp() - set the timestamp for frame
  *
  * @buf: sk buff
@@ -2408,19 +2235,6 @@ static inline uint64_t
 __qdf_nbuf_get_timestamp(struct sk_buff *skb)
 {
 	return ktime_to_ms(skb_get_ktime(skb));
-}
-
-/**
- * __qdf_nbuf_get_timestamp_us() - get the timestamp for frame
- *
- * @buf: sk buff
- *
- * Return: timestamp stored in skb in us
- */
-static inline uint64_t
-__qdf_nbuf_get_timestamp_us(struct sk_buff *skb)
-{
-	return ktime_to_us(skb_get_ktime(skb));
 }
 
 /**
@@ -2474,31 +2288,6 @@ static inline void __qdf_nbuf_orphan(struct sk_buff *skb)
 static inline unsigned int __qdf_nbuf_get_end_offset(__qdf_nbuf_t nbuf)
 {
 	return skb_end_offset(nbuf);
-}
-
-/**
- * __qdf_nbuf_get_truesize() - Return the true size of the nbuf
- * including the header and variable data area
- * @skb: sk buff
- *
- * Return: size of network buffer
- */
-static inline unsigned int __qdf_nbuf_get_truesize(struct sk_buff *skb)
-{
-	return skb->truesize;
-}
-
-/**
- * __qdf_nbuf_get_allocsize() - Return the actual size of the skb->head
- * excluding the header and variable data area
- * @skb: sk buff
- *
- * Return: actual allocated size of network buffer
- */
-static inline unsigned int __qdf_nbuf_get_allocsize(struct sk_buff *skb)
-{
-	return SKB_WITH_OVERHEAD(skb->truesize) -
-		SKB_DATA_ALIGN(sizeof(struct sk_buff));
 }
 
 #ifdef CONFIG_WLAN_SYSFS_MEM_STATS
@@ -2645,12 +2434,6 @@ void __qdf_nbuf_queue_head_purge(struct sk_buff_head *skb_queue_head)
 	return skb_queue_purge(skb_queue_head);
 }
 
-static inline
-int __qdf_nbuf_queue_empty(__qdf_nbuf_queue_head_t *nbuf_queue_head)
-{
-	return skb_queue_empty(nbuf_queue_head);
-}
-
 /**
  * __qdf_nbuf_queue_head_lock() - Acquire the skb list lock
  * @head: skb list for which lock is to be acquired
@@ -2739,15 +2522,6 @@ QDF_STATUS __qdf_nbuf_move_frag_page_offset(__qdf_nbuf_t nbuf, uint8_t idx,
 					    int offset);
 
 /**
- * __qdf_nbuf_remove_frag() - Remove frag from nbuf
- * @nbuf: nbuf pointer
- * @idx: frag idx need to be removed
- * @truesize: truesize of frag
- *
- * Return : void
- */
-void __qdf_nbuf_remove_frag(__qdf_nbuf_t nbuf, uint16_t idx, uint16_t truesize);
-/**
  * __qdf_nbuf_add_rx_frag() - Add frag to nbuf at nr_frag index
  * @buf: Frag pointer needs to be added in nbuf frag
  * @nbuf: qdf_nbuf_t where frag will be added
@@ -2766,13 +2540,6 @@ void __qdf_nbuf_remove_frag(__qdf_nbuf_t nbuf, uint16_t idx, uint16_t truesize);
 void __qdf_nbuf_add_rx_frag(__qdf_frag_t buf, __qdf_nbuf_t nbuf,
 			    int offset, int frag_len,
 			    unsigned int truesize, bool take_frag_ref);
-
-/**
- * __qdf_nbuf_ref_frag() - get frag reference
- *
- * Return: void
- */
-void __qdf_nbuf_ref_frag(qdf_frag_t buf);
 
 /**
  * __qdf_nbuf_set_mark() - Set nbuf mark
@@ -2810,77 +2577,6 @@ static inline qdf_size_t __qdf_nbuf_get_data_len(__qdf_nbuf_t nbuf)
 }
 
 /**
- * __qdf_nbuf_set_data_len() - Return the data_len of the nbuf
- * @nbuf: qdf_nbuf_t
- *
- * Return: value of data_len
- */
-static inline
-qdf_size_t __qdf_nbuf_set_data_len(__qdf_nbuf_t nbuf, uint32_t len)
-{
-	return nbuf->data_len = len;
-}
-
-/**
- * __qdf_nbuf_get_only_data_len() - Return the data_len of the nbuf
- * @nbuf: qdf_nbuf_t
- *
- * Return: value of data_len
- */
-static inline qdf_size_t __qdf_nbuf_get_only_data_len(__qdf_nbuf_t nbuf)
-{
-	return nbuf->data_len;
-}
-
-/**
- * __qdf_nbuf_set_hash() - set the hash of the buf
- * @buf: Network buf instance
- * @len: len to be set
- *
- * Return: None
- */
-static inline void __qdf_nbuf_set_hash(__qdf_nbuf_t buf, uint32_t len)
-{
-	buf->hash = len;
-}
-
-/**
- * __qdf_nbuf_set_sw_hash() - set the sw hash of the buf
- * @buf: Network buf instance
- * @len: len to be set
- *
- * Return: None
- */
-static inline void __qdf_nbuf_set_sw_hash(__qdf_nbuf_t buf, uint32_t len)
-{
-	buf->sw_hash = len;
-}
-
-/**
- * __qdf_nbuf_set_csum_start() - set the csum start of the buf
- * @buf: Network buf instance
- * @len: len to be set
- *
- * Return: None
- */
-static inline void __qdf_nbuf_set_csum_start(__qdf_nbuf_t buf, uint16_t len)
-{
-	buf->csum_start = len;
-}
-
-/**
- * __qdf_nbuf_set_csum_offset() - set the csum offset of the buf
- * @buf: Network buf instance
- * @len: len to be set
- *
- * Return: None
- */
-static inline void __qdf_nbuf_set_csum_offset(__qdf_nbuf_t buf, uint16_t len)
-{
-	buf->csum_offset = len;
-}
-
-/**
  * __qdf_nbuf_get_gso_segs() - Return the number of gso segments
  * @skb: Pointer to network buffer
  *
@@ -2889,179 +2585,6 @@ static inline void __qdf_nbuf_set_csum_offset(__qdf_nbuf_t buf, uint16_t len)
 static inline uint16_t __qdf_nbuf_get_gso_segs(struct sk_buff *skb)
 {
 	return skb_shinfo(skb)->gso_segs;
-}
-
-/**
- * __qdf_nbuf_set_gso_segs() - set the number of gso segments
- * @skb: Pointer to network buffer
- * @val: val to be set
- *
- * Return: None
- */
-static inline void __qdf_nbuf_set_gso_segs(struct sk_buff *skb, uint16_t val)
-{
-	skb_shinfo(skb)->gso_segs = val;
-}
-
-/**
- * __qdf_nbuf_set_gso_type_udp_l4() - set the gso type to GSO UDP L4
- * @skb: Pointer to network buffer
- *
- * Return: None
- */
-static inline void __qdf_nbuf_set_gso_type_udp_l4(struct sk_buff *skb)
-{
-	skb_shinfo(skb)->gso_type = SKB_GSO_UDP_L4;
-}
-
-/**
- * __qdf_nbuf_set_ip_summed_partial() - set the ip summed to CHECKSUM_PARTIAL
- * @skb: Pointer to network buffer
- *
- * Return: None
- */
-static inline void __qdf_nbuf_set_ip_summed_partial(struct sk_buff *skb)
-{
-	skb->ip_summed = CHECKSUM_PARTIAL;
-}
-
-/**
- * __qdf_nbuf_get_gso_size() - Return the number of gso size
- * @skb: Pointer to network buffer
- *
- * Return: Return the number of gso segments
- */
-static inline unsigned int __qdf_nbuf_get_gso_size(struct sk_buff *skb)
-{
-	return skb_shinfo(skb)->gso_size;
-}
-
-/**
- * __qdf_nbuf_set_gso_size() - Set the gso size in nbuf
- * @skb: Pointer to network buffer
- *
- * Return: Return the number of gso segments
- */
-static inline void
-__qdf_nbuf_set_gso_size(struct sk_buff *skb, unsigned int val)
-{
-	skb_shinfo(skb)->gso_size = val;
-}
-
-/**
- * __qdf_nbuf_kfree() - Free nbuf using kfree
- * @buf: Pointer to network buffer
- *
- * This function is called to free the skb on failure cases
- *
- * Return: None
- */
-static inline void __qdf_nbuf_kfree(struct sk_buff *skb)
-{
-	kfree_skb(skb);
-}
-
-/**
- * __qdf_nbuf_dev_kfree_list() - Free nbuf list using dev based os call
- * @skb_queue_head: Pointer to nbuf queue head
- *
- * This function is called to free the nbuf list on failure cases
- *
- * Return: None
- */
-void
-__qdf_nbuf_dev_kfree_list(__qdf_nbuf_queue_head_t *nbuf_queue_head);
-
-/**
- * __qdf_nbuf_dev_queue_head() - queue a buffer using dev at the list head
- * @skb_queue_head: Pointer to skb list head
- * @buff: Pointer to nbuf
- *
- * This function is called to queue buffer at the skb list head
- *
- * Return: None
- */
-static inline void
-__qdf_nbuf_dev_queue_head(__qdf_nbuf_queue_head_t *nbuf_queue_head,
-			  __qdf_nbuf_t buff)
-{
-	 __skb_queue_head(nbuf_queue_head, buff);
-}
-
-/**
- * __qdf_nbuf_dev_kfree() - Free nbuf using dev based os call
- * @buf: Pointer to network buffer
- *
- * This function is called to free the skb on failure cases
- *
- * Return: None
- */
-static inline void __qdf_nbuf_dev_kfree(struct sk_buff *skb)
-{
-	dev_kfree_skb(skb);
-}
-
-/**
- * __qdf_nbuf_pkt_type_is_mcast() - check if skb pkt type is mcast
- * @buf: Network buffer
- *
- * Return: TRUE if skb pkt type is mcast
- *         FALSE if not
- */
-static inline
-bool __qdf_nbuf_pkt_type_is_mcast(struct sk_buff *skb)
-{
-	return skb->pkt_type == PACKET_MULTICAST;
-}
-
-/**
- * __qdf_nbuf_pkt_type_is_bcast() - check if skb pkt type is bcast
- * @buf: Network buffer
- *
- * Return: TRUE if skb pkt type is mcast
- *         FALSE if not
- */
-static inline
-bool __qdf_nbuf_pkt_type_is_bcast(struct sk_buff *skb)
-{
-	return skb->pkt_type == PACKET_BROADCAST;
-}
-
-/**
- * __qdf_nbuf_set_dev_scratch() - set dev_scratch of network buffer
- * @buf: Pointer to network buffer
- * @value: value to be set in dev_scratch of network buffer
- *
- * Return: void
- */
-static inline
-void __qdf_nbuf_set_dev(struct sk_buff *skb, struct net_device *dev)
-{
-	skb->dev = dev;
-}
-
-/**
- * __qdf_nbuf_get_dev_mtu() - get dev mtu in n/w buffer
- * @buf: Pointer to network buffer
- *
- * Return: dev mtu value in nbuf
- */
-static inline
-unsigned int __qdf_nbuf_get_dev_mtu(struct sk_buff *skb)
-{
-	return skb->dev->mtu;
-}
-
-/**
- * __qdf_nbuf_set_protocol_eth_tye_trans() - set protocol using eth trans os API
- * @buf: Pointer to network buffer
- *
- * Return: None
- */
-static inline
-void __qdf_nbuf_set_protocol_eth_type_trans(struct sk_buff *skb)
-{
-	skb->protocol = eth_type_trans(skb, skb->dev);
 }
 
 /*

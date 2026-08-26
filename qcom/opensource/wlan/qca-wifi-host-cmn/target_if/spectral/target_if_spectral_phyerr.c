@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011,2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ *
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -355,7 +355,7 @@ target_if_dump_summary_report_gen2(struct spectral_phyerr_tlv_gen2 *ptlv,
 	 */
 
 	/*
-	 * For easy comparison between MDK team and OS team, the MDK script
+	 * For easy comparision between MDK team and OS team, the MDK script
 	 * variable names have been used
 	 */
 
@@ -499,7 +499,7 @@ target_if_process_sfft_report_gen2(
 	 * Proper code will later use the right sizes.
 	 */
 	/*
-	 * For easy comparison between MDK team and OS team, the MDK script
+	 * For easy comparision between MDK team and OS team, the MDK script
 	 * variable names have been used
 	 */
 	uint32_t relpwr_db;
@@ -714,7 +714,7 @@ target_if_dump_sfft_report_gen2(struct spectral_phyerr_tlv_gen2 *ptlv,
 	 * Proper code will later use the right sizes.
 	 */
 	/*
-	 * For easy comparison between MDK team and OS team, the MDK script
+	 * For easy comparision between MDK team and OS team, the MDK script
 	 * variable names have been used
 	 */
 	uint32_t relpwr_db;
@@ -893,11 +893,9 @@ target_if_spectral_unify_cfreq_format(struct target_if_spectral *spectral,
 			enum channel_state state;
 
 			/* Get the 80MHz channel containing the pri20 freq */
-			state =
-			    wlan_reg_get_5g_bonded_channel_and_state_for_pwrmode
+			state = wlan_reg_get_5g_bonded_channel_and_state_for_freq
 				(spectral->pdev_obj, pri20_freq, CH_WIDTH_80MHZ,
-				 &bonded_chan_ptr, REG_CURRENT_PWR_MODE,
-				 NO_SCHANS_PUNC);
+				 &bonded_chan_ptr);
 
 			if (state == CHANNEL_STATE_DISABLE ||
 			    state == CHANNEL_STATE_INVALID) {
@@ -1125,10 +1123,8 @@ target_if_populate_fft_bins_info(struct target_if_spectral *spectral,
 		}
 		dest_det_info->dest_start_bin_idx = start_bin;
 		dest_det_info->dest_end_bin_idx =
-					dest_det_info->dest_start_bin_idx;
-		if (num_fft_bins > 0)
-			dest_det_info->dest_end_bin_idx += (num_fft_bins - 1);
-
+					dest_det_info->dest_start_bin_idx +
+					num_fft_bins - 1;
 		if (dest_det_info->lb_extrabins_num) {
 			if (is_ch_width_160_or_80p80(ch_width)) {
 				dest_det_info->lb_extrabins_start_idx =
@@ -2224,16 +2220,7 @@ target_if_spectral_copy_fft_bins(struct target_if_spectral *spectral,
 	for (dword_idx = 0; dword_idx < num_dwords; dword_idx++) {
 		dword = *dword_ptr++; /* Read a DWORD */
 		for (idx = 0; idx < num_bins_per_dword; idx++) {
-			/**
-			 * If we use QDF_GET_BITS, when hw_fft_bin_width_bits is
-			 * 32, on certain platforms, we could end up doing a
-			 * 32-bit left shift operation on 32-bit constant
-			 * integer '1'. As per C standard, result of shifting an
-			 * operand by a count greater than or equal to width
-			 * (in bits) of the operand is undefined.
-			 * If we use QDF_GET_BITS_64, we can avoid that.
-			 */
-			fft_bin_val = (uint16_t)QDF_GET_BITS64(
+			fft_bin_val = (uint16_t)QDF_GET_BITS(
 					dword,
 					idx * hw_fft_bin_width_bits,
 					hw_fft_bin_width_bits);
@@ -2364,7 +2351,7 @@ target_if_process_sfft_report_gen3(
 	 * Proper code will later use the right sizes.
 	 */
 	/*
-	 * For easy comparison between MDK team and OS team, the MDK script
+	 * For easy comparision between MDK team and OS team, the MDK script
 	 * variable names have been used
 	 */
 
@@ -3159,7 +3146,7 @@ target_if_process_sfft_report_gen3(
 	}
 
 	/*
-	 * For easy comparison between MDK team and OS team, the MDK script
+	 * For easy comparision between MDK team and OS team, the MDK script
 	 * variable names have been used
 	 */
 
@@ -3369,7 +3356,7 @@ target_if_spectral_populate_samp_params_gen3(
 		return QDF_STATUS_E_NULL_VALUE;
 	}
 
-	/* RSSI is in 1/2 dBm steps, Convert it to dBm scale */
+	/* RSSI is in 1/2 dBm steps, Covert it to dBm scale */
 	params->rssi = (sscan_fields->inband_pwr_db) >> 1;
 
 	params->hw_detector_id = p_sfft->fft_detector_id;
@@ -3446,15 +3433,11 @@ target_if_consume_spectral_report_gen3(
 	bool finite_scan = false;
 	int det = 0;
 	struct sscan_detector_list *det_list;
-	struct spectral_data_stats *spectral_dp_stats;
 
 	if (!spectral) {
 		spectral_err_rl("Spectral LMAC object is null");
 		goto fail_no_print;
 	}
-
-	spectral_dp_stats = &spectral->data_stats;
-	spectral_dp_stats->consume_spectral_calls++;
 
 	if (!report) {
 		spectral_err_rl("Spectral report is null");
@@ -3495,6 +3478,22 @@ target_if_consume_spectral_report_gen3(
 	if (!p_sops->is_spectral_active(spectral, spectral_mode)) {
 		spectral_info_rl("Spectral scan is not active");
 		goto fail_no_print;
+	}
+
+	ret = target_if_spectral_is_finite_scan(spectral, spectral_mode,
+						&finite_scan);
+	if (QDF_IS_STATUS_ERROR(ret)) {
+		spectral_err_rl("Failed to check scan is finite");
+		goto fail;
+	}
+
+	if (finite_scan) {
+		ret = target_if_spectral_finite_scan_update(spectral,
+							    spectral_mode);
+		if (QDF_IS_STATUS_ERROR(ret)) {
+			spectral_err_rl("Failed to update scan count");
+			goto fail;
+		}
 	}
 
 	/* Validate and Process the search FFT report */
@@ -3574,24 +3573,8 @@ target_if_consume_spectral_report_gen3(
 		goto fail;
 	}
 
-	ret = target_if_spectral_is_finite_scan(spectral, spectral_mode,
-						&finite_scan);
-	if (QDF_IS_STATUS_ERROR(ret)) {
-		spectral_err_rl("Failed to check scan is finite");
-		goto fail;
-	}
-
-	if (finite_scan) {
-		ret = target_if_spectral_finite_scan_update(spectral,
-							    spectral_mode);
-		if (QDF_IS_STATUS_ERROR(ret)) {
-			spectral_err_rl("Failed to update scan count");
-			goto fail;
-		}
-	}
-
 	return 0;
-fail:
+ fail:
 	spectral_err_rl("Error while processing Spectral report");
 fail_no_print:
 	if (spectral_mode != SPECTRAL_SCAN_MODE_INVALID)
@@ -3716,7 +3699,7 @@ target_if_consume_spectral_report_gen3(
 	params.vhtop_ch_freq_seg2 = report->cfreq2;
 
 	if (is_primaryseg_expected(spectral, spectral_mode)) {
-		/* RSSI is in 1/2 dBm steps, Convert it to dBm scale */
+		/* RSSI is in 1/2 dBm steps, Covert it to dBm scale */
 		rssi = (sscan_report_fields.inband_pwr_db) >> 1;
 		params.agc_total_gain =
 			sscan_report_fields.sscan_agc_total_gain;
@@ -3894,7 +3877,7 @@ target_if_consume_spectral_report_gen3(
 		target_if_spectral_verify_ts(spectral, report->data,
 					     params.tstamp);
 	} else if (is_secondaryseg_expected(spectral, spectral_mode)) {
-		/* RSSI is in 1/2 dBm steps, Convert it to dBm scale */
+		/* RSSI is in 1/2 dBm steps, Covert it to dBm scale */
 		rssi = (sscan_report_fields.inband_pwr_db) >> 1;
 		params.agc_total_gain_sec80 =
 			sscan_report_fields.sscan_agc_total_gain;
@@ -4044,18 +4027,14 @@ int target_if_spectral_process_report_gen3(
 	int ret = 0;
 	struct direct_buf_rx_data *payload = buf;
 	struct target_if_spectral *spectral;
-	struct spectral_report report = {0};
+	struct spectral_report report;
 	int samp_msg_index;
-	struct spectral_data_stats *spectral_dp_stats;
 
 	spectral = get_target_if_spectral_handle_from_pdev(pdev);
 	if (!spectral) {
 		spectral_err("Spectral target object is null");
 		return -EINVAL;
 	}
-
-	spectral_dp_stats = &spectral->data_stats;
-	spectral_dp_stats->spectral_rx_events++;
 
 	report.data = payload->vaddr;
 	if (payload->meta_data_valid) {

@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2011,2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  *
  * Permission to use, copy, modify, and/or distribute this software for
@@ -157,15 +156,6 @@ spectral_control_cmn(struct wlan_objmgr_pdev *pdev,
 		if (sp_in->ss_period != SPECTRAL_PHYERR_PARAM_NOVAL) {
 			param.id = SPECTRAL_PARAM_SCAN_PERIOD;
 			param.value = sp_in->ss_period;
-			ret = sc->sptrlc_set_spectral_config
-						(pdev, &param, smode, err);
-			if (QDF_IS_STATUS_ERROR(ret))
-				goto bad;
-		}
-
-		if (sp_in->ss_recapture != SPECTRAL_PHYERR_PARAM_NOVAL) {
-			param.id = SPECTRAL_PARAM_FFT_RECAPTURE;
-			param.value = sp_in->ss_recapture;
 			ret = sc->sptrlc_set_spectral_config
 						(pdev, &param, smode, err);
 			if (QDF_IS_STATUS_ERROR(ret))
@@ -369,7 +359,6 @@ spectral_control_cmn(struct wlan_objmgr_pdev *pdev,
 		spectralparams = &sscan_req->config_req.sscan_config;
 		spectralparams->ss_fft_period = sp_out.ss_fft_period;
 		spectralparams->ss_period = sp_out.ss_period;
-		spectralparams->ss_recapture = sp_out.ss_recapture;
 		spectralparams->ss_count = sp_out.ss_count;
 		spectralparams->ss_short_report =
 				sp_out.ss_short_report;
@@ -438,9 +427,7 @@ spectral_control_cmn(struct wlan_objmgr_pdev *pdev,
 			struct spectral_caps *caps;
 
 			caps  = &sscan_req->caps_req.sscan_caps;
-			ret = sc->sptrlc_get_spectral_capinfo(pdev, caps);
-			if (QDF_IS_STATUS_ERROR(ret))
-				goto bad;
+			sc->sptrlc_get_spectral_capinfo(pdev, caps);
 		}
 		break;
 
@@ -449,9 +436,7 @@ spectral_control_cmn(struct wlan_objmgr_pdev *pdev,
 			struct spectral_diag_stats *diag;
 
 			diag  = &sscan_req->diag_req.sscan_diag;
-			ret = sc->sptrlc_get_spectral_diagstats(pdev, diag);
-			if (QDF_IS_STATUS_ERROR(ret))
-				goto bad;
+			sc->sptrlc_get_spectral_diagstats(pdev, diag);
 		}
 		break;
 
@@ -530,7 +515,7 @@ wlan_spectral_psoc_obj_create_handler(struct wlan_objmgr_psoc *psoc, void *arg)
 
 	status = wlan_spectral_init_psoc_feature_cap(psoc);
 	if (QDF_IS_STATUS_ERROR(status)) {
-		spectral_err("Failed to initialize spectral pdev feature caps");
+		spectral_err("Failed to intitialize spectral pdev feature caps");
 		return QDF_STATUS_E_FAILURE;
 	}
 
@@ -599,7 +584,7 @@ wlan_spectral_pdev_obj_create_handler(struct wlan_objmgr_pdev *pdev, void *arg)
 
 	status = wlan_spectral_init_pdev_feature_caps(pdev);
 	if (QDF_IS_STATUS_ERROR(status)) {
-		spectral_err("Failed to initialize spectral pdev feature caps");
+		spectral_err("Failed to intitialize spectral pdev feature caps");
 		return QDF_STATUS_E_FAILURE;
 	}
 

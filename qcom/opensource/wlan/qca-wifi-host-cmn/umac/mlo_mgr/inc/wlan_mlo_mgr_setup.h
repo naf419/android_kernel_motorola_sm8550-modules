@@ -1,4 +1,4 @@
-/* Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+/* Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -17,48 +17,7 @@
  * DOC: contains MLO manager public file containing setup/teardown functionality
  */
 
-#ifndef _WLAN_MLO_MGR_SETUP_H_
-#define _WLAN_MLO_MGR_SETUP_H_
 #ifdef WLAN_MLO_MULTI_CHIP
-/**
- * mlo_setup_init() - API to init setup info events
- *
- * Return: None
- */
-void mlo_setup_init(void);
-
-/**
- * mlo_setup_deinit() - API to deinit setup info events
- *
- * Return: None
- */
-void mlo_setup_deinit(void);
-
-/**
- * mlo_is_ml_soc() - API to check if psoc belongs to ML group
- * @psoc: Soc to be checked.
- *
- * Return: true if psoc found in ml soc_list, or else return false
- */
-bool mlo_is_ml_soc(struct wlan_objmgr_psoc *psoc);
-
-/**
- * mlo_get_soc_list() - API to get the list of SOCs participating in MLO
- * @soc_list: list where ML participating SOCs need to be populated
- *
- * Return: None
- */
-void mlo_get_soc_list(struct wlan_objmgr_psoc **soc_list);
-
-/**
- * mlo_cleanup_asserted_soc_setup_info() - API to cleanup the mlo setup info of
- * asserted soc
- * @psoc: Soc to be cleaned up
- *
- * Return: None
- */
-void mlo_cleanup_asserted_soc_setup_info(struct wlan_objmgr_psoc *psoc);
-
 /**
  * mlo_setup_update_total_socs() - API to update total socs for mlo
  * @tot_socs: Total socs
@@ -108,70 +67,4 @@ void mlo_link_setup_complete(struct wlan_objmgr_pdev *pdev);
  * Return: None.
  */
 void mlo_link_teardown_complete(struct wlan_objmgr_pdev *pdev);
-
-/**
- * mlo_setup_update_soc_down() - API to check and clear all links and bring
- *                               back to initial state for the particular soc
- *
- * @pdev: Pointer to pdev object
- *
- * Return: None.
- */
-void mlo_setup_update_soc_down(struct wlan_objmgr_psoc *psoc);
-
-/**
- * mlo_link_teardown_link() - API to trigger teardown
- * @psoc: Pointer to psoc object
- * @reason: Reason code for MLO tear down
- *
- * Return: QDF_STATUS - success / failure.
- */
-QDF_STATUS mlo_link_teardown_link(struct wlan_objmgr_psoc *psoc,
-				  uint32_t reason);
-
-/**
- * mlo_vdevs_check_single_soc() - API to check all the vaps in vdev list
- *                                belong to single soc or not
- * @wlan_vdev_list: List of all vdevs to check
- * @vdev_count: Number of vdevs in the list
- *
- * Return: bool: True if belongs to single soc else false
- */
-bool mlo_vdevs_check_single_soc(struct wlan_objmgr_vdev **wlan_vdev_list,
-				uint8_t vdev_count);
-
-/**
- * mlo_check_all_pdev_state() - API to check all the pdev of the soc
- *                              are on the same expected state.
- *
- * @psoc: Pointer to psoc object
- * @state: Expected link state to be verified
- *
- * Return: QDF_STATUS: QDF_STATUS_SUCCESS if all belongs to same state
- */
-QDF_STATUS mlo_check_all_pdev_state(struct wlan_objmgr_psoc *psoc,
-				    enum MLO_LINK_STATE state);
-#else
-static inline void mlo_setup_init(void)
-{
-}
-
-static inline void mlo_setup_deinit(void)
-{
-}
-
-static inline bool
-mlo_vdevs_check_single_soc(struct wlan_objmgr_vdev **wlan_vdev_list,
-			   uint8_t vdev_count)
-{
-	return true;
-}
-
-static inline
-QDF_STATUS mlo_check_all_pdev_state(struct wlan_objmgr_psoc *psoc,
-				    uint32_t state)
-{
-	return QDF_STATUS_SUCCESS;
-}
-#endif /* WLAN_MLO_MULTI_CHIP */
-#endif /* _WLAN_MLO_MGR_SETUP_H_ */
+#endif

@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2019 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -83,7 +82,7 @@ static void hdd_debugfs_mws_coex_info_cb(void *coex_info_data, void *context,
 
 	request = osif_request_get(context);
 	if (!request) {
-		hdd_err("obsolete request");
+		hdd_err("obselete request");
 		return;
 	}
 
@@ -664,6 +663,6 @@ void hdd_debugfs_mws_coex_info_init(struct hdd_context *hdd_ctx)
 void hdd_debugfs_mws_coex_info_deinit(struct hdd_context *hdd_ctx)
 {
 	/**
-	 * Coex info doesn't have a directory it is removed as part of qdf remove
+	 * Coex info dosent have a directory it is removed as part of qdf remove
 	 */
 }

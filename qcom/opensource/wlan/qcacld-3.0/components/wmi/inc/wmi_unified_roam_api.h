@@ -100,28 +100,9 @@ QDF_STATUS
 wmi_unified_roam_mawc_params_cmd(wmi_unified_t wmi_handle,
 				 struct wlan_roam_mawc_params *params);
 
-#ifdef WLAN_VENDOR_HANDOFF_CONTROL
 /**
- * wmi_extract_roam_vendor_control_param_event() - extract vendor handoff param
- * event coming from fw
- * @wmi_handle: wmi handle
- * @event: vendor handoff param event pointer
- * @len: event len
- * @data: vendor handoff related parameters
- *
- * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
- */
-
-QDF_STATUS
-wmi_extract_roam_vendor_control_param_event(wmi_unified_t wmi_handle,
-				uint8_t *event, uint32_t len,
-				struct roam_vendor_handoff_params **data);
-
-#endif
-
-/**
- * wmi_unified_roam_scan_filter_cmd() - send roam scan allowlist,
- *                                      denylist and preferred list
+ * wmi_unified_roam_scan_filter_cmd() - send roam scan whitelist,
+ *                                      blacklist and preferred list
  * @wmi_handle: wmi handle
  * @roam_req: roam scan lists related parameters
  *
@@ -159,22 +140,6 @@ QDF_STATUS wmi_unified_plm_stop_cmd(wmi_unified_t wmi_handle,
 QDF_STATUS wmi_unified_plm_start_cmd(wmi_unified_t wmi_handle,
 				     const struct plm_req_params *plm);
 #endif /* FEATURE_WLAN_ESE */
-
-#if defined(WLAN_FEATURE_HOST_ROAM) || defined(WLAN_FEATURE_ROAM_OFFLOAD)
-/**
- * wmi_extract_roam_event  - Extract roam event
- * @wmi_handle: WMI handle
- * @event: Event data received from firmware
- * @data_len: Event data length received from firmware
- * @roam_event: Extract the event and fill in roam_event
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-wmi_extract_roam_event(wmi_unified_t wmi_handle, uint8_t *event,
-		       uint32_t data_len,
-		       struct roam_offload_roam_event *roam_event);
-#endif /* WLAN_FEATURE_HOST_ROAM || WLAN_FEATURE_ROAM_OFFLOAD */
 
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 /* wmi_unified_set_ric_req_cmd() - set ric request element
@@ -237,22 +202,6 @@ QDF_STATUS wmi_unified_set_roam_triggers(wmi_unified_t wmi_handle,
 QDF_STATUS
 wmi_unified_send_disconnect_roam_params(wmi_unified_t wmi_handle,
 				struct wlan_roam_disconnect_params *req);
-
-#ifdef WLAN_VENDOR_HANDOFF_CONTROL
-/**
- * wmi_unified_roam_vendor_handoff_req_cmd() - Send vendor handoff request
- * command to fw
- * @wmi_handle:  wmi handle
- * @vdev_id: vdev id
- * @param_id: Vendor Control Param ID from enum
- * WMI_ROAM_GET_VENDOR_CONTROL_PARAM_ID
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS wmi_unified_roam_vendor_handoff_req_cmd(wmi_unified_t wmi_handle,
-						   uint8_t vdev_id,
-						   uint32_t param_id);
-#endif
 
 /**
  * wmi_unified_send_idle_roam_params() - Send idle roam trigger params to fw
@@ -323,7 +272,21 @@ wmi_extract_roam_sync_frame_event(wmi_unified_t wmi_handle, void *event,
 				  struct roam_synch_frame_ind *frame_ptr);
 
 /**
- * wmi_extract_btm_denylist_event - Extract btm denylist event
+ * wmi_extract_roam_event  - Extract roam event
+ * @wmi_handle: WMI handle
+ * @event: Event data received from firmware
+ * @data_len: Event data length received from firmware
+ * @roam_event: Extract the event and fill in roam_event
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+wmi_extract_roam_event(wmi_unified_t wmi_handle, uint8_t *event,
+		       uint32_t data_len,
+		       struct roam_offload_roam_event *roam_event);
+
+/**
+ * wmi_extract_btm_blacklist_event - Extract btm blacklist event
  * @wmi_handle: WMI handle
  * @event: Event data received from firmware
  * @data_len: Event data length received from firmware
@@ -332,9 +295,9 @@ wmi_extract_roam_sync_frame_event(wmi_unified_t wmi_handle, void *event,
  * Return: QDF_STATUS
  */
 QDF_STATUS
-wmi_extract_btm_denylist_event(wmi_unified_t wmi_handle,
-			       uint8_t *event, uint32_t data_len,
-			       struct roam_denylist_event **dst_list);
+wmi_extract_btm_blacklist_event(wmi_unified_t wmi_handle,
+				uint8_t *event, uint32_t data_len,
+				struct roam_blacklist_event **dst_list);
 
 /**
  * wmi_extract_vdev_disconnect_event - Extract disconnect event data
@@ -476,19 +439,6 @@ wmi_extract_roam_candidate_frame_event(wmi_unified_t wmi_handle, uint8_t *event,
 				       uint32_t len,
 				       struct roam_scan_candidate_frame *data);
 #endif /* WLAN_FEATURE_ROAM_OFFLOAD */
-
-#ifdef WLAN_FEATURE_11BE_MLO
-QDF_STATUS
-wmi_unified_roam_mlo_config_cmd(wmi_unified_t wmi_handle,
-				struct wlan_roam_mlo_config *req);
-#else
-static inline QDF_STATUS
-wmi_unified_roam_mlo_config_cmd(wmi_unified_t wmi_handle,
-				struct wlan_roam_mlo_config *req)
-{
-	return QDF_STATUS_SUCCESS;
-}
-#endif
 
 /**
  * wmi_unified_roam_scan_offload_mode_cmd() - set roam scan parameters

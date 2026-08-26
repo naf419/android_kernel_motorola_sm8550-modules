@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -22,13 +21,6 @@
 
 #include "hal_be_hw_headers.h"
 #include "hal_rx.h"
-#include <wbm_release_ring_rx.h>
-
-#define HAL_RX_DA_IDX_CHIP_ID_OFFSET    14
-#define HAL_RX_DA_IDX_CHIP_ID_MASK      0x3
-
-#define HAL_RX_DA_IDX_PEER_ID_MASK    0x3fff
-#define HAL_RX_DA_IDX_ML_PEER_MASK    0x2000
 
 /*
  * macro to set the cookie into the rxdma ring entry
@@ -189,11 +181,6 @@
 		RX_MSDU_DESC_INFO_INTRA_BSS_OFFSET)) &	\
 		RX_MSDU_DESC_INFO_INTRA_BSS_MASK)
 
-#define HAL_RX_MSDU_DEST_CHIP_ID_GET(msdu_info_ptr) \
-	((*_OFFSET_TO_WORD_PTR(msdu_info_ptr,		\
-		RX_MSDU_DESC_INFO_DEST_CHIP_ID_OFFSET)) & \
-		RX_MSDU_DESC_INFO_DEST_CHIP_ID_MASK)
-
 #define HAL_RX_MPDU_ENCRYPT_TYPE_GET(_rx_mpdu_info)	\
 	(_HAL_MS((*_OFFSET_TO_WORD_PTR(_rx_mpdu_info,	\
 	RX_MPDU_INFO_ENCRYPT_TYPE_OFFSET)),		\
@@ -208,21 +195,10 @@
 	HAL_RX_FLD_SET(_mpdu_info_ptr, RX_MPDU_DESC_INFO,		\
 			_field, _val)
 
-#define HAL_RX_MSDU_REO_DST_IND_SET(_msdu_ext_desc_info_ptr, _field, _val)  \
-	HAL_RX_FLD_SET(_msdu_ext_desc_info_ptr, RX_MSDU_EXT_DESC_INFO,	    \
-			_field, _val)
-
 #define HAL_RX_REO_MSDU_REO_DST_IND_GET(reo_desc)	\
 	(HAL_RX_MSDU_REO_DST_IND_GET(&		\
 	(((struct reo_destination_ring *)	\
 	   reo_desc)->rx_msdu_desc_info_details)))
-
-#define HAL_RX_DEST_CHIP_ID_GET(msdu_metadata) \
-	(((msdu_metadata)->da_idx >> HAL_RX_DA_IDX_CHIP_ID_OFFSET) &	\
-	 HAL_RX_DA_IDX_CHIP_ID_MASK)
-
-#define HAL_RX_PEER_ID_GET(msdu_metadata) \
-	(((msdu_metadata)->da_idx) & HAL_RX_DA_IDX_PEER_ID_MASK)
 
 /**
  * enum hal_be_rx_wbm_error_source: Indicates which module initiated the
@@ -369,28 +345,10 @@ static inline uintptr_t hal_rx_wbm_get_desc_va(void *hal_desc)
 	WBM_RELEASE_RING_LAST_MSDU_MASK) >>		\
 	WBM_RELEASE_RING_LAST_MSDU_LSB)
 
-#define HAL_RX_WBM_BUF_ADDR_39_32_GET(wbm_desc)	\
-	(HAL_RX_BUFFER_ADDR_39_32_GET(&			\
-	(((struct wbm_release_ring_rx *) \
-	wbm_desc)->released_buff_or_desc_addr_info)))
-
-#define HAL_RX_WBM_BUF_ADDR_31_0_GET(wbm_desc)	\
-	(HAL_RX_BUFFER_ADDR_31_0_GET(&			\
-	(((struct wbm_release_ring_rx *) \
-	wbm_desc)->released_buff_or_desc_addr_info)))
-
 #define HAL_RX_WBM_BUF_COOKIE_GET(wbm_desc) \
-	HAL_RX_BUF_COOKIE_GET(&((struct wbm_release_ring_rx *) \
+	HAL_RX_BUF_COOKIE_GET(&((struct wbm_release_ring *) \
 	wbm_desc)->released_buff_or_desc_addr_info)
 
-#define HAL_RX_WBM_COMP_BUF_ADDR_31_0_GET(wbm_desc) \
-	HAL_RX_GET(wbm_desc, WBM2SW_COMPLETION_RING_RX, BUFFER_PHYS_ADDR_31_0)
-
-#define HAL_RX_WBM_COMP_BUF_ADDR_39_32_GET(wbm_desc) \
-	HAL_RX_GET(wbm_desc, WBM2SW_COMPLETION_RING_RX, BUFFER_PHYS_ADDR_39_32)
-
-#define HAL_RX_WBM_COMP_BUF_COOKIE_GET(wbm_desc) \
-	HAL_RX_GET(wbm_desc, WBM2SW_COMPLETION_RING_RX, SW_BUFFER_COOKIE)
 /**
  * hal_rx_msdu_flags_get_be() - Get msdu flags from ring desc
  * @msdu_desc_info_hdl: msdu desc info handle

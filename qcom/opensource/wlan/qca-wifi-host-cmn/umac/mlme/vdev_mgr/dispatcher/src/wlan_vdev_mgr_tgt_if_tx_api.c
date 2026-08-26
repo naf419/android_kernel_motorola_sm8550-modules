@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -107,7 +107,6 @@ QDF_STATUS tgt_vdev_mgr_create_send(
 	vdev_info.vdev_stats_id = param->vdev_stats_id;
 	vdev_info.op_mode = wlan_util_vdev_get_cdp_txrx_opmode(vdev);
 	vdev_info.subtype = wlan_util_vdev_get_cdp_txrx_subtype(vdev);
-	vdev_info.qdf_opmode = wlan_vdev_mlme_get_opmode(vdev);
 	wlan_vdev_mgr_fill_mlo_params(&vdev_info, param);
 	pdev = wlan_vdev_get_pdev(vdev);
 
@@ -749,7 +748,6 @@ QDF_STATUS tgt_vdev_mgr_cdp_vdev_attach(struct vdev_mlme_obj *mlme_obj)
 	vdev_info.vdev_id = wlan_vdev_get_id(vdev);
 	vdev_info.op_mode = wlan_util_vdev_get_cdp_txrx_opmode(vdev);
 	vdev_info.subtype = wlan_util_vdev_get_cdp_txrx_subtype(vdev);
-	vdev_info.qdf_opmode = wlan_vdev_mlme_get_opmode(vdev);
 	tgt_vdev_mgr_fill_mlo_params(&vdev_info, vdev);
 	return cdp_vdev_attach(soc_txrx_handle,
 			       wlan_objmgr_pdev_get_pdev_id(pdev),
@@ -794,29 +792,3 @@ QDF_STATUS tgt_vdev_mgr_send_set_mac_addr(struct qdf_mac_addr mac_addr,
 	return status;
 }
 #endif
-
-QDF_STATUS tgt_vdev_peer_set_param_send(struct wlan_objmgr_vdev *vdev,
-					uint8_t *peer_mac_addr,
-					uint32_t param_id,
-					uint32_t param_value)
-{
-	struct wlan_lmac_if_mlme_tx_ops *txops;
-	uint8_t vdev_id;
-	QDF_STATUS status;
-
-	vdev_id = wlan_vdev_get_id(vdev);
-	txops = wlan_vdev_mlme_get_lmac_txops(vdev);
-	if (!txops || !txops->vdev_peer_set_param_send) {
-		mlme_err("VDEV_%d: No Tx Ops", vdev_id);
-		return QDF_STATUS_E_INVAL;
-	}
-
-	status = txops->vdev_peer_set_param_send(vdev, peer_mac_addr,
-						 param_id, param_value);
-	if (QDF_IS_STATUS_ERROR(status))
-		mlme_err("VDEV_%d: peer " QDF_MAC_ADDR_FMT " param_id %d param_value %d Error %d",
-			 vdev_id, QDF_MAC_ADDR_REF(peer_mac_addr), param_id,
-			 param_value, status);
-
-	return status;
-}

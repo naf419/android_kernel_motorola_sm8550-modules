@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -310,12 +310,14 @@ void pe_delete_fils_info(struct pe_session *session)
 	struct pe_fils_session *fils_info;
 
 	if (!session || (session && !session->valid)) {
-		pe_debug("session is not valid");
+		QDF_TRACE(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
+			  FL("session is not valid"));
 		return;
 	}
 	fils_info = session->fils_info;
 	if (!fils_info) {
-		pe_debug("fils info not found");
+		QDF_TRACE(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
+			  FL("fils info not found"));
 		return;
 	}
 	if (fils_info->keyname_nai_data)
@@ -352,7 +354,8 @@ static void pe_init_fils_info(struct pe_session *session)
 	struct pe_fils_session *fils_info;
 
 	if (!session || (session && !session->valid)) {
-		pe_debug("session is not valid");
+		QDF_TRACE(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
+			  FL("session is not valid"));
 		return;
 	}
 	session->fils_info = qdf_mem_malloc(sizeof(struct pe_fils_session));
@@ -775,28 +778,6 @@ struct pe_session
 	return NULL;
 }
 
-struct pe_session *
-pe_find_session_by_bssid_and_vdev_id(struct mac_context *mac,
-				     uint8_t *bssid,
-				     uint8_t vdev_id,
-				     uint8_t *sessionId)
-{
-	uint8_t i;
-
-	for (i = 0; i < mac->lim.maxBssId; i++) {
-		/* If BSSID matches return corresponding tables address */
-		if ((mac->lim.gpSession[i].valid) &&
-		    (mac->lim.gpSession[i].vdev_id == vdev_id) &&
-		    (sir_compare_mac_addr(mac->lim.gpSession[i].bssId,
-					    bssid))) {
-			*sessionId = i;
-			return &mac->lim.gpSession[i];
-		}
-	}
-
-	return NULL;
-}
-
 /*--------------------------------------------------------------------------
    \brief pe_find_session_by_session_id() - looks up the PE session given the session ID.
 
@@ -837,13 +818,6 @@ static void lim_clear_pmfcomeback_timer(struct pe_session *session)
 	session->pmf_retry_timer_info.retried = false;
 }
 
-static void lim_clear_mbssid_info(struct wlan_objmgr_vdev *vdev)
-{
-	struct scan_mbssid_info mbssid_info = {0};
-
-	mlme_set_mbssid_info(vdev, &mbssid_info);
-}
-
 /**
  * pe_delete_session() - deletes the PE session given the session ID.
  * @mac_ctx: pointer to global adapter context
@@ -873,7 +847,6 @@ void pe_delete_session(struct mac_context *mac_ctx, struct pe_session *session)
 	lim_reset_bcn_probe_filter(mac_ctx, session);
 	lim_sae_auth_cleanup_retry(mac_ctx, session->vdev_id);
 	lim_cleanup_power_change(mac_ctx, session);
-	lim_clear_mbssid_info(session->vdev);
 
 	/* Restore default failure timeout */
 	if (session->defaultAuthFailureTimeout) {

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021, 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -191,6 +191,7 @@ typedef QDF_STATUS (*wlan_ser_umac_cmd_cb)(void *umac_cmd);
  * @WLAN_SER_CMD_VDEV_RESTART: Cmd to restart a VDEV
  * @WLAN_SER_CMD_PDEV_RESTART: Cmd to restart all VDEVs of a PDEV
  * @WLAN_SER_CMD_PDEV_CSA_RESTART: Cmd to CSA restart all AP VDEVs of a PDEV
+ * @WLAN_SER_CMD_GET_DISCONNECT_STATS: Cmd to get peer stats on disconnection
  * @WLAN_SER_CMD_VDEV_ROAM: Cmd to roam a STA VDEV
  * @WLAN_SER_CMD_SET_MLO_LINK: Cmd to force mlo link active/inactive
  */
@@ -224,6 +225,7 @@ enum wlan_serialization_cmd_type {
 	WLAN_SER_CMD_VDEV_RESTART,
 	WLAN_SER_CMD_PDEV_RESTART,
 	WLAN_SER_CMD_PDEV_CSA_RESTART,
+	WLAN_SER_CMD_GET_DISCONNECT_STATS,
 	WLAN_SER_CMD_VDEV_ROAM,
 	WLAN_SER_CMD_SET_MLO_LINK,
 	WLAN_SER_CMD_MAX
@@ -520,6 +522,17 @@ enum wlan_serialization_cmd_status
 wlan_serialization_pdev_scan_status(struct wlan_objmgr_pdev *pdev);
 
 /**
+ * wlan_serialization_non_scan_cmd_status() - Return status of pdev non-scan cmd
+ * @pdev: PDEV Object
+ * @cmd_id: ID of the command for which the status has to be checked
+ *
+ * Return: Status of the command for the corresponding pdev
+ */
+enum wlan_serialization_cmd_status
+wlan_serialization_non_scan_cmd_status(struct wlan_objmgr_pdev *pdev,
+				       enum wlan_serialization_cmd_type cmd_id);
+
+/**
  * wlan_serialization_is_cmd_present_in_pending_queue() - Return if the command
  *				is already present in pending queue
  * @cmd: pointer to serialization command to check
@@ -726,18 +739,4 @@ wlan_get_vdev_status(struct wlan_objmgr_vdev *vdev);
  */
 enum scm_scan_status
 wlan_get_pdev_status(struct wlan_objmgr_pdev *pdev);
-
-/**
- * wlan_serialization_is_blocking_non_scan_cmd_waiting() - find if any
- *			blocking cmd in active or pending queue
- * @pdev: Objmgr pdev
- *
- * This API will be called to find out if any blocking cmd is present in
- * active or pending queue
- *
- * Return: true or false
- */
-bool
-wlan_serialization_is_blocking_non_scan_cmd_waiting(
-				struct wlan_objmgr_pdev *pdev);
 #endif

@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2014-2017,2019-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -132,29 +131,6 @@ static inline uint8_t qdf_nbuf_is_exc_frame(qdf_nbuf_t buf)
 }
 
 /**
- * qdf_nbuf_set_lmac_id() - set lmac ID
- * @buf: Network buffer
- * @value: lmac ID value
- *
- * Return: none
- */
-static inline void qdf_nbuf_set_lmac_id(qdf_nbuf_t buf, uint8_t value)
-{
-	QDF_NBUF_CB_RX_PACKET_LMAC_ID(buf) = value;
-}
-
-/**
- * qdf_nbuf_get_lmac_id() - get lmac ID of RX packet
- * @buf: Network buffer
- *
- * Return: lmac ID value
- */
-static inline uint8_t qdf_nbuf_get_lmac_id(qdf_nbuf_t buf)
-{
-	return QDF_NBUF_CB_RX_PACKET_LMAC_ID(buf);
-}
-
-/**
  * qdf_nbuf_set_rx_ipa_smmu_map() - set ipa smmu mapped flag
  * @buf: Network buffer
  * @value: 1 - ipa smmu mapped, 0 - ipa smmu unmapped
@@ -202,30 +178,5 @@ static inline void qdf_nbuf_set_rx_reo_dest_ind_or_sw_excpt(qdf_nbuf_t buf,
 static inline uint8_t qdf_nbuf_get_rx_reo_dest_ind_or_sw_excpt(qdf_nbuf_t buf)
 {
 	return QDF_NBUF_CB_RX_PACKET_REO_DEST_IND_OR_SW_EXCPT(buf);
-}
-
-/**
- * qdf_nbuf_get_tx_fctx() - get fctx of nbuf
- *
- * @buf: Network buffer
- * Return: fctx value
- */
-static inline void *qdf_nbuf_get_tx_fctx(qdf_nbuf_t buf)
-{
-	return NULL;
-}
-
-/**
- * qdf_nbuf_set_tx_fctx_type() - set ftype and fctx
- *
- * @buf: Network buffer
- * @ctx: address to fctx
- * @type: ftype
- *
- * Return: void
- */
-static inline void
-qdf_nbuf_set_tx_fctx_type(qdf_nbuf_t buf, void *ctx, uint8_t type)
-{
 }
 #endif /* _QDF_NBUF_M_H */

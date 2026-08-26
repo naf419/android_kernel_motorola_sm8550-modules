@@ -220,9 +220,7 @@ QDF_STATUS wma_set_ap_peer_uapsd(tp_wma_handle wma, uint32_t vdev_id,
  */
 void wma_update_edca_params_for_ac(tSirMacEdcaParamRecord *edca_param,
 				   struct wmi_host_wme_vparams *wmm_param,
-				   int ac, bool mu_edca_param,
-				   uint8_t *debug_str,
-				   uint32_t debug_str_size, uint32_t *len)
+				   int ac, bool mu_edca_param)
 {
 	wmm_param->cwmin = WMA_WMM_EXPO_TO_VAL(edca_param->cw.min);
 	wmm_param->cwmax = WMA_WMM_EXPO_TO_VAL(edca_param->cw.max);
@@ -235,13 +233,13 @@ void wma_update_edca_params_for_ac(tSirMacEdcaParamRecord *edca_param,
 
 	wmm_param->noackpolicy = edca_param->no_ack;
 
-	*len += qdf_scnprintf(debug_str + *len, debug_str_size - *len,
-			      "AC[%d]: AIFS %d Min %d Max %d %s %d ACM %d NOACK %d, ",
-			      ac, wmm_param->aifs, wmm_param->cwmin,
-			      wmm_param->cwmax,
-			      mu_edca_param ? "MU_EDCA TIMER" : "TXOP",
-			      mu_edca_param ? wmm_param->mu_edca_timer : wmm_param->txoplimit,
-			      wmm_param->acm, wmm_param->noackpolicy);
+	wma_debug("WMM PARAMS AC[%d]: AIFS %d Min %d Max %d %s %d ACM %d NOACK %d",
+			ac, wmm_param->aifs, wmm_param->cwmin,
+			wmm_param->cwmax,
+			mu_edca_param ? "MU_EDCA TIMER" : "TXOP",
+			mu_edca_param ? wmm_param->mu_edca_timer :
+				wmm_param->txoplimit,
+			wmm_param->acm, wmm_param->noackpolicy);
 }
 
 /**
@@ -1087,7 +1085,7 @@ QDF_STATUS wma_process_tx_power_limits(WMA_HANDLE handle,
 	int32_t ret = 0;
 	uint32_t txpower_params2g = 0;
 	uint32_t txpower_params5g = 0;
-	struct pdev_params pdevparam = {};
+	struct pdev_params pdevparam;
 	struct wmi_unified *wmi_handle;
 
 	if (wma_validate_handle(wma))
@@ -1446,7 +1444,7 @@ QDF_STATUS wma_notify_modem_power_state(void *wma_ptr,
 }
 
 /**
- * wma_set_idle_ps_config() - enable/disable Low Power Support(Pdev Specific)
+ * wma_set_idle_ps_config() - enable/disble Low Power Support(Pdev Specific)
  * @wma_ptr: wma handle
  * @idle_ps: idle powersave
  *
@@ -1456,7 +1454,7 @@ QDF_STATUS wma_set_idle_ps_config(void *wma_ptr, uint32_t idle_ps)
 {
 	int32_t ret;
 	tp_wma_handle wma = (tp_wma_handle) wma_ptr;
-	struct pdev_params pdevparam = {};
+	struct pdev_params pdevparam;
 
 	wma_debug("WMA Set Idle Ps Config [1:set 0:clear] val %d", idle_ps);
 
@@ -1489,11 +1487,6 @@ QDF_STATUS wma_set_smps_params(tp_wma_handle wma, uint8_t vdev_id,
 			       int value)
 {
 	QDF_STATUS ret;
-
-	if (!wma_is_vdev_valid(vdev_id)) {
-		wma_err("Invalid VDEV ID: %d", vdev_id);
-		return QDF_STATUS_E_INVAL;
-	}
 
 	ret = wmi_unified_set_smps_params(wma->wmi_handle, vdev_id,
 				   value);

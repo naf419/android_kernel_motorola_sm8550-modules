@@ -50,8 +50,7 @@ static void osif_cm_free_wep_key_params(struct wlan_cm_connect_req *connect_req)
 	}
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0) && \
-LINUX_VERSION_CODE < KERNEL_VERSION(6, 2, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
 static QDF_STATUS
 osif_cm_update_wep_seq_info(struct wlan_cm_connect_req *connect_req,
 			    const struct cfg80211_connect_params *req)
@@ -121,6 +120,61 @@ static void osif_cm_set_auth_type(struct wlan_cm_connect_req *connect_req,
 	QDF_SET_PARAM(connect_req->crypto.auth_type, crypto_auth_type);
 }
 
+#ifdef CFG80211_MULTI_AKM_CONNECT_SUPPORT
+static void
+osif_cm_set_akm_params(struct wlan_cm_connect_req *connect_req,
+		       const struct cfg80211_connect_params *req)
+{
+	uint32_t i = 0;
+	wlan_crypto_key_mgmt akm;
+
+	/* Fill AKM suites */
+	if (req->crypto.n_connect_akm_suites) {
+		for (i = 0; i < req->crypto.n_connect_akm_suites &&
+		     i < WLAN_CM_MAX_CONNECT_AKMS; i++) {
+			akm = osif_nl_to_crypto_akm_type(
+					req->crypto.connect_akm_suites[i]);
+			QDF_SET_PARAM(connect_req->crypto.akm_suites, akm);
+		}
+	} else {
+		QDF_SET_PARAM(connect_req->crypto.akm_suites,
+			      WLAN_CRYPTO_KEY_MGMT_NONE);
+	}
+}
+
+static int
+osif_cm_get_num_akm_suites(const struct cfg80211_connect_params *req)
+{
+	return req->crypto.n_connect_akm_suites;
+}
+
+static uint32_t*
+osif_cm_get_akm_suites(const struct cfg80211_connect_params *req)
+{
+	return (uint32_t *)req->crypto.connect_akm_suites;
+}
+#else
+static void
+osif_cm_set_akm_params(struct wlan_cm_connect_req *connect_req,
+		       const struct cfg80211_connect_params *req)
+{
+	uint32_t i = 0;
+	wlan_crypto_key_mgmt akm;
+
+	/* Fill AKM suites */
+	if (req->crypto.n_akm_suites) {
+		for (i = 0; i < req->crypto.n_akm_suites &&
+		     i < NL80211_MAX_NR_AKM_SUITES; i++) {
+			akm = osif_nl_to_crypto_akm_type(
+					req->crypto.akm_suites[i]);
+			QDF_SET_PARAM(connect_req->crypto.akm_suites, akm);
+		}
+	} else {
+		QDF_SET_PARAM(connect_req->crypto.akm_suites,
+			      WLAN_CRYPTO_KEY_MGMT_NONE);
+	}
+}
+
 static int
 osif_cm_get_num_akm_suites(const struct cfg80211_connect_params *req)
 {
@@ -132,30 +186,18 @@ osif_cm_get_akm_suites(const struct cfg80211_connect_params *req)
 {
 	return (uint32_t *)req->crypto.akm_suites;
 }
-
-#ifdef CFG80211_MULTI_AKM_CONNECT_SUPPORT
-#define MAX_AKM_SUITES WLAN_CM_MAX_CONNECT_AKMS
-#else
-#define MAX_AKM_SUITES NL80211_MAX_NR_AKM_SUITES
 #endif
-static void
-osif_cm_set_akm_params(struct wlan_cm_connect_req *connect_req,
-		       const struct cfg80211_connect_params *req)
-{
-	uint32_t i;
-	wlan_crypto_key_mgmt akm;
 
-	/* Fill AKM suites */
-	if (req->crypto.n_akm_suites) {
-		for (i = 0; i < req->crypto.n_akm_suites &&
-		     i < MAX_AKM_SUITES; i++) {
-			akm = osif_nl_to_crypto_akm_type(
-					req->crypto.akm_suites[i]);
-			QDF_SET_PARAM(connect_req->crypto.akm_suites, akm);
-		}
-	} else {
-		QDF_SET_PARAM(connect_req->crypto.akm_suites,
-			      WLAN_CRYPTO_KEY_MGMT_NONE);
+static inline
+uint8_t osif_cm_get_rsn_cap_mfp(enum nl80211_mfp mfp_state)
+{
+	switch (mfp_state) {
+	case NL80211_MFP_REQUIRED:
+		return RSN_CAP_MFP_REQUIRED;
+	case NL80211_MFP_OPTIONAL:
+		return RSN_CAP_MFP_CAPABLE;
+	default:
+		return RSN_CAP_MFP_DISABLED;
 	}
 }
 
@@ -163,7 +205,7 @@ static
 QDF_STATUS osif_cm_set_crypto_params(struct wlan_cm_connect_req *connect_req,
 				     const struct cfg80211_connect_params *req)
 {
-	uint32_t i;
+	uint32_t i = 0;
 	QDF_STATUS status;
 	wlan_crypto_cipher_type cipher = WLAN_CRYPTO_CIPHER_NONE;
 
@@ -198,6 +240,9 @@ QDF_STATUS osif_cm_set_crypto_params(struct wlan_cm_connect_req *connect_req,
 	status = osif_cm_set_wep_key_params(connect_req, req);
 	if (QDF_IS_STATUS_ERROR(status))
 		osif_err("set wep key params failed");
+
+	/* Copy user configured MFP capability */
+	connect_req->crypto.user_mfp = osif_cm_get_rsn_cap_mfp(req->mfp);
 
 	return status;
 }
@@ -409,11 +454,11 @@ osif_cm_dump_connect_req(struct net_device *dev, uint8_t vdev_id,
 	num_akm_suites = osif_cm_get_num_akm_suites(req);
 	akm_suites = osif_cm_get_akm_suites(req);
 
-	osif_nofl_debug("connect req for %s(vdevid-%d) freq %d SSID " QDF_SSID_FMT " auth type %d WPA ver %d n_akm %d n_cipher %d grp_cipher %x mfp %d freq hint %d",
+	osif_nofl_debug("connect req for %s(vdevid-%d) freq %d SSID %.*s auth type %d WPA ver %d n_akm %d n_cipher %d grp_cipher %x mfp %d freq hint %d",
 			dev->name, vdev_id,
 			req->channel ? req->channel->center_freq : 0,
-			QDF_SSID_REF((int)req->ssid_len, req->ssid),
-			req->auth_type, req->crypto.wpa_versions,
+			(int)req->ssid_len, req->ssid, req->auth_type,
+			req->crypto.wpa_versions,
 			num_akm_suites,
 			req->crypto.n_ciphers_pairwise,
 			req->crypto.cipher_group, req->mfp,
@@ -490,7 +535,7 @@ void osif_update_partner_vdev_info(struct wlan_objmgr_vdev *vdev,
 				   struct mlo_partner_info partner_info)
 {
 	struct wlan_objmgr_vdev *tmp_vdev;
-	uint8_t i;
+	uint8_t i = 0;
 
 	if (!vdev)
 		return;
@@ -501,8 +546,10 @@ void osif_update_partner_vdev_info(struct wlan_objmgr_vdev *vdev,
 				&partner_info.partner_link_info[i].link_addr);
 		if (tmp_vdev) {
 			mlo_update_connect_req_links(tmp_vdev, 1);
-			wlan_vdev_mlme_set_mlo_vdev(tmp_vdev);
-			wlan_vdev_mlme_set_mlo_link_vdev(tmp_vdev);
+			wlan_vdev_mlme_feat_ext2_cap_set(
+					tmp_vdev, WLAN_VDEV_FEXT2_MLO);
+			wlan_vdev_mlme_feat_ext2_cap_set(
+					tmp_vdev, WLAN_VDEV_FEXT2_MLO_STA_LINK);
 			wlan_vdev_set_link_id(
 				tmp_vdev,
 				partner_info.partner_link_info[i].link_id);
@@ -530,11 +577,6 @@ QDF_STATUS osif_update_mlo_partner_info(
 
 	if (!vdev || !connect_req || !req)
 		return status;
-
-	if (!vdev->mlo_dev_ctx) {
-		osif_debug("ML ctx is NULL, ignore ML IE");
-		return QDF_STATUS_SUCCESS;
-	}
 
 	osif_debug("ML IE search start");
 	if (req->ie_len) {
@@ -580,13 +622,8 @@ QDF_STATUS osif_update_mlo_partner_info(
 			return status;
 		}
 
-		if (partner_info.num_partner_links >= 2) {
-			osif_err("Rejecting connect for 3 or more link MLD");
-			return QDF_STATUS_E_FAILURE;
-		}
-
 		wlan_vdev_set_link_id(vdev, linkid);
-		wlan_vdev_mlme_set_mlo_vdev(vdev);
+		wlan_vdev_mlme_feat_ext2_cap_set(vdev, WLAN_VDEV_FEXT2_MLO);
 	}
 
 	qdf_mem_copy(&connect_req->ml_parnter_info,
@@ -596,7 +633,6 @@ QDF_STATUS osif_update_mlo_partner_info(
 		mlo_clear_connect_req_links_bmap(vdev);
 		mlo_update_connect_req_links(vdev, 1);
 		osif_update_partner_vdev_info(vdev, partner_info);
-		mlo_mlme_sta_op_class(vdev, ml_ie);
 	}
 
 	return QDF_STATUS_SUCCESS;

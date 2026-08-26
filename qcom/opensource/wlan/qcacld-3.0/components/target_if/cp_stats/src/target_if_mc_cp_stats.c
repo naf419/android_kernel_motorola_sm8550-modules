@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -336,39 +336,10 @@ static void target_if_cp_stats_free_mib_stats(struct stats_event *ev)
 {
 }
 #endif
-
-/**
- * target_if_cp_stats_free_peer_stats_info_ext() - API to free peer stats
- * info ext structure
- * @ev: structure from where peer stats info ext needs to be freed
- *
- * Return: none
- */
-static void target_if_cp_stats_free_peer_stats_info_ext(struct stats_event *ev)
-{
-	struct peer_stats_info_ext_event *peer_stats_info =
-							ev->peer_stats_info_ext;
-	uint16_t i;
-
-	for (i = 0; i < ev->num_peer_stats_info_ext; i++) {
-		qdf_mem_free(peer_stats_info->tx_pkt_per_mcs);
-		peer_stats_info->tx_pkt_per_mcs = NULL;
-		qdf_mem_free(peer_stats_info->rx_pkt_per_mcs);
-		peer_stats_info->rx_pkt_per_mcs = NULL;
-		peer_stats_info++;
-	}
-
-	qdf_mem_free(ev->peer_stats_info_ext);
-	ev->peer_stats_info_ext = NULL;
-	ev->num_peer_stats_info_ext = 0;
-}
-
 static void target_if_cp_stats_free_stats_event(struct stats_event *ev)
 {
 	qdf_mem_free(ev->pdev_stats);
 	ev->pdev_stats = NULL;
-	qdf_mem_free(ev->pdev_extd_stats);
-	ev->pdev_extd_stats = NULL;
 	qdf_mem_free(ev->peer_stats);
 	ev->peer_stats = NULL;
 	qdf_mem_free(ev->peer_adv_stats);
@@ -382,7 +353,8 @@ static void target_if_cp_stats_free_stats_event(struct stats_event *ev)
 	qdf_mem_free(ev->vdev_chain_rssi);
 	ev->vdev_chain_rssi = NULL;
 	target_if_cp_stats_free_mib_stats(ev);
-	target_if_cp_stats_free_peer_stats_info_ext(ev);
+	qdf_mem_free(ev->peer_stats_info_ext);
+	ev->peer_stats_info_ext = NULL;
 }
 
 static QDF_STATUS target_if_cp_stats_extract_pdev_stats(
@@ -430,7 +402,16 @@ static QDF_STATUS target_if_cp_stats_extract_pdev_stats(
 		 */
 		ev->pdev_stats[i].max_pwr = pdev_stats->chan_tx_pwr >> 1;
 
-		ev->pdev_stats[i].pdev_id = pdev_stats->pdev_id;
+		/*
+		 * if pdev_stats->pdev_id is 0, then the event contains all
+		 * pdev info, else only contains 1 pdev with pdev id set.
+		 * minus 1: align fw pdev_id and driver
+		 */
+		if (pdev_stats->pdev_id)
+			ev->pdev_stats[i].pdev_id = pdev_stats->pdev_id - 1;
+		else
+			ev->pdev_stats[i].pdev_id = i;
+
 		ev->pdev_stats[i].rx_clear_count = pdev_stats->rx_clear_count;
 		ev->pdev_stats[i].tx_frame_count = pdev_stats->tx_frame_count;
 		ev->pdev_stats[i].cycle_count = pdev_stats->cycle_count;
@@ -472,55 +453,6 @@ static QDF_STATUS target_if_cp_stats_extract_pmf_bcn_protect_stats(
 	ev->bcn_protect_stats.bcn_replay_cnt =
 			pmf_bcn_stats.bcn_replay_cnt;
 
-	return QDF_STATUS_SUCCESS;
-}
-
-static QDF_STATUS
-target_if_cp_stats_extract_pdev_extd_stats(struct wmi_unified *wmi_hdl,
-					   wmi_host_stats_event *stats_param,
-					   struct stats_event *ev,
-					   uint8_t *data)
-{
-	uint32_t i;
-	QDF_STATUS status;
-	wmi_host_pdev_ext_stats *pdev_extd_stats;
-
-	if (!(stats_param->stats_id & WMI_REQUEST_PDEV_EXTD_STAT))
-		return QDF_STATUS_SUCCESS;
-
-	ev->pdev_extd_stats = qdf_mem_malloc(sizeof(*ev->pdev_extd_stats) *
-					     WLAN_UMAC_MAX_RP_PID);
-	if (!ev->pdev_extd_stats)
-		return QDF_STATUS_E_NOMEM;
-
-	pdev_extd_stats = qdf_mem_malloc(sizeof(*pdev_extd_stats));
-	if (!pdev_extd_stats)
-		return QDF_STATUS_E_NOMEM;
-
-	ev->num_pdev_extd_stats = 0;
-	for (i = 0; i < stats_param->num_pdev_ext_stats; i++) {
-		qdf_mem_set(pdev_extd_stats, sizeof(*pdev_extd_stats), 0);
-
-		status = wmi_extract_pdev_ext_stats(wmi_hdl, data, i,
-						    pdev_extd_stats);
-		if (QDF_IS_STATUS_ERROR(status)) {
-			qdf_mem_free(pdev_extd_stats);
-			cp_stats_err("wmi_extract_pdev_ext_stats failed");
-			return status;
-		}
-
-		ev->num_pdev_extd_stats++;
-		ev->pdev_extd_stats[i].pdev_id =
-			pdev_extd_stats->pdev_id;
-		ev->pdev_extd_stats[i].my_rx_count =
-			pdev_extd_stats->my_rx_count;
-		ev->pdev_extd_stats[i].rx_matched_11ax_msdu_cnt =
-			pdev_extd_stats->rx_matched_11ax_msdu_cnt;
-		ev->pdev_extd_stats[i].rx_other_11ax_msdu_cnt =
-			pdev_extd_stats->rx_other_11ax_msdu_cnt;
-	}
-
-	qdf_mem_free(pdev_extd_stats);
 	return QDF_STATUS_SUCCESS;
 }
 
@@ -926,13 +858,6 @@ static QDF_STATUS target_if_cp_stats_extract_event(struct wmi_unified *wmi_hdl,
 	status = target_if_cp_stats_extract_pmf_bcn_protect_stats(wmi_hdl,
 								  &stats_param,
 								  ev, data);
-	if (QDF_IS_STATUS_ERROR(status))
-		return status;
-
-	status = target_if_cp_stats_extract_pdev_extd_stats(wmi_hdl,
-							    &stats_param,
-							    ev, data);
-
 	return status;
 }
 
@@ -1093,7 +1018,6 @@ target_if_cp_stats_extract_peer_stats_event(struct wmi_unified *wmi_hdl,
 	wmi_host_peer_stats_info stats_info;
 	uint32_t peer_stats_info_size;
 	int i, j;
-	uint32_t tx_rate_count_idx = 0, rx_rate_count_idx = 0;
 
 	status = wmi_extract_peer_stats_param(wmi_hdl, data, &stats_param);
 	if (QDF_IS_STATUS_ERROR(status)) {
@@ -1122,7 +1046,9 @@ target_if_cp_stats_extract_peer_stats_event(struct wmi_unified *wmi_hdl,
 		if (QDF_IS_STATUS_ERROR(status)) {
 			cp_stats_err("peer stats info extract failed: %d",
 				     status);
-			target_if_cp_stats_free_peer_stats_info_ext(ev);
+			qdf_mem_free(ev->peer_stats_info_ext);
+			ev->peer_stats_info_ext = NULL;
+			ev->num_peer_stats_info_ext = 0;
 			return status;
 		}
 		qdf_mem_copy(&peer_stats_info->peer_macaddr,
@@ -1143,45 +1069,6 @@ target_if_cp_stats_extract_peer_stats_event(struct wmi_unified *wmi_hdl,
 		for (j = 0; j < WMI_MAX_CHAINS; j++)
 			peer_stats_info->peer_rssi_per_chain[j] =
 					      stats_info.peer_rssi_per_chain[j];
-
-		if (stats_info.num_tx_rate_counts) {
-			peer_stats_info->num_tx_rate_counts =
-						stats_info.num_tx_rate_counts;
-			status = wmi_extract_peer_tx_pkt_per_mcs(
-							wmi_hdl, data,
-							tx_rate_count_idx,
-							&stats_info);
-			if (QDF_IS_STATUS_ERROR(status)) {
-				wmi_err("tx rate count extract failed");
-				target_if_cp_stats_free_peer_stats_info_ext(ev);
-				return status;
-			}
-			tx_rate_count_idx +=
-					peer_stats_info->num_tx_rate_counts;
-
-			peer_stats_info->tx_pkt_per_mcs =
-						stats_info.tx_pkt_per_mcs;
-			stats_info.tx_pkt_per_mcs = NULL;
-		}
-		if (stats_info.num_rx_rate_counts) {
-			peer_stats_info->num_rx_rate_counts =
-						stats_info.num_rx_rate_counts;
-			status = wmi_extract_peer_rx_pkt_per_mcs(
-							wmi_hdl, data,
-							rx_rate_count_idx,
-							&stats_info);
-			if (QDF_IS_STATUS_ERROR(status)) {
-				wmi_err("rx rate count extract failed");
-				target_if_cp_stats_free_peer_stats_info_ext(ev);
-				return status;
-			}
-			rx_rate_count_idx +=
-					peer_stats_info->num_rx_rate_counts;
-
-			peer_stats_info->rx_pkt_per_mcs =
-						stats_info.rx_pkt_per_mcs;
-			stats_info.rx_pkt_per_mcs = NULL;
-		}
 		peer_stats_info++;
 	}
 
@@ -1541,9 +1428,8 @@ static uint32_t get_stats_id(enum stats_req_type type)
 	default:
 		break;
 	case TYPE_CONNECTION_TX_POWER:
-		return WMI_REQUEST_PDEV_STAT;
 	case TYPE_CONGESTION_STATS:
-		return WMI_REQUEST_PDEV_STAT | WMI_REQUEST_PDEV_EXTD_STAT;
+		return WMI_REQUEST_PDEV_STAT;
 	case TYPE_PEER_STATS:
 		return WMI_REQUEST_PEER_STAT | WMI_REQUEST_PEER_EXTD_STAT;
 	case TYPE_STATION_STATS:
@@ -1591,38 +1477,13 @@ static QDF_STATUS target_if_cp_stats_send_stats_req(
 	/* only very frequent periodic stats needs to go over QMI.
 	 * for that, wlan_hdd_qmi_get_sync_resume/wlan_hdd_qmi_put_suspend
 	 * needs to be called to cover the period between qmi send and
-	 * qmi response.
+	 * qmi resonse.
 	 */
 	if (TYPE_STATION_STATS == type)
 		param.is_qmi_send_support = true;
 
 	return wmi_unified_stats_request_send(wmi_handle, req->peer_mac_addr,
 					      &param);
-}
-
-/**
- * target_if_set_pdev_stats_update_period(): API to set pdev stats update
- * period to FW
- * @psoc: pointer to psoc object
- * @pdev_id: pdev id
- * @val: pdev stats update period, 0: disabled periodical stats report.
- *
- * Return: status of operation
- */
-static QDF_STATUS
-target_if_set_pdev_stats_update_period(struct wlan_objmgr_psoc *psoc,
-				       uint8_t pdev_id, uint32_t val)
-{
-	struct wmi_unified *wmi_handle;
-	struct pdev_params pdev_param = {0};
-
-	wmi_handle = get_wmi_unified_hdl_from_psoc(psoc);
-
-	pdev_param.param_id = wmi_pdev_param_pdev_stats_update_period;
-	pdev_param.param_value = val;
-	return wmi_unified_pdev_param_send(wmi_handle,
-					   &pdev_param,
-					   pdev_id);
 }
 
 /**
@@ -1717,8 +1578,6 @@ target_if_mc_cp_stats_register_tx_ops(struct wlan_lmac_if_tx_ops *tx_ops)
 	cp_stats_tx_ops->inc_wake_lock_stats =
 		target_if_cp_stats_inc_wake_lock_stats;
 	cp_stats_tx_ops->send_req_stats = target_if_cp_stats_send_stats_req;
-	cp_stats_tx_ops->set_pdev_stats_update_period =
-			target_if_set_pdev_stats_update_period;
 	cp_stats_tx_ops->send_req_peer_stats =
 		target_if_cp_stats_send_peer_stats_req;
 
@@ -1746,7 +1605,6 @@ target_if_mc_cp_stats_unregister_tx_ops(struct wlan_lmac_if_tx_ops *tx_ops)
 	target_if_big_data_stats_unregister_tx_ops(cp_stats_tx_ops);
 	cp_stats_tx_ops->inc_wake_lock_stats = NULL;
 	cp_stats_tx_ops->send_req_stats = NULL;
-	cp_stats_tx_ops->set_pdev_stats_update_period = NULL;
 	cp_stats_tx_ops->send_req_peer_stats = NULL;
 
 	return QDF_STATUS_SUCCESS;

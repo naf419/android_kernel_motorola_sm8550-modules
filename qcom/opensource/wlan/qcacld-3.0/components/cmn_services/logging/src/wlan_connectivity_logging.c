@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,7 +24,6 @@
 #include "wlan_cm_api.h"
 #include "wlan_mlme_main.h"
 
-#ifdef WLAN_FEATURE_CONNECTIVITY_LOGGING
 static struct wlan_connectivity_log_buf_data global_cl;
 
 static void
@@ -86,45 +85,17 @@ void wlan_connectivity_logging_stop(void)
 	qdf_spin_unlock_bh(&global_cl.write_ptr_lock);
 	qdf_spinlock_destroy(&global_cl.write_ptr_lock);
 }
-#endif
-
-#ifdef WLAN_FEATURE_ROAM_OFFLOAD
-void wlan_clear_sae_auth_logs_cache(struct wlan_objmgr_psoc *psoc,
-				    uint8_t vdev_id)
-{
-	struct wlan_objmgr_vdev *vdev;
-	struct mlme_legacy_priv *mlme_priv;
-
-	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
-						    WLAN_MLME_OBJMGR_ID);
-	if (!vdev) {
-		logging_err_rl("Invalid vdev:%d", vdev_id);
-		return;
-	}
-
-	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
-	if (!mlme_priv) {
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
-		logging_err_rl("vdev legacy private object is NULL");
-		return;
-	}
-
-	qdf_mem_zero(mlme_priv->auth_log, sizeof(mlme_priv->auth_log));
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
-}
-#endif
 
 #if defined(WLAN_FEATURE_ROAM_OFFLOAD) && \
 	defined(WLAN_FEATURE_CONNECTIVITY_LOGGING)
-QDF_STATUS wlan_print_cached_sae_auth_logs(struct wlan_objmgr_psoc *psoc,
-					   struct qdf_mac_addr *bssid,
+QDF_STATUS wlan_print_cached_sae_auth_logs(struct qdf_mac_addr *bssid,
 					   uint8_t vdev_id)
 {
 	uint8_t i, j;
 	struct wlan_objmgr_vdev *vdev;
 	struct mlme_legacy_priv *mlme_priv;
 
-	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
+	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(global_cl.psoc, vdev_id,
 						    WLAN_MLME_OBJMGR_ID);
 	if (!vdev) {
 		logging_err_rl("Invalid vdev:%d", vdev_id);
@@ -175,8 +146,7 @@ QDF_STATUS wlan_print_cached_sae_auth_logs(struct wlan_objmgr_psoc *psoc,
 	return QDF_STATUS_SUCCESS;
 }
 
-bool wlan_is_log_record_present_for_bssid(struct wlan_objmgr_psoc *psoc,
-					  struct qdf_mac_addr *bssid,
+bool wlan_is_log_record_present_for_bssid(struct qdf_mac_addr *bssid,
 					  uint8_t vdev_id)
 {
 	struct wlan_log_record *record;
@@ -184,7 +154,7 @@ bool wlan_is_log_record_present_for_bssid(struct wlan_objmgr_psoc *psoc,
 	struct mlme_legacy_priv *mlme_priv;
 	int i;
 
-	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
+	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(global_cl.psoc, vdev_id,
 						    WLAN_MLME_OBJMGR_ID);
 	if (!vdev) {
 		logging_err_rl("Invalid vdev:%d", vdev_id);
@@ -222,25 +192,15 @@ bool wlan_is_log_record_present_for_bssid(struct wlan_objmgr_psoc *psoc,
  * Return: QDF_STATUS
  */
 static QDF_STATUS
-wlan_add_sae_log_record_to_available_slot(struct wlan_objmgr_psoc *psoc,
-					  struct wlan_objmgr_vdev *vdev,
+wlan_add_sae_log_record_to_available_slot(struct mlme_legacy_priv *mlme_priv,
 					  struct wlan_log_record *rec)
 {
-	struct mlme_legacy_priv *mlme_priv;
 	uint8_t i, j;
 	bool is_entry_exist =
-		wlan_is_log_record_present_for_bssid(psoc,
-						     &rec->bssid, rec->vdev_id);
-
-	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
-	if (!mlme_priv) {
-		logging_err_rl("vdev legacy private object is NULL");
-		return QDF_STATUS_E_FAILURE;
-	}
+		wlan_is_log_record_present_for_bssid(&rec->bssid, rec->vdev_id);
 
 	for (i = 0; i < MAX_ROAM_CANDIDATE_AP; i++) {
-		if (is_entry_exist &&
-		    mlme_priv->auth_log[i][0].ktime_us &&
+		if (is_entry_exist && mlme_priv->auth_log[i][0].ktime_us &&
 		    qdf_is_macaddr_equal(&rec->bssid,
 					 &mlme_priv->auth_log[i][0].bssid)) {
 			/*
@@ -269,15 +229,20 @@ wlan_add_sae_log_record_to_available_slot(struct wlan_objmgr_psoc *psoc,
 
 	return QDF_STATUS_SUCCESS;
 }
+#else
+static inline QDF_STATUS
+wlan_add_sae_log_record_to_available_slot(struct mlme_legacy_priv *mlme_priv,
+					  struct wlan_log_record *rec)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
 
 static QDF_STATUS
 wlan_add_sae_auth_log_record(struct wlan_objmgr_vdev *vdev,
 			     struct wlan_log_record *rec)
 {
 	struct mlme_legacy_priv *mlme_priv;
-	struct wlan_objmgr_psoc *psoc;
-
-	psoc = wlan_vdev_get_psoc(vdev);
 
 	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
 	if (!mlme_priv) {
@@ -285,7 +250,30 @@ wlan_add_sae_auth_log_record(struct wlan_objmgr_vdev *vdev,
 		return QDF_STATUS_E_INVAL;
 	}
 
-	return wlan_add_sae_log_record_to_available_slot(psoc, mlme_priv, rec);
+	return wlan_add_sae_log_record_to_available_slot(mlme_priv, rec);
+}
+
+void wlan_clear_sae_auth_logs_cache(uint8_t vdev_id)
+{
+	struct wlan_objmgr_vdev *vdev;
+	struct mlme_legacy_priv *mlme_priv;
+
+	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(global_cl.psoc, vdev_id,
+						    WLAN_MLME_OBJMGR_ID);
+	if (!vdev) {
+		logging_err_rl("Invalid vdev:%d", vdev_id);
+		return;
+	}
+
+	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
+	if (!mlme_priv) {
+		wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
+		logging_err_rl("vdev legacy private object is NULL");
+		return;
+	}
+
+	qdf_mem_zero(mlme_priv->auth_log, sizeof(mlme_priv->auth_log));
+	wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
 }
 
 static void
@@ -310,270 +298,15 @@ wlan_cache_connectivity_log(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id,
 
 	wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
 }
-#elif defined(WLAN_FEATURE_ROAM_OFFLOAD) && defined(CONNECTIVITY_DIAG_EVENT)
-QDF_STATUS wlan_print_cached_sae_auth_logs(struct wlan_objmgr_psoc *psoc,
-					   struct qdf_mac_addr *bssid,
-					   uint8_t vdev_id)
-{
-	uint8_t i, j;
-	struct wlan_objmgr_vdev *vdev;
-	struct mlme_legacy_priv *mlme_priv;
-
-	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
-						    WLAN_MLME_OBJMGR_ID);
-	if (!vdev) {
-		logging_err_rl("Invalid vdev:%d", vdev_id);
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	if (wlan_vdev_mlme_get_opmode(vdev) != QDF_STA_MODE) {
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
-	if (!mlme_priv) {
-		logging_err_rl("vdev legacy private object is NULL");
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	/*
-	 * Get the index of matching bssid and queue all the records for
-	 * that bssid
-	 */
-	for (i = 0; i < MAX_ROAM_CANDIDATE_AP; i++) {
-		if (!mlme_priv->auth_log[i][0].diag_cmn.ktime_us)
-			continue;
-
-		if (qdf_is_macaddr_equal(bssid,
-					 (struct qdf_mac_addr *)mlme_priv->auth_log[i][0].diag_cmn.bssid))
-			break;
-	}
-
-	/*
-	 * No matching bssid found in cached log records.
-	 * So return from here.
-	 */
-	if (i >= MAX_ROAM_CANDIDATE_AP) {
-		logging_debug("No cached SAE auth logs");
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	for (j = 0; j < WLAN_ROAM_MAX_CACHED_AUTH_FRAMES; j++) {
-		if (!mlme_priv->auth_log[i][j].diag_cmn.ktime_us)
-			continue;
-
-		WLAN_HOST_DIAG_EVENT_REPORT(&mlme_priv->auth_log[i][j],
-					    EVENT_WLAN_MGMT);
-		qdf_mem_zero(&mlme_priv->auth_log[i][j],
-			     sizeof(struct wlan_diag_packet_info));
-	}
-
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
-
-	return QDF_STATUS_SUCCESS;
-}
-
-bool wlan_is_log_record_present_for_bssid(struct wlan_objmgr_psoc *psoc,
-					  struct qdf_mac_addr *bssid,
-					  uint8_t vdev_id)
-{
-	struct wlan_diag_packet_info *pkt_info;
-	struct wlan_objmgr_vdev *vdev;
-	struct mlme_legacy_priv *mlme_priv;
-	int i;
-
-	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
-						    WLAN_MLME_OBJMGR_ID);
-	if (!vdev) {
-		logging_err_rl("Invalid vdev:%d", vdev_id);
-		return false;
-	}
-
-	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
-	if (!mlme_priv) {
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
-		logging_err_rl("vdev legacy private object is NULL");
-		return false;
-	}
-
-	for (i = 0; i < MAX_ROAM_CANDIDATE_AP; i++) {
-		pkt_info = &mlme_priv->auth_log[i][0];
-		if (!pkt_info->diag_cmn.ktime_us)
-			continue;
-
-		if (qdf_is_macaddr_equal(bssid,
-					 (struct qdf_mac_addr *)pkt_info->diag_cmn.bssid)) {
-			wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
-			return true;
-		}
-	}
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
-
-	return false;
-}
-
-/**
- * wlan_add_sae_log_record_to_available_slot() - Add a new log record into the
- * cache for the queue.
- * @mlme_priv: Mlme private object
- * @pkt_info: Log packet record pointer
- *
- * Return: QDF_STATUS
- */
-static QDF_STATUS
-wlan_add_sae_log_record_to_available_slot(struct wlan_objmgr_psoc *psoc,
-					  struct wlan_objmgr_vdev *vdev,
-					  struct wlan_diag_packet_info *pkt_info)
-{
-	struct mlme_legacy_priv *mlme_priv;
-	uint8_t i, j;
-	uint8_t vdev_id = wlan_vdev_get_id(vdev);
-	bool is_entry_exist =
-		wlan_is_log_record_present_for_bssid(psoc,
-						     (struct qdf_mac_addr *)pkt_info->diag_cmn.bssid,
-						     vdev_id);
-
-	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
-	if (!mlme_priv) {
-		logging_err_rl("vdev legacy private object is NULL");
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	for (i = 0; i < MAX_ROAM_CANDIDATE_AP; i++) {
-		if (is_entry_exist &&
-		    mlme_priv->auth_log[i][0].diag_cmn.ktime_us &&
-		    qdf_is_macaddr_equal((struct qdf_mac_addr *)pkt_info->diag_cmn.bssid,
-					 (struct qdf_mac_addr *)mlme_priv->auth_log[i][0].diag_cmn.bssid)) {
-			/*
-			 * Frames for given bssid already exists store the new
-			 * frame in corresponding array in empty slot
-			 */
-			for (j = 0; j < WLAN_ROAM_MAX_CACHED_AUTH_FRAMES; j++) {
-				if (mlme_priv->auth_log[i][j].diag_cmn.ktime_us)
-					continue;
-
-				mlme_priv->auth_log[i][j] = *pkt_info;
-				break;
-			}
-
-		} else if (!is_entry_exist &&
-			   !mlme_priv->auth_log[i][0].diag_cmn.ktime_us) {
-			/*
-			 * For given record, there is no existing bssid
-			 * so add the entry at first available slot
-			 */
-			mlme_priv->auth_log[i][0] = *pkt_info;
-			break;
-		}
-	}
-
-	return QDF_STATUS_SUCCESS;
-}
-
-static void
-wlan_cache_connectivity_log(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id,
-			    struct wlan_diag_packet_info *pkt_info)
-{
-	struct wlan_objmgr_vdev *vdev;
-
-	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
-						    WLAN_MLME_OBJMGR_ID);
-	if (!vdev) {
-		logging_err_rl("Invalid vdev:%d", vdev_id);
-		return;
-	}
-
-	wlan_add_sae_log_record_to_available_slot(psoc, vdev, pkt_info);
-
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
-}
-#endif
 
 #define WLAN_SAE_AUTH_ALGO_NUMBER 3
-#ifdef CONNECTIVITY_DIAG_EVENT
 void
-wlan_connectivity_mgmt_event(struct wlan_objmgr_psoc *psoc,
-			     struct wlan_frame_hdr *mac_hdr,
+wlan_connectivity_mgmt_event(struct wlan_frame_hdr *mac_hdr,
 			     uint8_t vdev_id, uint16_t status_code,
 			     enum qdf_dp_tx_rx_status tx_status,
 			     int8_t peer_rssi,
 			     uint8_t auth_algo, uint8_t auth_type,
-			     uint8_t auth_seq, uint16_t aid,
-			     enum wlan_main_tag tag)
-{
-	enum QDF_OPMODE opmode;
-	bool is_auth_frame_caching_required, is_initial_connection;
-	struct wlan_objmgr_vdev *vdev;
-
-	WLAN_HOST_DIAG_EVENT_DEF(wlan_diag_event, struct wlan_diag_packet_info);
-
-	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
-						    WLAN_MLME_OBJMGR_ID);
-	if (!vdev) {
-		logging_debug("Unable to find vdev:%d", vdev_id);
-		return;
-	}
-
-	opmode = wlan_vdev_mlme_get_opmode(vdev);
-	if (opmode != QDF_STA_MODE) {
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
-		return;
-	}
-
-	is_initial_connection = wlan_cm_is_vdev_connecting(vdev);
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
-
-	qdf_mem_zero(&wlan_diag_event, sizeof(struct wlan_diag_packet_info));
-
-	wlan_diag_event.diag_cmn.timestamp_us = qdf_get_time_of_the_day_us();
-	wlan_diag_event.diag_cmn.ktime_us = qdf_ktime_to_us(qdf_ktime_get());
-	wlan_diag_event.diag_cmn.vdev_id = vdev_id;
-	wlan_diag_event.subtype = (uint8_t)tag;
-
-	qdf_mem_copy(wlan_diag_event.diag_cmn.bssid, &mac_hdr->i_addr3[0],
-		     QDF_MAC_ADDR_SIZE);
-
-	wlan_diag_event.version = DIAG_MGMT_VERSION;
-	wlan_diag_event.tx_status = wlan_get_diag_tx_status(tx_status);
-	wlan_diag_event.rssi = peer_rssi;
-	wlan_diag_event.sn =
-		(le16toh(*(uint16_t *)mac_hdr->i_seq) >> WLAN_SEQ_SEQ_SHIFT);
-	wlan_diag_event.status = status_code;
-	wlan_diag_event.auth_algo = auth_algo;
-	wlan_diag_event.auth_frame_type = auth_type;
-	wlan_diag_event.auth_seq_num = auth_seq;
-	wlan_diag_event.assoc_id = aid;
-
-	if (wlan_diag_event.subtype > WLAN_CONN_DIAG_REASSOC_RESP_EVENT &&
-	    wlan_diag_event.subtype < WLAN_CONN_DIAG_BMISS_EVENT)
-		wlan_diag_event.reason = status_code;
-
-	wlan_diag_event.is_retry_frame =
-			(mac_hdr->i_fc[1] & IEEE80211_FC1_RETRY);
-	is_auth_frame_caching_required =
-		wlan_psoc_nif_fw_ext2_cap_get(psoc,
-					      WLAN_ROAM_STATS_FRAME_INFO_PER_CANDIDATE);
-	if (!is_initial_connection &&
-	    (tag == WLAN_AUTH_REQ || tag == WLAN_AUTH_RESP) &&
-	    auth_algo == WLAN_SAE_AUTH_ALGO_NUMBER &&
-	    is_auth_frame_caching_required)
-		wlan_cache_connectivity_log(psoc, vdev_id, &wlan_diag_event);
-	else
-		WLAN_HOST_DIAG_EVENT_REPORT(&wlan_diag_event, EVENT_WLAN_MGMT);
-}
-#else
-void
-wlan_connectivity_mgmt_event(struct wlan_objmgr_psoc *psoc,
-			     struct wlan_frame_hdr *mac_hdr,
-			     uint8_t vdev_id, uint16_t status_code,
-			     enum qdf_dp_tx_rx_status tx_status,
-			     int8_t peer_rssi,
-			     uint8_t auth_algo, uint8_t auth_type,
-			     uint8_t auth_seq, uint16_t aid,
-			     enum wlan_main_tag tag)
+			     uint8_t auth_seq, enum wlan_main_tag tag)
 {
 	struct wlan_log_record *new_rec;
 	struct wlan_objmgr_vdev *vdev;
@@ -616,7 +349,6 @@ wlan_connectivity_mgmt_event(struct wlan_objmgr_psoc *psoc,
 	new_rec->pkt_info.auth_algo = auth_algo;
 	new_rec->pkt_info.auth_type = auth_type;
 	new_rec->pkt_info.auth_seq_num = auth_seq;
-	new_rec->pkt_info.assoc_id = aid;
 	new_rec->pkt_info.is_retry_frame =
 		(mac_hdr->i_fc[1] & IEEE80211_FC1_RETRY);
 
@@ -810,4 +542,3 @@ wlan_connectivity_log_dequeue(void)
 
 	return QDF_STATUS_SUCCESS;
 }
-#endif

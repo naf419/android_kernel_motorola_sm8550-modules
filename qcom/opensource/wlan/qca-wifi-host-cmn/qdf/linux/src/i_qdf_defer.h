@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -34,7 +34,7 @@
 typedef struct workqueue_struct __qdf_workqueue_t;
 
 /**
- * typedef struct __qdf_work_t - wrapper around the real task func
+ * __qdf_work_t - wrapper around the real task func
  * @work: Instance of work
  * @fn: function pointer to the handler
  * @arg: pointer to argument
@@ -46,7 +46,7 @@ typedef struct {
 } __qdf_work_t;
 
 /**
- * typedef struct __qdf_bh_t - wrapper around the real task func
+ * __qdf_bh_t - wrapper around the real task func
  * @bh: Instance of the bottom half
  * @fn: function pointer to the handler
  * @arg: pointer to argument
@@ -73,7 +73,7 @@ void __qdf_defer_func(struct work_struct *work);
  * __qdf_bh_func() - bottom half handler
  * @arg: Pointer to bottom half abstraction
  *
- * This function services all Linux-specific bottom halves
+ * This function services all Linux-specific bottom halfs
  * and dispatches them to the correct handler using the
  * abstracted functional interface.
  *
@@ -113,7 +113,7 @@ __qdf_queue_work(__qdf_workqueue_t *wqueue, __qdf_work_t *work)
 /**
  * __qdf_sched_work - Schedule a deferred task on non-interrupt context
  * @work: pointer to work
- * Return: none
+ * Retrun: none
  */
 static inline QDF_STATUS __qdf_sched_work(__qdf_work_t *work)
 {
@@ -261,25 +261,4 @@ static inline void __qdf_disable_bh(__qdf_bh_t *bh)
 	tasklet_kill(&bh->bh);
 }
 
-/**
- * __qdf_local_bh_disable - disables softirq and tasklet processing
- * on the local processor
- *
- * Return: none
- */
-static inline void __qdf_local_bh_disable(void)
-{
-	local_bh_disable();
-}
-
-/**
- * __qdf_local_bh_enable - Enables softirq and tasklet processing
- * on the local processor
- *
- * Return: none
- */
-static inline void __qdf_local_bh_enable(void)
-{
-	local_bh_enable();
-}
 #endif /*_I_QDF_DEFER_H*/

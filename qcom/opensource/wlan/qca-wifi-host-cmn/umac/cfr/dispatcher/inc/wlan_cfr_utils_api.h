@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -119,9 +119,6 @@ enum cfrradiotype {
 	CFR_CAPTURE_RADIO_ALDER,
 	CFR_CAPTURE_RADIO_WAIKIKI,
 	CFR_CAPTURE_RADIO_KIWI,
-	CFR_CAPTURE_RADIO_MANGO,
-	CFR_CAPTURE_RADIO_MIAMI,
-	CFR_CAPTURE_RADIO_YORK,
 	CFR_CAPTURE_RADIO_MAX = 0xFF,
 };
 
@@ -248,7 +245,7 @@ struct csi_cfr_header {
 
 /**
  * struct cfr_capture_params - structure to store cfr config param
- * bandwidth: bandwidth of capture
+ * bandwidth: bandwitdh of capture
  * period: period of capture
  * method: enum of method being followed to capture cfr data. 0-QoS null data
  */
@@ -256,13 +253,15 @@ struct cfr_capture_params {
 	u_int8_t   bandwidth;
 	u_int32_t  period;
 	u_int8_t   method;
+#ifdef WLAN_FEATURE_11BE
+	uint32_t   puncture_bitmap;
+#endif
 };
 
 /**
  * struct psoc_cfr - private psoc object for cfr
  * psoc_obj: pointer to psoc object
  * is_cfr_capable: flag to determine if cfr is enabled or not
- * is_cfr_pdev_id_soc: flag to send cfr request with PDEV_ID_SOC
  * is_cap_interval_mode_sel_support: flag to determine if target supports both
  *				     capture_count and capture_duration modes
  *				     with a nob provided to configure
@@ -271,7 +270,6 @@ struct cfr_capture_params {
 struct psoc_cfr {
 	struct wlan_objmgr_psoc *psoc_obj;
 	uint8_t is_cfr_capable;
-	uint8_t is_cfr_pdev_id_soc;
 #ifdef WLAN_ENH_CFR_ENABLE
 	uint8_t is_cap_interval_mode_sel_support;
 	uint8_t is_mo_marking_support;
@@ -438,8 +436,8 @@ struct ta_ra_cfr_cfg {
  * capture_interval: Capture interval field which is time in between
  * consecutive CFR capture, in microsecond units
  * ul_mu_user_mask_lower: Bitfields indicates which of the users in the current
- * UL MU transmission are enabled for CFR capture.
- * ul_mu_user_mask_upper: This is continuation of the above lower mask.
+ * UL MU tranmission are enabled for CFR capture.
+ * ul_mu_user_mask_upper: This is contiuation of the above lower mask.
  * freeze_tlv_delay_cnt_en: Enable Freeze TLV delay counter in MAC
  * freeze_tlv_delay_cnt_thr: Indicates the number of consecutive Rx packets to
  * be skipped before CFR capture is enabled again.
@@ -496,8 +494,8 @@ struct cfr_rcc_param {
 /**
  * struct nl_event_cb - nl event cb for cfr data
  * vdev_id: vdev id
- * pid: PID to which data is sent via unicast nl event
- * cfr_nl_cb: callback to send nl event
+ * pid: PID to which data is sent via unicast nl evnet
+ * cfr_nl_cb: callback to send nl evnet
  */
 struct nl_event_cb {
 	uint8_t vdev_id;
@@ -651,6 +649,9 @@ struct peer_cfr {
 	u_int8_t   bandwidth;
 	u_int32_t  period;
 	u_int8_t   capture_method;
+#ifdef WLAN_FEATURE_11BE
+	uint32_t   puncture_bitmap;
+#endif
 };
 
 /**

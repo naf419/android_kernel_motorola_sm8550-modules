@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -150,7 +150,6 @@ enum TWT_OPERATION {
  * @b_twt_enable: Enable or disable broadcast TWT.
  * @b_twt_legacy_mbss_enable: Enable or disable legacy MBSSID TWT.
  * @b_twt_ax_mbss_enable: Enable or disable 11AX MBSSID TWT.
- * @r_twt_enable: Restricted TWT enable or disable.
  */
 struct twt_enable_param {
 	uint32_t pdev_id;
@@ -176,7 +175,6 @@ struct twt_enable_param {
 	uint32_t b_twt_enable:1,
 		 b_twt_legacy_mbss_enable:1,
 		 b_twt_ax_mbss_enable:1;
-	bool r_twt_enable;
 };
 
 /* HOST_TWT_DISABLE_REASON - reason code of disable TWT
@@ -205,7 +203,7 @@ enum HOST_TWT_DISABLE_REASON {
  * @ext_conf_present: If requestor/responder extend config is present.
  * @twt_role: values from enum TWT_ROLE.
  * @twt_oper: values from enum TWT_OPERATION.
- * @dis_reason_code: values from disable reason code.
+ * @dis_reason_code: values from enum HOST_TWT_DISABLE_REASON.
  */
 struct twt_disable_param {
 	uint32_t pdev_id;
@@ -327,7 +325,7 @@ struct twt_ack_context {
 /**
  * twt_en_dis_context - twt enable/disable private context
  * @twt_role: twt role. When the upper layer is invoking requestor/responder
- * enable/disable command via the TWT component API, Firmware WMI event
+ * enable/disable command via the TWT component API, Firmare WMI event
  * doesn't have the info in the event params to distinguish if this enable or
  * disable is for requestor or responder, hence TWT component stores this role
  * before the request is sent to the firmware.
@@ -453,10 +451,7 @@ enum HOST_TWT_COMMAND {
  * @b_twt_recommendation: defines types of frames tx during bTWT SP
  * @b_twt_persistence: Countdown VAL frames to param update/teardown
  * @wake_time_tsf: Absolute TSF value to start first TWT service period
- * @announce_timeout_us: Timeout value before sending QoS NULL frame.
- * @link_id_bitmap: MLD links to which R-TWT element applies
- * @r_twt_dl_tid_bitmap: DL TIDs for R-TWT scheduling
- * @r_twt_ul_tid_bitmap: UL TIDs for R-TWT scheduling
+ * @annouce_timeout_us: Timeout value before sending QoS NULL frame.
  */
 struct twt_add_dialog_param {
 	uint32_t vdev_id;
@@ -482,9 +477,6 @@ struct twt_add_dialog_param {
 		b_twt_recommendation:3;
 	uint64_t wake_time_tsf;
 	uint32_t announce_timeout_us;
-	uint32_t link_id_bitmap;
-	uint32_t r_twt_dl_tid_bitmap;
-	uint32_t r_twt_ul_tid_bitmap;
 };
 
 /* enum HOST_TWT_GET_STATS_STATUS - status code of TWT Get stats dialog id
@@ -699,7 +691,6 @@ struct twt_pause_dialog_cmd_param {
  * @dialog_id: TWT dialog ID
  * @suspend_duration: TWT suspend duration in microseconds
  * @next_twt_size: next TWT size
- * @sp_start_offset: value to offset the start of service period
  */
 struct twt_nudge_dialog_cmd_param {
 	uint32_t vdev_id;
@@ -707,7 +698,6 @@ struct twt_nudge_dialog_cmd_param {
 	uint32_t dialog_id;
 	uint32_t suspend_duration;
 	uint32_t next_twt_size;
-	int32_t sp_start_offset;
 };
 
 /* enum HOST_TWT_PAUSE_STATUS - status code of pause TWT dialog
@@ -777,7 +767,6 @@ enum HOST_TWT_NUDGE_STATUS {
 	HOST_TWT_NUDGE_STATUS_NO_RESOURCE,
 	HOST_TWT_NUDGE_STATUS_NO_ACK,
 	HOST_TWT_NUDGE_STATUS_UNKNOWN_ERROR,
-	HOST_TWT_NUDGE_STATUS_ALREADY_PAUSED,
 	HOST_TWT_NUDGE_STATUS_CHAN_SW_IN_PROGRESS,
 	HOST_TWT_NUDGE_STATUS_ROAM_IN_PROGRESS,
 	HOST_TWT_NUDGE_STATUS_SCAN_IN_PROGRESS,

@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -18,7 +17,7 @@
  */
 
  /**
- * DOC: Private definitions for handling crypto params
+ * DOC: Private definations for handling crypto params
  */
 #ifndef _WLAN_CRYPTO_DEF_I_H_
 #define _WLAN_CRYPTO_DEF_I_H_
@@ -104,18 +103,14 @@ static inline void wlan_crypto_put_be64(u8 *a, u64 val)
 	((tx_ops)->crypto_tx_ops.defaultkey)
 #define WLAN_CRYPTO_TX_OPS_SET_KEY(tx_ops) \
 	((tx_ops)->crypto_tx_ops.set_key)
-#define WLAN_CRYPTO_TX_OPS_SET_VDEV_PARAM(tx_ops) \
-	((tx_ops)->crypto_tx_ops.set_vdev_param)
 #define WLAN_CRYPTO_TX_OPS_GETPN(tx_ops) \
 	((tx_ops)->crypto_tx_ops.getpn)
-#define WLAN_CRYPTO_TX_OPS_SET_LTF_KEYSEED(tx_ops) \
-	((tx_ops)->crypto_tx_ops.set_ltf_keyseed)
 #define WLAN_CRYPTO_TX_OPS_REGISTER_EVENTS(tx_ops) \
 	((tx_ops)->crypto_tx_ops.register_events)
 #define WLAN_CRYPTO_TX_OPS_DEREGISTER_EVENTS(tx_ops) \
 	((tx_ops)->crypto_tx_ops.deregister_events)
 
-/* unaligned little endian access */
+/* unalligned little endian access */
 #ifndef LE_READ_2
 #define LE_READ_2(p) \
 	((uint16_t)                          \
@@ -209,8 +204,6 @@ static inline void wlan_crypto_put_be64(u8 *a, u64 val)
 #define RSN_AUTH_KEY_MGMT_OWE           WLAN_RSN_SEL(18)
 #define RSN_AUTH_KEY_MGMT_FT_PSK_SHA384 WLAN_RSN_SEL(19)
 #define RSN_AUTH_KEY_MGMT_PSK_SHA384    WLAN_RSN_SEL(20)
-#define RSN_AUTH_KEY_MGMT_SAE_EXT_KEY   WLAN_RSN_SEL(24)
-#define RSN_AUTH_KEY_MGMT_FT_SAE_EXT_KEY WLAN_RSN_SEL(25)
 
 #define RSN_AUTH_KEY_MGMT_CCKM          (WLAN_RSN_CCKM_AKM)
 #define RSN_AUTH_KEY_MGMT_OSEN          (0x019a6f50)
@@ -232,7 +225,7 @@ static inline void wlan_crypto_put_be64(u8 *a, u64 val)
 #define RESET_PARAM(__param)         ((__param) = 0)
 #define SET_PARAM(__param, __val)    ((__param) |= (1 << (__val)))
 #define HAS_PARAM(__param, __val)    ((__param) &  (1 << (__val)))
-#define CLEAR_PARAM(__param, __val)  ((__param) &= (~(1 << (__val))))
+#define CLEAR_PARAM(__param, __val)  ((__param) &= ((~1) << (__val)))
 
 
 #define RESET_AUTHMODE(_param)       ((_param)->authmodeset = 0)

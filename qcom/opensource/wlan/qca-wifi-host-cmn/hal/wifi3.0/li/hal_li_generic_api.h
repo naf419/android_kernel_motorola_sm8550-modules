@@ -69,134 +69,21 @@ void hal_rx_wbm_err_info_get_generic_li(void *wbm_desc,
 	wbm_er_info->rxdma_err_code = HAL_RX_WBM_RXDMA_ERROR_CODE_GET(wbm_desc);
 }
 
-#if defined(WLAN_FEATURE_TSF_UPLINK_DELAY) || defined(WLAN_CONFIG_TX_DELAY)
+#ifdef WLAN_FEATURE_TSF_UPLINK_DELAY
 static inline void
-hal_tx_comp_get_buffer_timestamp_li(void *desc,
-				    struct hal_tx_completion_status *ts)
+hal_tx_comp_get_buffer_timestamp(void *desc,
+				 struct hal_tx_completion_status *ts)
 {
 	ts->buffer_timestamp = HAL_TX_DESC_GET(desc, WBM_RELEASE_RING_4,
 					       BUFFER_TIMESTAMP);
 }
-#else /* !WLAN_FEATURE_TSF_UPLINK_DELAY || WLAN_CONFIG_TX_DELAY */
+#else /* !WLAN_FEATURE_TSF_UPLINK_DELAY */
 static inline void
-hal_tx_comp_get_buffer_timestamp_li(void *desc,
-				    struct hal_tx_completion_status *ts)
+hal_tx_comp_get_buffer_timestamp(void *desc,
+				 struct hal_tx_completion_status *ts)
 {
 }
-#endif /* WLAN_FEATURE_TSF_UPLINK_DELAY || WLAN_CONFIG_TX_DELAY */
-
-#ifdef QCA_UNDECODED_METADATA_SUPPORT
-static inline void
-hal_rx_get_phyrx_abort(struct hal_soc *hal, void *rx_tlv,
-		       struct hal_rx_ppdu_info *ppdu_info){
-	switch (hal->target_type) {
-	case TARGET_TYPE_QCN9000:
-		ppdu_info->rx_status.phyrx_abort =
-			HAL_RX_GET(rx_tlv, RXPCU_PPDU_END_INFO_2,
-				   PHYRX_ABORT_REQUEST_INFO_VALID);
-		ppdu_info->rx_status.phyrx_abort_reason =
-			HAL_RX_GET(rx_tlv, UNIFIED_RXPCU_PPDU_END_INFO_11,
-				   PHYRX_ABORT_REQUEST_INFO_DETAILS_PHYRX_ABORT_REASON);
-		break;
-	default:
-		break;
-	}
-}
-
-static inline void
-hal_rx_get_ht_sig_info(struct hal_rx_ppdu_info *ppdu_info,
-		       uint8_t *ht_sig_info)
-{
-	ppdu_info->rx_status.ht_length =
-		HAL_RX_GET(ht_sig_info, HT_SIG_INFO_0, LENGTH);
-	ppdu_info->rx_status.smoothing =
-		HAL_RX_GET(ht_sig_info, HT_SIG_INFO_1, SMOOTHING);
-	ppdu_info->rx_status.not_sounding =
-		HAL_RX_GET(ht_sig_info, HT_SIG_INFO_1, NOT_SOUNDING);
-	ppdu_info->rx_status.aggregation =
-		HAL_RX_GET(ht_sig_info, HT_SIG_INFO_1, AGGREGATION);
-	ppdu_info->rx_status.ht_stbc =
-		HAL_RX_GET(ht_sig_info, HT_SIG_INFO_1, STBC);
-	ppdu_info->rx_status.ht_crc =
-		HAL_RX_GET(ht_sig_info, HT_SIG_INFO_1, CRC);
-}
-
-static inline void
-hal_rx_get_l_sig_a_info(struct hal_rx_ppdu_info *ppdu_info,
-			uint8_t *l_sig_a_info)
-{
-	ppdu_info->rx_status.l_sig_length =
-		HAL_RX_GET(l_sig_a_info, L_SIG_A_INFO_0, LENGTH);
-	ppdu_info->rx_status.l_sig_a_parity =
-		HAL_RX_GET(l_sig_a_info, L_SIG_A_INFO_0, PARITY);
-	ppdu_info->rx_status.l_sig_a_pkt_type =
-		HAL_RX_GET(l_sig_a_info, L_SIG_A_INFO_0, PKT_TYPE);
-	ppdu_info->rx_status.l_sig_a_implicit_sounding =
-		HAL_RX_GET(l_sig_a_info, L_SIG_A_INFO_0,
-			   CAPTURED_IMPLICIT_SOUNDING);
-}
-
-static inline void
-hal_rx_get_vht_sig_a_info(struct hal_rx_ppdu_info *ppdu_info,
-			  uint8_t *vht_sig_a_info)
-{
-	ppdu_info->rx_status.vht_no_txop_ps =
-		HAL_RX_GET(vht_sig_a_info, VHT_SIG_A_INFO_0,
-			   TXOP_PS_NOT_ALLOWED);
-	ppdu_info->rx_status.vht_crc =
-		HAL_RX_GET(vht_sig_a_info, VHT_SIG_A_INFO_1, CRC);
-}
-
-static inline void
-hal_rx_get_crc_he_sig_a_su_info(struct hal_rx_ppdu_info *ppdu_info,
-				uint8_t *he_sig_a_su_info) {
-	ppdu_info->rx_status.he_crc =
-		HAL_RX_GET(he_sig_a_su_info, HE_SIG_A_SU_INFO_1, CRC);
-}
-
-static inline void
-hal_rx_get_crc_he_sig_a_mu_dl_info(struct hal_rx_ppdu_info *ppdu_info,
-				   uint8_t *he_sig_a_mu_dl_info) {
-	ppdu_info->rx_status.he_crc =
-		HAL_RX_GET(he_sig_a_mu_dl_info, HE_SIG_A_MU_DL_INFO_1, CRC);
-}
-#else
-static inline void
-hal_rx_get_phyrx_abort(struct hal_soc *hal, void *rx_tlv,
-		       struct hal_rx_ppdu_info *ppdu_info)
-{
-}
-
-static inline void
-hal_rx_get_ht_sig_info(struct hal_rx_ppdu_info *ppdu_info,
-		       uint8_t *ht_sig_info)
-{
-}
-
-static inline void
-hal_rx_get_l_sig_a_info(struct hal_rx_ppdu_info *ppdu_info,
-			uint8_t *l_sig_a_info)
-{
-}
-
-static inline void
-hal_rx_get_vht_sig_a_info(struct hal_rx_ppdu_info *ppdu_info,
-			  uint8_t *vht_sig_a_info)
-{
-}
-
-static inline void
-hal_rx_get_crc_he_sig_a_su_info(struct hal_rx_ppdu_info *ppdu_info,
-				uint8_t *he_sig_a_su_info)
-{
-}
-
-static inline void
-hal_rx_get_crc_he_sig_a_mu_dl_info(struct hal_rx_ppdu_info *ppdu_info,
-				   uint8_t *he_sig_a_mu_dl_info)
-{
-}
-#endif /* QCA_UNDECODED_METADATA_SUPPORT */
+#endif /* WLAN_FEATURE_TSF_UPLINK_DELAY */
 
 /**
  * hal_tx_comp_get_status() - TQM Release reason
@@ -266,7 +153,7 @@ hal_tx_comp_get_status_generic_li(void *desc, void *ts1,
 	ts->tsf = HAL_TX_DESC_GET(desc, UNIFIED_WBM_RELEASE_RING_6,
 			TX_RATE_STATS_INFO_TX_RATE_STATS);
 
-	hal_tx_comp_get_buffer_timestamp_li(desc, ts);
+	hal_tx_comp_get_buffer_timestamp(desc, ts);
 }
 
 /**
@@ -630,30 +517,6 @@ hal_update_frame_type_cnt(uint8_t *rx_mpdu_start,
 }
 #endif
 
-#ifdef WLAN_SUPPORT_CTRL_FRAME_STATS
-static inline void
-hal_update_rx_ctrl_frame_stats(struct hal_rx_ppdu_info *ppdu_info,
-			       uint32_t user_id)
-{
-	uint16_t fc = ppdu_info->nac_info.frame_control;
-
-	if (HAL_RX_GET_FRAME_CTRL_TYPE(fc) == HAL_RX_FRAME_CTRL_TYPE_CTRL) {
-		if ((fc & QDF_IEEE80211_FC0_SUBTYPE_MASK) ==
-		    QDF_IEEE80211_FC0_SUBTYPE_VHT_NDP_AN)
-			ppdu_info->ctrl_frm_info[user_id].ndpa = 1;
-		if ((fc & QDF_IEEE80211_FC0_SUBTYPE_MASK) ==
-		    QDF_IEEE80211_FC0_SUBTYPE_BAR)
-			ppdu_info->ctrl_frm_info[user_id].bar = 1;
-	}
-}
-#else
-static inline void
-hal_update_rx_ctrl_frame_stats(struct hal_rx_ppdu_info *ppdu_info,
-			       uint32_t user_id)
-{
-}
-#endif /* WLAN_SUPPORT_CTRL_FRAME_STATS */
-
 /**
  * hal_rx_status_get_tlv_info() - process receive info TLV
  * @rx_tlv_hdr: pointer to TLV header
@@ -684,6 +547,9 @@ hal_rx_status_get_tlv_info_generic_li(void *rx_tlv_hdr, void *ppduinfo,
 	tlv_len = HAL_RX_GET_USER_TLV32_LEN(rx_tlv_hdr);
 
 	rx_tlv = (uint8_t *)rx_tlv_hdr + HAL_RX_TLV32_HDR_SIZE;
+
+	qdf_trace_hex_dump(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_DEBUG,
+			   rx_tlv, tlv_len);
 
 	switch (tlv_tag) {
 	case WIFIRX_PPDU_START_E:
@@ -752,7 +618,6 @@ hal_rx_status_get_tlv_info_generic_li(void *rx_tlv_hdr, void *ppduinfo,
 			HAL_RX_GET(rx_tlv, UNIFIED_RXPCU_PPDU_END_INFO_8,
 				RX_PPDU_DURATION);
 		hal_rx_get_bb_info(hal_soc_hdl, rx_tlv, ppdu_info);
-		hal_rx_get_phyrx_abort(hal, rx_tlv, ppdu_info);
 		break;
 
 	/*
@@ -918,7 +783,6 @@ hal_rx_status_get_tlv_info_generic_li(void *rx_tlv_hdr, void *ppduinfo,
 		ppdu_info->rx_status.nss = ((ppdu_info->rx_status.mcs) >>
 				HT_SIG_SU_NSS_SHIFT) + 1;
 		ppdu_info->rx_status.mcs &= ((1 << HT_SIG_SU_NSS_SHIFT) - 1);
-		hal_rx_get_ht_sig_info(ppdu_info, ht_sig_info);
 		break;
 	}
 
@@ -1013,7 +877,6 @@ hal_rx_status_get_tlv_info_generic_li(void *rx_tlv_hdr, void *ppduinfo,
 		}
 		ppdu_info->rx_status.ofdm_flag = 1;
 		ppdu_info->rx_status.reception_type = HAL_RX_TYPE_SU;
-		hal_rx_get_l_sig_a_info(ppdu_info, l_sig_a_info);
 	break;
 	}
 
@@ -1042,7 +905,6 @@ hal_rx_status_get_tlv_info_generic_li(void *rx_tlv_hdr, void *ppduinfo,
 		case TARGET_TYPE_QCA5018:
 		case TARGET_TYPE_QCN9000:
 		case TARGET_TYPE_QCN6122:
-		case TARGET_TYPE_QCN9160:
 #ifdef QCA_WIFI_QCA6390
 		case TARGET_TYPE_QCA6390:
 #endif
@@ -1100,7 +962,6 @@ hal_rx_status_get_tlv_info_generic_li(void *rx_tlv_hdr, void *ppduinfo,
 			ppdu_info->rx_status.reception_type =
 				HAL_RX_TYPE_MU_MIMO;
 
-		hal_rx_get_vht_sig_a_info(ppdu_info, vht_sig_a_info);
 		break;
 	}
 	case WIFIPHYRX_HE_SIG_A_SU_E:
@@ -1261,7 +1122,6 @@ hal_rx_status_get_tlv_info_generic_li(void *rx_tlv_hdr, void *ppduinfo,
 		ppdu_info->rx_status.beamformed = HAL_RX_GET(he_sig_a_su_info,
 					HE_SIG_A_SU_INFO_1, TXBF);
 		ppdu_info->rx_status.reception_type = HAL_RX_TYPE_SU;
-		hal_rx_get_crc_he_sig_a_su_info(ppdu_info, he_sig_a_su_info);
 		break;
 	}
 	case WIFIPHYRX_HE_SIG_A_MU_DL_E:
@@ -1416,8 +1276,6 @@ hal_rx_status_get_tlv_info_generic_li(void *rx_tlv_hdr, void *ppduinfo,
 		value = value << QDF_MON_STATUS_NUM_SIG_B_SYMBOLS_SHIFT;
 		ppdu_info->rx_status.he_flags2 |= value;
 		ppdu_info->rx_status.reception_type = HAL_RX_TYPE_MU_MIMO;
-		hal_rx_get_crc_he_sig_a_mu_dl_info(ppdu_info,
-						   he_sig_a_mu_dl_info);
 		break;
 	}
 	case WIFIPHYRX_HE_SIG_B1_MU_E:
@@ -1686,8 +1544,6 @@ hal_rx_status_get_tlv_info_generic_li(void *rx_tlv_hdr, void *ppduinfo,
 		ppdu_info->rx_user_status[user_id].sw_peer_id =
 			HAL_RX_GET_SW_PEER_ID(rx_mpdu_start);
 
-		hal_update_rx_ctrl_frame_stats(ppdu_info, user_id);
-
 		if (ppdu_info->sw_frame_group_id ==
 		    HAL_MPDU_SW_FRAME_GROUP_NULL_DATA) {
 			ppdu_info->rx_status.frame_control_info_valid =
@@ -1773,6 +1629,9 @@ hal_rx_status_get_tlv_info_generic_li(void *rx_tlv_hdr, void *ppduinfo,
 			  "%s TLV type: %d, TLV len:%d %s",
 			  __func__, tlv_tag, tlv_len,
 			  unhandled == true ? "unhandled" : "");
+
+	qdf_trace_hex_dump(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_DEBUG,
+				rx_tlv, tlv_len);
 
 	return HAL_TLV_STATUS_PPDU_NOT_DONE;
 }
@@ -2216,11 +2075,9 @@ static inline void hal_setup_reo_swap(struct hal_soc *soc)
  *
  * @hal_soc: Opaque HAL SOC handle
  * @reo_params: parameters needed by HAL for REO config
- * @qref_reset: reset qref
  */
 static
-void hal_reo_setup_generic_li(struct hal_soc *soc, void *reoparams,
-			      int qref_reset)
+void hal_reo_setup_generic_li(struct hal_soc *soc, void *reoparams)
 {
 	uint32_t reg_val;
 	struct hal_reo_params *reo_params = (struct hal_reo_params *)reoparams;
@@ -2539,145 +2396,4 @@ void hal_tx_desc_set_cache_set_num_generic_li(void *desc, uint8_t cache_num)
 {
 }
 #endif
-
-#ifdef WLAN_SUPPORT_RX_FISA
-/**
- * hal_rx_flow_get_tuple_info_li() - Setup a flow search entry in HW FST
- * @fst: Pointer to the Rx Flow Search Table
- * @hal_hash: HAL 5 tuple hash
- * @tuple_info: 5-tuple info of the flow returned to the caller
- *
- * Return: Success/Failure
- */
-static void *
-hal_rx_flow_get_tuple_info_li(uint8_t *rx_fst, uint32_t hal_hash,
-			      uint8_t *flow_tuple_info)
-{
-	struct hal_rx_fst *fst = (struct hal_rx_fst *)rx_fst;
-	void *hal_fse = NULL;
-	struct hal_flow_tuple_info *tuple_info
-		= (struct hal_flow_tuple_info *)flow_tuple_info;
-
-	hal_fse = (uint8_t *)fst->base_vaddr +
-		(hal_hash * HAL_RX_FST_ENTRY_SIZE);
-
-	if (!hal_fse || !tuple_info)
-		return NULL;
-
-	if (!HAL_GET_FLD(hal_fse, RX_FLOW_SEARCH_ENTRY_9, VALID))
-		return NULL;
-
-	tuple_info->src_ip_127_96 =
-				qdf_ntohl(HAL_GET_FLD(hal_fse,
-						      RX_FLOW_SEARCH_ENTRY_0,
-						      SRC_IP_127_96));
-	tuple_info->src_ip_95_64 =
-				qdf_ntohl(HAL_GET_FLD(hal_fse,
-						      RX_FLOW_SEARCH_ENTRY_1,
-						      SRC_IP_95_64));
-	tuple_info->src_ip_63_32 =
-				qdf_ntohl(HAL_GET_FLD(hal_fse,
-						      RX_FLOW_SEARCH_ENTRY_2,
-						      SRC_IP_63_32));
-	tuple_info->src_ip_31_0 =
-				qdf_ntohl(HAL_GET_FLD(hal_fse,
-						      RX_FLOW_SEARCH_ENTRY_3,
-						      SRC_IP_31_0));
-	tuple_info->dest_ip_127_96 =
-				qdf_ntohl(HAL_GET_FLD(hal_fse,
-						      RX_FLOW_SEARCH_ENTRY_4,
-						      DEST_IP_127_96));
-	tuple_info->dest_ip_95_64 =
-				qdf_ntohl(HAL_GET_FLD(hal_fse,
-						      RX_FLOW_SEARCH_ENTRY_5,
-						      DEST_IP_95_64));
-	tuple_info->dest_ip_63_32 =
-				qdf_ntohl(HAL_GET_FLD(hal_fse,
-						      RX_FLOW_SEARCH_ENTRY_6,
-						      DEST_IP_63_32));
-	tuple_info->dest_ip_31_0 =
-			qdf_ntohl(HAL_GET_FLD(hal_fse,
-					      RX_FLOW_SEARCH_ENTRY_7,
-					      DEST_IP_31_0));
-	tuple_info->dest_port = HAL_GET_FLD(hal_fse,
-					    RX_FLOW_SEARCH_ENTRY_8,
-					    DEST_PORT);
-	tuple_info->src_port = HAL_GET_FLD(hal_fse,
-					   RX_FLOW_SEARCH_ENTRY_8,
-					   SRC_PORT);
-	tuple_info->l4_protocol = HAL_GET_FLD(hal_fse,
-					      RX_FLOW_SEARCH_ENTRY_9,
-					      L4_PROTOCOL);
-
-	return hal_fse;
-}
-
-/**
- * hal_rx_flow_delete_entry_li() - Setup a flow search entry in HW FST
- * @fst: Pointer to the Rx Flow Search Table
- * @hal_rx_fse: Pointer to the Rx Flow that is to be deleted from the FST
- *
- * Return: Success/Failure
- */
-static QDF_STATUS
-hal_rx_flow_delete_entry_li(uint8_t *rx_fst, void *hal_rx_fse)
-{
-	uint8_t *fse = (uint8_t *)hal_rx_fse;
-
-	if (!HAL_GET_FLD(fse, RX_FLOW_SEARCH_ENTRY_9, VALID))
-		return QDF_STATUS_E_NOENT;
-
-	HAL_CLR_FLD(fse, RX_FLOW_SEARCH_ENTRY_9, VALID);
-
-	return QDF_STATUS_SUCCESS;
-}
-
-/**
- * hal_rx_fst_get_fse_size_li() - Retrieve the size of each entry
- *
- * Return: size of each entry/flow in Rx FST
- */
-static inline uint32_t
-hal_rx_fst_get_fse_size_li(void)
-{
-	return HAL_RX_FST_ENTRY_SIZE;
-}
-#else
-static inline void *
-hal_rx_flow_get_tuple_info_li(uint8_t *rx_fst, uint32_t hal_hash,
-			      uint8_t *flow_tuple_info)
-{
-	return NULL;
-}
-
-static inline QDF_STATUS
-hal_rx_flow_delete_entry_li(uint8_t *rx_fst, void *hal_rx_fse)
-{
-	return QDF_STATUS_SUCCESS;
-}
-
-static inline uint32_t
-hal_rx_fst_get_fse_size_li(void)
-{
-	return 0;
-}
-#endif /* WLAN_SUPPORT_RX_FISA */
-
-/**
- * hal_rx_get_frame_ctrl_field(): Function to retrieve frame control field
- *
- * @nbuf: Network buffer
- * Returns: rx more fragment bit
- *
- */
-static uint16_t hal_rx_get_frame_ctrl_field_li(uint8_t *buf)
-{
-	struct rx_pkt_tlvs *pkt_tlvs = hal_rx_get_pkt_tlvs(buf);
-	struct rx_mpdu_info *rx_mpdu_info = hal_rx_get_mpdu_info(pkt_tlvs);
-	uint16_t frame_ctrl = 0;
-
-	frame_ctrl = HAL_RX_MPDU_GET_FRAME_CONTROL_FIELD(rx_mpdu_info);
-
-	return frame_ctrl;
-}
 #endif /* _HAL_LI_GENERIC_API_H_ */

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -46,7 +46,6 @@ struct ctxt_switch_mgr {
  * @MLO_PEER_ASSOC_FAIL:  Partner peer ASSOC failure
  * @MLO_PEER_DISCONNECT:  Partner peer Disconnect
  * @MLO_PEER_DEAUTH:  Initiate Deauth for ML connection
- * @MLO_PEER_PENDING_AUTH:  Initiate process of pending auth
  */
 enum mlo_msg_type {
 	MLO_PEER_CREATE,
@@ -54,7 +53,6 @@ enum mlo_msg_type {
 	MLO_PEER_ASSOC_FAIL,
 	MLO_PEER_DISCONNECT,
 	MLO_PEER_DEAUTH,
-	MLO_PEER_PENDING_AUTH,
 };
 
 /*
@@ -98,19 +96,9 @@ struct peer_discon_notify_s {
 /*
  * struct peer_deauth_notify_s - MLO partner peer deauth notification
  * @peer: Link peer on which Peer deauth to be sent
- * @is_disassoc: flag indicates that disassoc frame needs to be sent
  */
 struct peer_deauth_notify_s {
 	struct wlan_objmgr_peer *peer;
-	uint8_t is_disassoc;
-};
-
-/*
- * struct peer_auth_process_notif_s - MLO peer pending auth notification
- * @auth_params: Auth param structure
- */
-struct peer_auth_process_notif_s {
-	struct mlpeer_auth_params *auth_params;
 };
 
 /*
@@ -120,7 +108,6 @@ struct peer_auth_process_notif_s {
  * @peer_assoc_fail: peer assoc fail notification structure
  * @peer_disconn: peer disconnect notification structure
  * @peer_deauth: peer deauth notification structure
- * @peer_auth_process: Peer Auth process notification structure
  */
 union msg_payload {
 	struct peer_create_notif_s peer_create;
@@ -128,7 +115,6 @@ union msg_payload {
 	struct peer_assoc_fail_notify_s peer_assoc_fail;
 	struct peer_discon_notify_s peer_disconn;
 	struct peer_deauth_notify_s peer_deauth;
-	struct peer_auth_process_notif_s peer_auth;
 };
 
 #define MLO_MAX_MSGQ_SIZE 256
@@ -152,7 +138,7 @@ struct mlo_ctxt_switch_msg_s {
  * @ml_dev: MLO dev context
  * @payload: msg buf
  *
- * This function post message to defer context queue for defer processing
+ * This function post message to defer conext queue for defer processing
  *
  * Return: SUCCESS if msg is posted
  */

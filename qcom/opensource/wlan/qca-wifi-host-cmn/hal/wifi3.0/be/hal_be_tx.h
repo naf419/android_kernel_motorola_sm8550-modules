@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -26,12 +26,6 @@
 /* Number of TX banks reserved i.e, will not be used by host driver. */
 /* MAX_TCL_BANK reserved for FW use */
 #define HAL_TX_NUM_RESERVED_BANKS 1
-
-/*
- * Number of Priority to TID mapping
- */
-#define HAL_BE_TX_MAP0_PRI2TID_MAX 10
-#define HAL_BE_TX_MAP1_PRI2TID_MAX 6
 
 enum hal_be_tx_ret_buf_manager {
 	HAL_BE_WBM_SW0_BM_ID = 5,
@@ -60,17 +54,14 @@ enum hal_tx_mcast_ctrl {
 	HAL_TX_MCAST_CTRL_NO_SPECIAL,
 };
 
-/* enum hal_tx_notify_frame_type - TX notify frame type
- * @NO_TX_NOTIFY: Not a notify frame
- * @TX_HARD_NOTIFY: Hard notify TX frame
- * @TX_SOFT_NOTIFY_E: Soft Notify Tx frame
- * @TX_SEMI_HARD_NOTIFY_E: Semi Hard notify TX frame
+/**
+ * enum hal_tx_vdev_mismatch_notify
+ * @HAL_TX_VDEV_MISMATCH_TQM_NOTIFY: vdev mismatch exception routed to TQM
+ * @HAL_TX_VDEV_MISMATCH_FW_NOTIFY: vdev mismatch exception routed to FW
  */
-enum hal_tx_notify_frame_type {
-	NO_TX_NOTIFY = 0,
-	TX_HARD_NOTIFY = 1,
-	TX_SOFT_NOTIFY_E = 2,
-	TX_SEMI_HARD_NOTIFY_E = 3
+enum hal_tx_vdev_mismatch_notify {
+	HAL_TX_VDEV_MISMATCH_TQM_NOTIFY = 0,
+	HAL_TX_VDEV_MISMATCH_FW_NOTIFY,
 };
 
 /*---------------------------------------------------------------------------
@@ -84,7 +75,7 @@ enum hal_tx_notify_frame_type {
  * @encrypt_type: encrypt type
  * @src_buffer_swap: big-endia switch for packet buffer
  * @link_meta_swap: big-endian switch for link metadata
- * @index_lookup_enable: Enable index lookup
+ * @index_lookup_enable: Enabel index lookup
  * @addrx_en: Address-X search
  * @addry_en: Address-Y search
  * @mesh_enable:mesh enable flag
@@ -113,117 +104,6 @@ union hal_tx_bank_config {
 	uint32_t val;
 };
 
-/**
- * struct hal_tx_cmn_config_ppe - SW config exception related parameters
- * @drop_prec_err - Exception drop_prec errors.
- * @fake_mac_hdr - Exception fake mac header.
- * @cpu_code_inv - Exception cpu code invalid.
- * @data_buff_err - Exception buffer length/offset erorors.
- * @l3_l4_err - Exception m3_l4 checksum errors
- * @data_offset_max - Maximum data offset allowed.
- * @data_len_max - Maximum data length allowed.
- */
-union hal_tx_cmn_config_ppe {
-	struct {
-		uint32_t drop_prec_err:1,
-			 fake_mac_hdr:1,
-			 cpu_code_inv:1,
-			 data_buff_err:1,
-			 l3_l4_err:1,
-			 data_offset_max:12,
-			 data_len_max:14;
-	};
-	uint32_t val;
-};
-
-/**
- * hal_tx_ppe_vp_config - SW config PPE VP table
- * @vp_num - Virtual port number
- * @pmac_id - Lmac ID
- * @bank_id: Bank ID corresponding to this I/F.
- * @vdev_id: VDEV ID of the I/F.
- * @search_idx_reg_num: Register number of this SI.
- * @use_ppe_int_pri: Use the PPE INT_PRI to TID table
- * @to_fw: Use FW
- * @drop_prec_enable: Enable precedence drop.
- */
-union hal_tx_ppe_vp_config {
-	struct {
-		uint32_t vp_num:8,
-			 pmac_id:2,
-			 bank_id:6,
-			 vdev_id:8,
-			 search_idx_reg_num:3,
-			 use_ppe_int_pri:1,
-			 to_fw:1,
-			 drop_prec_enable:1;
-	};
-	uint32_t val;
-};
-
-/**
- * hal_tx_cmn_ppe_idx_map_config: Use ppe index mapping table
- * @search_idx: Search index
- * @cache_set: Cache set number
- */
-union hal_tx_ppe_idx_map_config {
-	struct {
-		uint32_t search_idx:20,
-			 cache_set:4;
-	};
-	uint32_t val;
-};
-
-/**
- * hal_tx_ppe_pri2tid_map0_config : Configure ppe INT_PRI to tid map
- * @int_pri0: INT_PRI_0
- * @int_pri1: INT_PRI_1
- * @int_pri2: INT_PRI_2
- * @int_pri3: INT_PRI_3
- * @int_pri4: INT_PRI_4
- * @int_pri5: INT_PRI_5
- * @int_pri6: INT_PRI_6
- * @int_pri7: INT_PRI_7
- * @int_pri8: INT_PRI_8
- * @int_pri9: INT_PRI_9
- */
-union hal_tx_ppe_pri2tid_map0_config {
-	struct {
-		uint32_t int_pri0:3,
-			 int_pri1:3,
-			 int_pri2:3,
-			 int_pri3:3,
-			 int_pri4:3,
-			 int_pri5:3,
-			 int_pri6:3,
-			 int_pri7:3,
-			 int_pri8:3,
-			 int_pri9:3;
-	};
-	uint32_t val;
-};
-
-/**
- * hal_tx_ppe_pri2tid_map1_config : Configure ppe INT_PRI to tid map
- * @int_pri0: INT_PRI_10
- * @int_pri1: INT_PRI_11
- * @int_pri2: INT_PRI_12
- * @int_pri3: INT_PRI_13
- * @int_pri4: INT_PRI_14
- * @int_pri5: INT_PRI_15
- */
-union hal_tx_ppe_pri2tid_map1_config {
-	struct {
-		uint32_t int_pri10:3,
-			 int_pri11:3,
-			 int_pri12:3,
-			 int_pri13:3,
-			 int_pri14:3,
-			 int_pri15:3;
-	};
-	uint32_t val;
-};
-
 /*---------------------------------------------------------------------------
  *  Function declarations and documentation
  * ---------------------------------------------------------------------------
@@ -233,62 +113,6 @@ union hal_tx_ppe_pri2tid_map1_config {
  *  TCL Descriptor accessor APIs
  *---------------------------------------------------------------------------
  */
-
-/**
- * hal_tx_desc_set_tx_notify_frame - Set TX notify_frame field in Tx desc
- * @desc: Handle to Tx Descriptor
- * @val: Value to be set
- *
- * Return: None
- */
-static inline void hal_tx_desc_set_tx_notify_frame(void *desc,
-						   uint8_t val)
-{
-	HAL_SET_FLD(desc, TCL_DATA_CMD, TX_NOTIFY_FRAME) |=
-		HAL_TX_SM(TCL_DATA_CMD, TX_NOTIFY_FRAME, val);
-}
-
-/**
- * hal_tx_desc_set_flow_override_enable - Set flow_override_enable field
- * @desc: Handle to Tx Descriptor
- * @val: Value to be set
- *
- * Return: None
- */
-static inline void  hal_tx_desc_set_flow_override_enable(void *desc,
-							 uint8_t val)
-{
-	HAL_SET_FLD(desc, TCL_DATA_CMD, FLOW_OVERRIDE_ENABLE) |=
-		HAL_TX_SM(TCL_DATA_CMD, FLOW_OVERRIDE_ENABLE, val);
-}
-
-/**
- * hal_tx_desc_set_flow_override - Set flow_override field in TX desc
- * @desc: Handle to Tx Descriptor
- * @val: Value to be set
- *
- * Return: None
- */
-static inline void  hal_tx_desc_set_flow_override(void *desc,
-						  uint8_t val)
-{
-	HAL_SET_FLD(desc, TCL_DATA_CMD, FLOW_OVERRIDE) |=
-		HAL_TX_SM(TCL_DATA_CMD, FLOW_OVERRIDE, val);
-}
-
-/**
- * hal_tx_desc_set_who_classify_info_sel - Set who_classify_info_sel field
- * @desc: Handle to Tx Descriptor
- * @val: Value to be set
- *
- * Return: None
- */
-static inline void  hal_tx_desc_set_who_classify_info_sel(void *desc,
-							  uint8_t val)
-{
-	HAL_SET_FLD(desc, TCL_DATA_CMD, WHO_CLASSIFY_INFO_SEL) |=
-		HAL_TX_SM(TCL_DATA_CMD, WHO_CLASSIFY_INFO_SEL, val);
-}
 
 /**
  * hal_tx_desc_set_buf_length - Set Data length in bytes in Tx Descriptor
@@ -403,9 +227,9 @@ static inline void hal_tx_desc_set_hlos_tid(void *desc,
  * @hw_desc: Hardware descriptor to be updated
  */
 static inline void hal_tx_desc_sync(void *hal_tx_desc_cached,
-				    void *hw_desc, uint8_t num_bytes)
+				    void *hw_desc)
 {
-	qdf_mem_copy(hw_desc, hal_tx_desc_cached, num_bytes);
+	qdf_mem_copy(hw_desc, hal_tx_desc_cached, HAL_TX_DESC_LEN_BYTES);
 }
 
 /**
@@ -571,20 +395,6 @@ static inline uint8_t hal_tx_comp_get_cookie_convert_done(void *hal_desc)
 #endif
 
 /**
- * hal_tx_comp_set_desc_va_63_32() - Set bit 32~63 value for 64 bit VA
- * @hal_desc: completion ring descriptor pointer
- * @val: value to be set
- *
- * Return: None
- */
-static inline void hal_tx_comp_set_desc_va_63_32(void *hal_desc, uint32_t val)
-{
-	HAL_SET_FLD(hal_desc,
-		    WBM2SW_COMPLETION_RING_TX,
-		    BUFFER_VIRT_ADDR_63_32) = val;
-}
-
-/**
  * hal_tx_comp_get_desc_va() - Get Desc virtual address within completion Desc
  * @hal_desc: completion ring descriptor pointer
  *
@@ -592,7 +402,7 @@ static inline void hal_tx_comp_set_desc_va_63_32(void *hal_desc, uint32_t val)
  *
  * Return: TX desc virtual address
  */
-static inline uint64_t hal_tx_comp_get_desc_va(void *hal_desc)
+static inline uintptr_t hal_tx_comp_get_desc_va(void *hal_desc)
 {
 	uint64_t va_from_desc;
 
@@ -604,7 +414,7 @@ static inline uint64_t hal_tx_comp_get_desc_va(void *hal_desc)
 					WBM2SW_COMPLETION_RING_TX,
 					BUFFER_VIRT_ADDR_63_32)) << 32);
 
-	return va_from_desc;
+	return (uintptr_t)va_from_desc;
 }
 
 /*---------------------------------------------------------------------------
@@ -641,16 +451,83 @@ hal_tx_get_num_tcl_banks(hal_soc_handle_t hal_soc_hdl)
  *
  * Returns: None
  */
+#ifdef HWIO_TCL_R0_SW_CONFIG_BANK_n_MCAST_PACKET_CTRL_SHFT
 static inline void
 hal_tx_populate_bank_register(hal_soc_handle_t hal_soc_hdl,
 			      union hal_tx_bank_config *config,
 			      uint8_t bank_id)
 {
 	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
+	uint32_t reg_addr, reg_val = 0;
 
-	hal_soc->ops->hal_tx_populate_bank_register(hal_soc_hdl, config,
-						    bank_id);
+	reg_addr = HWIO_TCL_R0_SW_CONFIG_BANK_n_ADDR(MAC_TCL_REG_REG_BASE,
+						     bank_id);
+
+	reg_val |= (config->epd << HWIO_TCL_R0_SW_CONFIG_BANK_n_EPD_SHFT);
+	reg_val |= (config->encap_type <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_ENCAP_TYPE_SHFT);
+	reg_val |= (config->encrypt_type <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_ENCRYPT_TYPE_SHFT);
+	reg_val |= (config->src_buffer_swap <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_SRC_BUFFER_SWAP_SHFT);
+	reg_val |= (config->link_meta_swap <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_LINK_META_SWAP_SHFT);
+	reg_val |= (config->index_lookup_enable <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_INDEX_LOOKUP_ENABLE_SHFT);
+	reg_val |= (config->addrx_en <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_ADDRX_EN_SHFT);
+	reg_val |= (config->addry_en <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_ADDRY_EN_SHFT);
+	reg_val |= (config->mesh_enable <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_MESH_ENABLE_SHFT);
+	reg_val |= (config->vdev_id_check_en <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_VDEV_ID_CHECK_EN_SHFT);
+	reg_val |= (config->pmac_id <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_PMAC_ID_SHFT);
+	reg_val |= (config->mcast_pkt_ctrl <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_MCAST_PACKET_CTRL_SHFT);
+
+	HAL_REG_WRITE(hal_soc, reg_addr, reg_val);
 }
+#else
+static inline void
+hal_tx_populate_bank_register(hal_soc_handle_t hal_soc_hdl,
+			      union hal_tx_bank_config *config,
+			      uint8_t bank_id)
+{
+	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
+	uint32_t reg_addr, reg_val = 0;
+
+	reg_addr = HWIO_TCL_R0_SW_CONFIG_BANK_n_ADDR(MAC_TCL_REG_REG_BASE,
+						     bank_id);
+
+	reg_val |= (config->epd << HWIO_TCL_R0_SW_CONFIG_BANK_n_EPD_SHFT);
+	reg_val |= (config->encap_type <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_ENCAP_TYPE_SHFT);
+	reg_val |= (config->encrypt_type <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_ENCRYPT_TYPE_SHFT);
+	reg_val |= (config->src_buffer_swap <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_SRC_BUFFER_SWAP_SHFT);
+	reg_val |= (config->link_meta_swap <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_LINK_META_SWAP_SHFT);
+	reg_val |= (config->index_lookup_enable <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_INDEX_LOOKUP_ENABLE_SHFT);
+	reg_val |= (config->addrx_en <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_ADDRX_EN_SHFT);
+	reg_val |= (config->addry_en <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_ADDRY_EN_SHFT);
+	reg_val |= (config->mesh_enable <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_MESH_ENABLE_SHFT);
+	reg_val |= (config->vdev_id_check_en <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_VDEV_ID_CHECK_EN_SHFT);
+	reg_val |= (config->pmac_id <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_PMAC_ID_SHFT);
+	reg_val |= (config->dscp_tid_map_id <<
+			HWIO_TCL_R0_SW_CONFIG_BANK_n_DSCP_TID_TABLE_NUM_SHFT);
+
+	HAL_REG_WRITE(hal_soc, reg_addr, reg_val);
+}
+#endif
 
 #ifdef DP_TX_IMPLICIT_RBM_MAPPING
 
@@ -675,10 +552,36 @@ hal_tx_config_rbm_mapping_be(hal_soc_handle_t hal_soc_hdl,
 			     hal_ring_handle_t hal_ring_hdl,
 			     uint8_t rbm_id)
 {
+	struct hal_srng *srng = (struct hal_srng *)hal_ring_hdl;
 	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
+	uint32_t reg_addr = 0;
+	uint32_t reg_val = 0;
+	uint32_t val = 0;
+	uint8_t ring_num;
+	enum hal_ring_type ring_type;
 
-	hal_soc->ops->hal_tx_config_rbm_mapping_be(hal_soc_hdl, hal_ring_hdl,
-						   rbm_id);
+	ring_type = srng->ring_type;
+	ring_num = hal_soc->hw_srng_table[ring_type].start_ring_id;
+	ring_num = srng->ring_id - ring_num;
+
+	reg_addr = HWIO_TCL_R0_RBM_MAPPING0_ADDR(MAC_TCL_REG_REG_BASE);
+
+	if (ring_type == PPE2TCL)
+		ring_num = ring_num + RBM_PPE2TCL_OFFSET;
+	else if (ring_type == TCL_CMD_CREDIT)
+		ring_num = ring_num + RBM_TCL_CMD_CREDIT_OFFSET;
+
+	/* get current value stored in register address */
+	val = HAL_REG_READ(hal_soc, reg_addr);
+
+	/* mask out other stored value */
+	val &= (~(RBM_MAPPING_BMSK << (RBM_MAPPING_SHFT * ring_num)));
+
+	reg_val = val | ((RBM_MAPPING_BMSK & rbm_id) <<
+			 (RBM_MAPPING_SHFT * ring_num));
+
+	/* write rbm mapped value to register address */
+	HAL_REG_WRITE(hal_soc, reg_addr, reg_val);
 }
 #else
 static inline void
@@ -764,6 +667,57 @@ hal_tx_desc_set_buf_addr_be(hal_soc_handle_t hal_soc_hdl, void *desc,
 }
 #endif
 
+#ifdef HWIO_TCL_R0_VDEV_MCAST_PACKET_CTRL_MAP_n_VAL_SHFT
+
+#define HAL_TCL_VDEV_MCAST_PACKET_CTRL_REG_ID(vdev_id) (vdev_id >> 0x4)
+#define HAL_TCL_VDEV_MCAST_PACKET_CTRL_INDEX_IN_REG(vdev_id) (vdev_id & 0xF)
+#define HAL_TCL_VDEV_MCAST_PACKET_CTRL_MASK 0x3
+#define HAL_TCL_VDEV_MCAST_PACKET_CTRL_SHIFT 0x2
+
+/**
+ * hal_tx_vdev_mcast_ctrl_set - set mcast_ctrl value
+ * @hal_soc: HAL SoC context
+ * @mcast_ctrl_val: mcast ctrl value for this VAP
+ *
+ * Return: void
+ */
+static inline void
+hal_tx_vdev_mcast_ctrl_set(hal_soc_handle_t hal_soc_hdl,
+			   uint8_t vdev_id,
+			   uint8_t mcast_ctrl_val)
+{
+	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
+	uint32_t reg_addr, reg_val = 0;
+	uint32_t val;
+	uint8_t reg_idx = HAL_TCL_VDEV_MCAST_PACKET_CTRL_REG_ID(vdev_id);
+	uint8_t index_in_reg =
+		HAL_TCL_VDEV_MCAST_PACKET_CTRL_INDEX_IN_REG(vdev_id);
+
+	reg_addr =
+	HWIO_TCL_R0_VDEV_MCAST_PACKET_CTRL_MAP_n_ADDR(MAC_TCL_REG_REG_BASE,
+						      reg_idx);
+
+	val = HAL_REG_READ(hal_soc, reg_addr);
+
+	/* mask out other stored value */
+	val &= (~(HAL_TCL_VDEV_MCAST_PACKET_CTRL_MASK <<
+		  (HAL_TCL_VDEV_MCAST_PACKET_CTRL_SHIFT * index_in_reg)));
+
+	reg_val = val |
+		((HAL_TCL_VDEV_MCAST_PACKET_CTRL_MASK & mcast_ctrl_val) <<
+		 (HAL_TCL_VDEV_MCAST_PACKET_CTRL_SHIFT * index_in_reg));
+
+	HAL_REG_WRITE(hal_soc, reg_addr, reg_val);
+}
+#else
+static inline void
+hal_tx_vdev_mcast_ctrl_set(hal_soc_handle_t hal_soc_hdl,
+			   uint8_t vdev_id,
+			   uint8_t mcast_ctrl_val)
+{
+}
+#endif
+
 /**
  * hal_tx_vdev_mismatch_routing_set - set vdev mismatch exception routing
  * @hal_soc: HAL SoC context
@@ -778,186 +732,26 @@ hal_tx_vdev_mismatch_routing_set(hal_soc_handle_t hal_soc_hdl,
 				 enum hal_tx_vdev_mismatch_notify config)
 {
 	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
+	uint32_t reg_addr, reg_val = 0;
+	uint32_t val = 0;
 
-	hal_soc->ops->hal_tx_vdev_mismatch_routing_set(hal_soc_hdl, config);
+	reg_addr = HWIO_TCL_R0_CMN_CONFIG_ADDR(MAC_TCL_REG_REG_BASE);
+
+	val = HAL_REG_READ(hal_soc, reg_addr);
+
+	/* reset the corresponding bits in register */
+	val &= (~(HWIO_TCL_R0_CMN_CONFIG_VDEVID_MISMATCH_EXCEPTION_BMSK));
+
+	/* set config value */
+	reg_val = val | (config <<
+			HWIO_TCL_R0_CMN_CONFIG_VDEVID_MISMATCH_EXCEPTION_SHFT);
+
+	HAL_REG_WRITE(hal_soc, reg_addr, reg_val);
 }
 #else
 static inline void
 hal_tx_vdev_mismatch_routing_set(hal_soc_handle_t hal_soc_hdl,
 				 enum hal_tx_vdev_mismatch_notify config)
-{
-}
-#endif
-
-/**
- * hal_tx_mcast_mlo_reinject_routing_set - set MLO multicast reinject routing
- * @hal_soc: HAL SoC context
- * @config: HAL_TX_MCAST_MLO_REINJECT_FW_NOTIFY - route via FW
- *          HAL_TX_MCAST_MLO_REINJECT_TQM_NOTIFY - route via TQM
- *
- * Return: void
- */
-#if defined(HWIO_TCL_R0_CMN_CONFIG_MCAST_CMN_PN_SN_MLO_REINJECT_ENABLE_BMSK) && \
-	defined(WLAN_MCAST_MLO)
-static inline void
-hal_tx_mcast_mlo_reinject_routing_set(
-				hal_soc_handle_t hal_soc_hdl,
-				enum hal_tx_mcast_mlo_reinject_notify config)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-	hal_soc->ops->hal_tx_mcast_mlo_reinject_routing_set(hal_soc_hdl,
-							    config);
-}
-#else
-static inline void
-hal_tx_mcast_mlo_reinject_routing_set(
-				hal_soc_handle_t hal_soc_hdl,
-				enum hal_tx_mcast_mlo_reinject_notify config)
-{
-}
-#endif
-
-/*
- * hal_reo_config_reo2ppe_dest_info() - Configure reo2ppe dest info
- * @hal_soc_hdl: HAL SoC Context
- *
- * Return: None.
- */
-static inline
-void hal_reo_config_reo2ppe_dest_info(hal_soc_handle_t hal_soc_hdl)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	if (hal_soc->ops->hal_reo_config_reo2ppe_dest_info)
-		hal_soc->ops->hal_reo_config_reo2ppe_dest_info(hal_soc_hdl);
-}
-
-/*
- * hal_tx_get_num_ppe_vp_tbl_entries() - Get the total number of VP table
- * @hal_soc: HAL SoC Context
- *
- * Return: Total number of entries.
- */
-static inline
-uint32_t hal_tx_get_num_ppe_vp_tbl_entries(hal_soc_handle_t hal_soc_hdl)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	return hal_soc->ops->hal_tx_get_num_ppe_vp_tbl_entries(hal_soc_hdl);
-}
-
-/**
- * hal_tx_set_ppe_cmn_cfg()- Set the PPE common config
- * @hal_soc: HAL SoC context
- * @cmn_cfg: HAL PPE VP common config
- *
- * Return: void
- */
-static inline void
-hal_tx_set_ppe_cmn_cfg(hal_soc_handle_t hal_soc_hdl,
-		       union hal_tx_cmn_config_ppe *cmn_cfg)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	hal_soc->ops->hal_tx_set_ppe_cmn_cfg(hal_soc_hdl, cmn_cfg);
-}
-
-/**
- * hal_tx_populate_ppe_vp_entry -  Populate ppe VP entry
- * @hal_soc: HAL SoC context
- * @vp_cfg: HAL PPE VP config
- * @ppe_vp_idx: PPE VP index
- *
- * Return: void
- */
-static inline void
-hal_tx_populate_ppe_vp_entry(hal_soc_handle_t hal_soc_hdl,
-			     union hal_tx_ppe_vp_config *vp_cfg,
-			     int ppe_vp_idx)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	hal_soc->ops->hal_tx_set_ppe_vp_entry(hal_soc_hdl, vp_cfg, ppe_vp_idx);
-}
-
-/**
- * hal_tx_set_int_pri2id - Set the prit2tid table.
- * @hal_soc: HAL SoC context
- * @pri2tid: Reference to SW INT_PRI to TID table
- *
- * Return: void
- */
-static inline void
-hal_tx_set_int_pri2tid(hal_soc_handle_t hal_soc_hdl,
-		       uint32_t val, uint8_t map_no)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	hal_soc->ops->hal_tx_set_ppe_pri2tid(hal_soc_hdl, val, map_no);
-}
-
-/**
- * hal_tx_update_int_pri2id - Populate the prit2tid table.
- * @hal_soc: HAL SoC context
- * @pri: INT_PRI value
- * @tid: Wi-Fi TID
- *
- * Return: void
- */
-static inline void
-hal_tx_update_int_pri2tid(hal_soc_handle_t hal_soc_hdl,
-			  uint8_t pri, uint8_t tid)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	hal_soc->ops->hal_tx_update_ppe_pri2tid(hal_soc_hdl, pri, tid);
-}
-
-/**
- * hal_tx_dump_ppe_vp_entry - Dump the PPE VP entry
- * @hal_soc_hdl: HAL SoC context
- *
- * Return: void
- */
-static inline void
-hal_tx_dump_ppe_vp_entry(hal_soc_handle_t hal_soc_hdl)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	hal_soc->ops->hal_tx_dump_ppe_vp_entry(hal_soc_hdl);
-}
-
-/**
- * hal_tx_enable_pri2tid_map- Enable the priority to tid mapping
- * @hal_soc_hdl: HAL SoC context
- * @val: True/False value
- *
- * Return: void
- */
-static inline void
-hal_tx_enable_pri2tid_map(hal_soc_handle_t hal_soc_hdl, bool val,
-			  uint8_t ppe_vp_idx)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	hal_soc->ops->hal_tx_enable_pri2tid_map(hal_soc_hdl, val,
-						ppe_vp_idx);
-}
-
-#ifdef HWIO_TCL_R0_VDEV_MCAST_PACKET_CTRL_MAP_n_VAL_SHFT
-static inline void
-hal_tx_vdev_mcast_ctrl_set(hal_soc_handle_t hal_soc_hdl,
-		uint8_t vdev_id, uint8_t mcast_ctrl_val)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	hal_soc->ops->hal_tx_vdev_mcast_ctrl_set(hal_soc_hdl, vdev_id,
-						 mcast_ctrl_val);
-}
-#else
-static inline void
-hal_tx_vdev_mcast_ctrl_set(hal_soc_handle_t hal_soc_hdl,
-		uint8_t vdev_id, uint8_t mcast_ctrl_val)
 {
 }
 #endif

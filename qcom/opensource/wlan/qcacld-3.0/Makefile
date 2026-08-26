@@ -12,34 +12,23 @@ KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
 M ?= $(shell pwd)
 
 ifeq ($(WLAN_ROOT),)
-WLAN_CHIPSET := qca_cld3
-LOCAL_DEV_NAME := $(patsubst .%,%,\
-	$(lastword $(strip $(subst /, ,$(M)))))
+# WLAN_ROOT must contain an absolute path (i.e. not a relative path)
+KBUILD_OPTIONS := WLAN_ROOT=$(shell cd $(KERNEL_SRC); readlink -e $(M))
 
-KBUILD_OPTIONS += \
-    WLAN_ROOT=$(KERNEL_SRC)/$(M) \
-    CONFIG_QCA_CLD_WLAN=m \
-    CONFIG_CNSS_OUT_OF_TREE=y \
-    CONFIG_CNSS2=m \
-    CONFIG_ICNSS2=m \
-    CONFIG_CNSS2_QMI=y \
-    CONFIG_ICNSS2_QMI=y \
-    CONFIG_CNSS_QMI_SVC=m \
-    CONFIG_CNSS_PLAT_IPC_QMI_SVC=m \
-    CONFIG_CNSS_GENL=m \
-    CONFIG_WCNSS_MEM_PRE_ALLOC=m \
-    CONFIG_CNSS_UTILS=m \
-    CONFIG_CNSS_HW_SECURE_DISABLE=y \
-    CONFIG_BUS_AUTO_SUSPEND=y \
-    BOARD_PLATFORM=$(TARGET_BOARD_PLATFORM) \
-    WLAN_PROFILE=$(LOCAL_DEV_NAME) \
-    DYNAMIC_SINGLE_CHIP=$(LOCAL_DEV_NAME) \
-    MODNAME=$(WLAN_CHIPSET)_$(LOCAL_DEV_NAME) \
-    DEVNAME=$(LOCAL_DEV_NAME) \
-    WLAN_CTRL_NAME=wlan
+# MODNAME should be qca_cld3_wlan for helium based platform
+ifeq (qca_cld3, $(WLAN_CHIPSET))
+KBUILD_OPTIONS += MODNAME?=$(WLAN_CHIPSET)_wlan
+else
+KBUILD_OPTIONS += MODNAME?=wlan
 endif
 
-KBUILD_OPTIONS += KBUILD_EXTRA_SYMBOLS=$(OUT_DIR)/../sm8550-modules/qcom/opensource/wlan/platform/Module.symvers
+#By default build for CLD
+WLAN_SELECT := CONFIG_QCA_CLD_WLAN=m
+KBUILD_OPTIONS += CONFIG_QCA_WIFI_ISOC=0
+KBUILD_OPTIONS += CONFIG_QCA_WIFI_2_0=1
+KBUILD_OPTIONS += $(WLAN_SELECT)
+KBUILD_OPTIONS += $(KBUILD_EXTRA) # Extra config if any
+endif
 
 all:
 	$(MAKE) -C $(KERNEL_SRC) M=$(M) modules $(KBUILD_OPTIONS)

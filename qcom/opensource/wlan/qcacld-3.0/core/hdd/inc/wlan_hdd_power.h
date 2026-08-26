@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2012, 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -53,7 +52,7 @@
  * @HDD_FILTER_PROTO_TYPE_IPV4: IP V4 protocol
  * @HDD_FILTER_PROTO_TYPE_IPV6: IP V6 protocol
  * @HDD_FILTER_PROTO_TYPE_UDP: UDP protocol
- * @HDD_FILTER_PROTO_TYPE_MAX: Max place holder value
+ * @HDD_FILTER_PROTO_TYPE_INVALID: Max place holder value
  */
 enum pkt_filter_protocol_layer {
 	HDD_FILTER_PROTO_TYPE_INVALID = 0,
@@ -101,7 +100,7 @@ enum pkt_filter_compare_flag {
  * struct pkt_filter_param_cfg - packet filter parameter config
  * @protocol_layer: Protocol layer
  * @compare_flag: Compare flag
- * @data_offset: Data offset
+ * @data_fffset: Data offset
  * @data_length: Data length
  * @compare_data: Compare data
  * @data_mask: Data mask
@@ -133,7 +132,7 @@ struct pkt_filter_cfg {
 
 #ifdef FEATURE_ANI_LEVEL_REQUEST
 /**
- * struct ani_priv - structure to store the priv data for get ani request
+ * ani_priv - structure to store the priv data for get ani request
  * @num_freq: number of freq received from the FW
  * @ani: data received from the FW
  */
@@ -337,8 +336,7 @@ void hdd_ipv4_notifier_work_queue(struct work_struct *work);
 #ifdef WLAN_NS_OFFLOAD
 /**
  * hdd_enable_ns_offload() - enable NS offload
- * @adapter: pointer to the adapter
- * @trigger: trigger reason to enable ns offload
+ * @adapter:   pointer to the adapter
  *
  * Return: nothing
  */
@@ -347,8 +345,7 @@ void hdd_enable_ns_offload(struct hdd_adapter *adapter,
 
 /**
  * hdd_disable_ns_offload() - disable NS offload
- * @adapter: pointer to the adapter
- * @trigger: trigger reason to enable ns offload
+ * @adapter:   pointer to the adapter
  *
  * Return: nothing
  */
@@ -460,8 +457,7 @@ int wlan_hdd_pm_qos_notify(struct notifier_block *nb, unsigned long curr_val,
  * Return: true if there is PM QoS global vote,
  *	   or an false otherwise
  */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0) && \
-	defined(__ANDROID_COMMON_KERNEL__))
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
 bool wlan_hdd_is_cpu_pm_qos_in_progress(struct hdd_context *hdd_ctx);
 #else
 static inline bool
@@ -542,7 +538,7 @@ void wlan_hdd_inc_suspend_stats(struct hdd_context *hdd_ctx,
 /*
  * Unit-test suspend/resume is a testing feature that allows putting firmware
  * into WoW suspend irrespective of Apps suspend status. It emulates the chain
- * of events that occur during normal system-level suspend/resume, such as
+ * of events that occur durring normal system-level suspend/resume, such as
  * initiating all of the suspend/resume stages in the correct order, and
  * enabling/disabling appropriate copy engine irqs.
  */
@@ -596,7 +592,7 @@ hdd_wlan_fake_apps_suspend(struct wiphy *wiphy, struct net_device *dev,
 }
 #endif /* WLAN_SUSPEND_RESUME_TEST */
 
-#ifdef WLAN_DP_LEGACY_OL_RX_THREAD
+#ifdef QCA_CONFIG_SMP
 /**
  * wlan_hdd_rx_thread_resume() - Resume RX thread
  * @hdd_ctx: HDD context
@@ -622,6 +618,25 @@ static inline void wlan_hdd_rx_thread_resume(struct hdd_context *hdd_ctx) {}
 static inline int wlan_hdd_rx_thread_suspend(struct hdd_context *hdd_ctx)
 {
 	return 0;
+}
+#endif
+
+#ifdef FEATURE_WLAN_FULL_POWER_DOWN_SUPPORT
+/**
+ * wlan_hdd_is_full_power_down_enable()- Check wlan full power down
+ * @hdd_ctx: HDD context
+ *
+ * check whether the wlan full power down is enabled or not.
+ *
+ * Return: true if wlan full power enabled else false
+ */
+bool
+wlan_hdd_is_full_power_down_enable(struct hdd_context *hdd_ctx);
+#else
+static inline bool
+wlan_hdd_is_full_power_down_enable(struct hdd_context *hdd_ctx)
+{
+	return false;
 }
 #endif
 

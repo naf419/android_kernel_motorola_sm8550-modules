@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
  * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
  * above copyright notice and this permission notice appear in all
@@ -187,7 +188,7 @@
 #define WLAN_SOC_F_UAPSD               0x00000400
 	/* STATUS: sleeping */
 #define WLAN_SOC_F_SLEEP               0x00000800
-	/* Enable marking of dfs interference */
+	/* Enable marking of dfs interfernce */
 #define WLAN_SOC_F_MARKDFS             0x00001000
 	/* enable or disable s/w ccmp encrypt decrypt support */
 #define WLAN_SOC_F_CCMPSW_ENCDEC       0x00002000
@@ -195,7 +196,7 @@
 #define WLAN_SOC_F_HIBERNATION         0x00004000
 	/* CONF: desired country has been set */
 #define WLAN_SOC_F_DESCOUNTRY          0x00008000
-	/* CONF: enable power capability or constraint IE */
+	/* CONF: enable power capability or contraint IE */
 #define WLAN_SOC_F_PWRCNSTRIE          0x00010000
 	/* STATUS: 11D in used */
 #define WLAN_SOC_F_DOT11D              0x00020000
@@ -211,7 +212,7 @@
 #define WLAN_SOC_F_SPECTRAL_INI_DISABLE    0x00800000
 	/* FTM testmode enable */
 #define WLAN_SOC_F_TESTMODE_ENABLE     0x01000000
-	/* Dynamic HW mode switchh enable */
+	/* Dynamic HW mode swithch enable */
 #define WLAN_SOC_F_DYNAMIC_HW_MODE     0x02000000
 	/* Broadcast TWT support enable */
 #define WLAN_SOC_F_BCAST_TWT           0x04000000
@@ -232,7 +233,6 @@
  * Feature flags are exhausted. Add EXT feature caps below to extend
  * the feature flags
  */
-
 /* 11AZ Trigger based ranging support */
 #define WLAN_RTT_11AZ_TB_SUPPORT  0x00000001
 /* 11AZ Secure ranging PASN Support */
@@ -244,18 +244,6 @@
 #define WLAN_ROAM_STATS_FRAME_INFO_PER_CANDIDATE  0x00000008
 /* multi client feature flags support */
 #define WLAN_SOC_WLM_MULTI_CLIENT_LL_SUPPORT      0x00000010
-/* vendor handoff control feature support */
-#define WLAN_SOC_VENDOR_HANDOFF_CONTROL           0x00000020
-
-/* Delete all vdev peer support */
-#define WLAN_VDEV_DELETE_ALL_PEER_SUPPORT         0x00000040
-
-/* CCA busy info for each 20Mhz subband of wideband scan channel support */
-#define WLAN_CCA_BUSY_INFO_FOREACH_20MHZ               0x00000400
-/* ch width notify support */
-#define WLAN_VDEV_PARAM_CHWIDTH_WITH_NOTIFY_SUPPORT    0x00000800
-/* Restricted TWT */
-#define WLAN_SOC_F_RESTRICTED_TWT           0x00000080
 
 /* PSOC op flags */
 
@@ -399,7 +387,7 @@ struct wlan_soc_timer {
 /**
  * struct wlan_objmgr_psoc - PSOC common object
  * @soc_reg:               regulatory sub structure
- * @soc_nif:               nif sub structure
+ * @soc_nif:               nif sub strucutre
  * @soc_objmgr:            object manager sub structure
  * @soc_cb:                south bound callbacks
  * @soc_timer:             soc timer for inactivity
@@ -472,7 +460,7 @@ struct wlan_psoc_host_hal_reg_capabilities_ext2 {
  * @phy_version: device id (from probe)
  * @dev_type: Offload/DA
  *
- * Creates PSOC object, initializes with default values
+ * Creates PSOC object, intializes with default values
  * Invokes the registered notifiers to create component object
  *
  * Return: Handle to struct wlan_objmgr_psoc on successful creation,
@@ -547,7 +535,7 @@ typedef void (*wlan_objmgr_op_handler)(struct wlan_objmgr_psoc *psoc,
  * @obj_type: PDEV_OP/VDEV_OP/PEER_OP
  * @handler: the handler will be called for each object of requested type
  *            the handler should be implemented to perform required operation
- * @arg:     arguments passed by caller
+ * @arg:     agruments passed by caller
  * @lock_free_op: its obsolete
  * @dbg_id: id of the caller
  *
@@ -569,7 +557,7 @@ QDF_STATUS wlan_objmgr_iterate_obj_list(
  * @obj_type: PDEV_OP/VDEV_OP/PEER_OP
  * @handler: the handler will be called for each object of requested type
  *            the handler should be implemented to perform required operation
- * @arg:     arguments passed by caller
+ * @arg:     agruments passed by caller
  * @lock_free_op: its obsolete
  * @dbg_id: id of the caller
  *

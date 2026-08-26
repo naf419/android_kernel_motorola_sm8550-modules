@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -25,8 +25,6 @@
 #endif
 #include "wlan_serialization_api.h"
 #include <target_if_mlo_mgr.h>
-#include <cdp_txrx_cmn.h>
-#include <wlan_cfg.h>
 
 void mlo_get_link_information(struct qdf_mac_addr *mld_addr,
 			      struct mlo_link_info *info)
@@ -106,7 +104,7 @@ QDF_STATUS mlo_mlme_clone_sta_security(struct wlan_objmgr_vdev *vdev,
 	struct vdev_mlme_obj *vdev_mlme;
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
 
-	if (!req || !mlo_ctx || !mlo_ctx->mlme_ops ||
+	if (!mlo_ctx || !mlo_ctx->mlme_ops ||
 	    !mlo_ctx->mlme_ops->mlo_mlme_ext_validate_conn_req)
 		return QDF_STATUS_E_FAILURE;
 
@@ -119,29 +117,6 @@ QDF_STATUS mlo_mlme_clone_sta_security(struct wlan_objmgr_vdev *vdev,
 			mlo_ctx->mlme_ops->mlo_mlme_ext_clone_security_param(
 				vdev_mlme, req);
 	}
-
-	return status;
-}
-
-QDF_STATUS mlo_mlme_sta_op_class(struct wlan_objmgr_vdev *vdev,
-				 uint8_t *ml_ie)
-{
-	struct mlo_mgr_context *mlo_ctx = wlan_objmgr_get_mlo_ctx();
-	struct vdev_mlme_obj *vdev_mlme;
-	QDF_STATUS status = QDF_STATUS_SUCCESS;
-
-	if (!mlo_ctx || !mlo_ctx->mlme_ops ||
-	    !mlo_ctx->mlme_ops->mlo_mlme_ext_validate_conn_req)
-		return QDF_STATUS_E_FAILURE;
-
-	vdev_mlme = wlan_vdev_mlme_get_cmpt_obj(vdev);
-	if (!vdev_mlme)
-		return QDF_STATUS_E_FAILURE;
-
-	if (mlo_ctx->mlme_ops->mlo_mlme_ext_sta_op_class)
-		status =
-			mlo_ctx->mlme_ops->mlo_mlme_ext_sta_op_class(
-				vdev_mlme, ml_ie);
 
 	return status;
 }
@@ -259,7 +234,7 @@ qdf_nbuf_t mlo_mlme_get_link_assoc_req(struct wlan_objmgr_peer *peer,
 	return mlo_ctx->mlme_ops->mlo_mlme_get_link_assoc_req(peer, link_ix);
 }
 
-void mlo_mlme_peer_deauth(struct wlan_objmgr_peer *peer, uint8_t is_disassoc)
+void mlo_mlme_peer_deauth(struct wlan_objmgr_peer *peer)
 {
 	struct mlo_mgr_context *mlo_ctx = wlan_objmgr_get_mlo_ctx();
 
@@ -267,21 +242,8 @@ void mlo_mlme_peer_deauth(struct wlan_objmgr_peer *peer, uint8_t is_disassoc)
 	    !mlo_ctx->mlme_ops->mlo_mlme_ext_deauth)
 		return;
 
-	mlo_ctx->mlme_ops->mlo_mlme_ext_deauth(peer, is_disassoc);
+	mlo_ctx->mlme_ops->mlo_mlme_ext_deauth(peer);
 }
-
-#ifdef UMAC_MLO_AUTH_DEFER
-void mlo_mlme_peer_process_auth(struct mlpeer_auth_params *auth_param)
-{
-	struct mlo_mgr_context *mlo_ctx = wlan_objmgr_get_mlo_ctx();
-
-	if (!mlo_ctx || !mlo_ctx->mlme_ops ||
-	    !mlo_ctx->mlme_ops->mlo_mlme_ext_peer_process_auth)
-		return;
-
-	mlo_ctx->mlme_ops->mlo_mlme_ext_peer_process_auth(auth_param);
-}
-#endif
 
 uint8_t mlo_get_link_vdev_ix(struct wlan_mlo_dev_context *ml_dev,
 			     struct wlan_objmgr_vdev *vdev)
@@ -301,39 +263,6 @@ uint8_t mlo_get_link_vdev_ix(struct wlan_mlo_dev_context *ml_dev,
 }
 
 #ifdef WLAN_MLO_MULTI_CHIP
-int8_t wlan_mlo_get_max_num_links(void)
-{
-	struct mlo_mgr_context *mlo_ctx;
-
-	mlo_ctx = wlan_objmgr_get_mlo_ctx();
-	if (!mlo_ctx)
-		return WLAN_MLO_INVALID_NUM_LINKS;
-
-	return mlo_ctx->setup_info.tot_socs * WLAN_MAX_MLO_LINKS_PER_SOC;
-}
-
-int8_t wlan_mlo_get_num_active_links(void)
-{
-	struct mlo_mgr_context *mlo_ctx;
-
-	mlo_ctx = wlan_objmgr_get_mlo_ctx();
-	if (!mlo_ctx)
-		return WLAN_MLO_INVALID_NUM_LINKS;
-
-	return mlo_ctx->setup_info.tot_links;
-}
-
-uint16_t wlan_mlo_get_valid_link_bitmap(void)
-{
-	struct mlo_mgr_context *mlo_ctx;
-
-	mlo_ctx = wlan_objmgr_get_mlo_ctx();
-	if (!mlo_ctx)
-		return 0;
-
-	return mlo_ctx->setup_info.valid_link_bitmap;
-}
-
 uint16_t wlan_mlo_get_pdev_hw_link_id(struct wlan_objmgr_pdev *pdev)
 {
 	struct wlan_objmgr_psoc *psoc;
@@ -349,8 +278,6 @@ uint16_t wlan_mlo_get_pdev_hw_link_id(struct wlan_objmgr_pdev *pdev)
 
 	return hw_link_id;
 }
-
-qdf_export_symbol(wlan_mlo_get_pdev_hw_link_id);
 
 static void wlan_pdev_hw_link_iterator(struct wlan_objmgr_psoc *psoc,
 				       void *obj, void *arg)
@@ -396,8 +323,6 @@ wlan_mlo_get_pdev_by_hw_link_id(uint16_t hw_link_id,
 
 	return itr.pdev;
 }
-
-qdf_export_symbol(wlan_mlo_get_pdev_by_hw_link_id);
 #endif /*WLAN_MLO_MULTI_CHIP*/
 
 void mlo_get_ml_vdev_list(struct wlan_objmgr_vdev *vdev,
@@ -438,18 +363,15 @@ void mlo_get_ml_vdev_list(struct wlan_objmgr_vdev *vdev,
 /**
  * mlo_link_set_active() - send MLO link set active command
  * @psoc: PSOC object
- * @req: MLO link set active request
+ * @param: MLO link set active params
  *
  * Return: QDF_STATUS
  */
 static QDF_STATUS
 mlo_link_set_active(struct wlan_objmgr_psoc *psoc,
-		    struct mlo_link_set_active_req *req)
+		    struct mlo_link_set_active_param *param)
 {
 	struct wlan_lmac_if_mlo_tx_ops *mlo_tx_ops;
-	struct mlo_link_set_active_param *param = &req->param;
-	QDF_STATUS status;
-	struct mlo_link_set_active_resp rsp_evt;
 
 	if (!psoc) {
 		mlo_err("psoc is null");
@@ -467,24 +389,11 @@ mlo_link_set_active(struct wlan_objmgr_psoc *psoc,
 		return QDF_STATUS_E_NULL_VALUE;
 	}
 
-	if (req->ctx.validate_set_mlo_link_cb) {
-		status = req->ctx.validate_set_mlo_link_cb(psoc, param);
-		if (QDF_IS_STATUS_ERROR(status)) {
-			qdf_mem_zero(&rsp_evt, sizeof(rsp_evt));
-			rsp_evt.status = status;
-			if (req->ctx.set_mlo_link_cb)
-				req->ctx.set_mlo_link_cb(req->ctx.vdev,
-							 req->ctx.cb_arg,
-							 &rsp_evt);
-			return status;
-		}
-	}
-
 	return mlo_tx_ops->link_set_active(psoc, param);
 }
 
 /**
- * mlo_release_ser_link_set_active_cmd() - releases serialization command for
+ * mlo_release_ser_link_set_active_cmd() - relases serialization command for
  *  forcing MLO link active/inactive
  * @vdev: Object manager vdev
  *
@@ -580,7 +489,7 @@ mlo_ser_set_link_cb(struct wlan_serialization_command *cmd,
 	vdev = cmd->vdev;
 	switch (reason) {
 	case WLAN_SER_CB_ACTIVATE_CMD:
-		status = mlo_link_set_active(psoc, req);
+		status = mlo_link_set_active(psoc, &req->param);
 		break;
 	case WLAN_SER_CB_CANCEL_CMD:
 	case WLAN_SER_CB_ACTIVE_CMD_TIMEOUT:
@@ -608,6 +517,7 @@ QDF_STATUS mlo_ser_set_link_req(struct mlo_link_set_active_req *req)
 	struct wlan_serialization_command cmd = {0, };
 	enum wlan_serialization_status ser_cmd_status;
 	QDF_STATUS status;
+	void *umac_cmd;
 	struct wlan_objmgr_vdev *vdev;
 
 	if (!req)
@@ -621,6 +531,13 @@ QDF_STATUS mlo_ser_set_link_req(struct mlo_link_set_active_req *req)
 		return status;
 	}
 
+	umac_cmd = qdf_mem_malloc(sizeof(*req));
+	if (!umac_cmd) {
+		status = QDF_STATUS_E_NOMEM;
+		goto out;
+	}
+	qdf_mem_copy(umac_cmd, req, sizeof(*req));
+
 	cmd.cmd_type = WLAN_SER_CMD_SET_MLO_LINK;
 	cmd.cmd_id = 0;
 	cmd.cmd_cb = mlo_ser_set_link_cb;
@@ -629,7 +546,7 @@ QDF_STATUS mlo_ser_set_link_req(struct mlo_link_set_active_req *req)
 	cmd.cmd_timeout_duration = MLO_SER_CMD_TIMEOUT_MS;
 	cmd.vdev = vdev;
 	cmd.is_blocking = true;
-	cmd.umac_cmd = (void *)req;
+	cmd.umac_cmd = umac_cmd;
 
 	ser_cmd_status = wlan_serialization_request(&cmd);
 	switch (ser_cmd_status) {
@@ -645,9 +562,12 @@ QDF_STATUS mlo_ser_set_link_req(struct mlo_link_set_active_req *req)
 		status = QDF_STATUS_E_FAILURE;
 	}
 
+out:
 	if (QDF_IS_STATUS_SUCCESS(status))
 		return status;
 
+	if (umac_cmd)
+		qdf_mem_free(umac_cmd);
 	wlan_objmgr_vdev_release_ref(vdev, WLAN_MLO_MGR_ID);
 
 	return status;
@@ -664,213 +584,3 @@ void mlo_mlme_handle_sta_csa_param(struct wlan_objmgr_vdev *vdev,
 
 	mlo_ctx->mlme_ops->mlo_mlme_ext_handle_sta_csa_param(vdev, csa_param);
 }
-
-QDF_STATUS
-mlo_get_mlstats_vdev_params(struct wlan_objmgr_psoc *psoc,
-			    struct mlo_stats_vdev_params *info,
-			    uint8_t vdev_id)
-{
-	struct wlan_objmgr_vdev *ml_vdev_list[WLAN_UMAC_MLO_MAX_VDEVS] = {0};
-	struct wlan_objmgr_vdev *vdev;
-	int i;
-	uint16_t ml_vdev_cnt = 0;
-
-	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
-						    WLAN_MLO_MGR_ID);
-	if (!vdev) {
-		mlo_err("vdev object is NULL for vdev %d", vdev_id);
-		return QDF_STATUS_E_INVAL;
-	}
-
-	mlo_get_ml_vdev_list(vdev, &ml_vdev_cnt, ml_vdev_list);
-	for (i = 0; i < ml_vdev_cnt; i++) {
-		info->ml_vdev_id[i] = wlan_vdev_get_id(ml_vdev_list[i]);
-		mlo_release_vdev_ref(ml_vdev_list[i]);
-	}
-	info->ml_vdev_count = ml_vdev_cnt;
-	mlo_release_vdev_ref(vdev);
-
-	return QDF_STATUS_SUCCESS;
-}
-
-static QDF_STATUS
-mlo_get_link_stats_get_context(struct wlan_objmgr_psoc *psoc,
-			       get_ml_link_state_cb *resp_cb,
-			       void **context, uint8_t vdev_id)
-{
-	struct wlan_mlo_dev_context *mlo_ctx;
-	struct wlan_mlo_sta *sta_ctx = NULL;
-	struct wlan_objmgr_vdev *vdev;
-
-	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
-						    WLAN_MLO_MGR_ID);
-	if (!vdev)
-		return QDF_STATUS_E_NULL_VALUE;
-
-	if (!wlan_vdev_mlme_is_mlo_vdev(vdev)) {
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_MLO_MGR_ID);
-		return QDF_STATUS_E_NULL_VALUE;
-	}
-
-	mlo_ctx = vdev->mlo_dev_ctx;
-
-	if (!mlo_ctx) {
-		mlo_err("null mlo_dev_ctx");
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_MLO_MGR_ID);
-		return QDF_STATUS_E_NULL_VALUE;
-	}
-
-	sta_ctx = mlo_ctx->sta_ctx;
-
-	if (!sta_ctx) {
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_MLO_MGR_ID);
-		return QDF_STATUS_E_INVAL;
-	}
-
-	mlo_dev_lock_acquire(mlo_ctx);
-	*resp_cb = sta_ctx->ml_link_state.ml_link_state_resp_cb;
-	*context = sta_ctx->ml_link_state.ml_link_state_req_context;
-
-	mlo_dev_lock_release(mlo_ctx);
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_MLO_MGR_ID);
-	return QDF_STATUS_SUCCESS;
-}
-
-static void ml_extract_link_state(struct wlan_objmgr_psoc *psoc,
-				  struct ml_link_state_info_event *event)
-{
-	QDF_STATUS status;
-	get_ml_link_state_cb resp_cb = NULL;
-	void *context = NULL;
-	uint8_t vdev_id;
-
-	vdev_id = event->vdev_id;
-
-	status = mlo_get_link_stats_get_context(psoc,
-						&resp_cb, &context, vdev_id);
-
-	if (QDF_IS_STATUS_ERROR(status))
-		return;
-
-	if (resp_cb)
-		resp_cb(event, context);
-}
-
-QDF_STATUS
-wlan_handle_ml_link_state_info_event(struct wlan_objmgr_psoc *psoc,
-				     struct ml_link_state_info_event *event)
-{
-	if (!event)
-		return QDF_STATUS_E_NULL_VALUE;
-
-	ml_extract_link_state(psoc, event);
-
-	return QDF_STATUS_SUCCESS;
-}
-
-static QDF_STATUS ml_get_link_status_req_cb(struct scheduler_msg *msg)
-{
-	struct wlan_objmgr_vdev *vdev = msg->bodyptr;
-	struct wlan_mlo_dev_context *mlo_dev_ctx = NULL;
-	struct mlo_link_state_cmd_params cmd = {0};
-	struct wlan_lmac_if_mlo_tx_ops *mlo_tx_ops;
-	struct wlan_objmgr_psoc *psoc;
-	int status = 0;
-
-	if (!vdev) {
-		mlo_err("null input vdev");
-		return QDF_STATUS_E_INVAL;
-	}
-
-	psoc = wlan_vdev_get_psoc(vdev);
-
-	if (!psoc) {
-		mlo_err("null psoc");
-		return QDF_STATUS_E_NULL_VALUE;
-	}
-
-	mlo_tx_ops = &psoc->soc_cb.tx_ops->mlo_ops;
-
-	if (!mlo_tx_ops) {
-		mlo_err("tx_ops is null!");
-		return QDF_STATUS_E_NULL_VALUE;
-	}
-
-	if (!wlan_vdev_mlme_is_mlo_vdev(vdev)) {
-		mlo_err("vdev is not MLO vdev");
-		return status;
-	}
-
-	mlo_dev_ctx = vdev->mlo_dev_ctx;
-	cmd.vdev_id = vdev->vdev_objmgr.vdev_id;
-	qdf_mem_copy(&cmd.mld_mac[0], &mlo_dev_ctx->mld_addr,
-		     QDF_MAC_ADDR_SIZE);
-
-	if (!mlo_tx_ops->request_link_state_info_cmd) {
-		mlo_err("handler is not registered");
-		return QDF_STATUS_E_NULL_VALUE;
-	}
-
-	status = mlo_tx_ops->request_link_state_info_cmd(psoc, &cmd);
-
-	if (QDF_IS_STATUS_ERROR(status))
-		mlo_err("failed to send ml link info command to FW");
-
-	return QDF_STATUS_SUCCESS;
-}
-
-QDF_STATUS
-mlo_get_link_state_register_resp_cb(struct wlan_objmgr_vdev *vdev,
-				    struct ml_link_state_cmd_info *req)
-{
-	struct wlan_mlo_dev_context *mlo_ctx;
-	struct wlan_mlo_sta *sta_ctx = NULL;
-
-	if (!vdev || !wlan_vdev_mlme_is_mlo_vdev(vdev))
-		return QDF_STATUS_E_NULL_VALUE;
-	mlo_ctx = vdev->mlo_dev_ctx;
-
-	if (!mlo_ctx) {
-		mlo_err("null mlo_dev_ctx");
-		return QDF_STATUS_E_NULL_VALUE;
-	}
-
-	sta_ctx = mlo_ctx->sta_ctx;
-
-	if (!sta_ctx)
-		return QDF_STATUS_E_INVAL;
-
-	mlo_dev_lock_acquire(mlo_ctx);
-
-	sta_ctx->ml_link_state.ml_link_state_resp_cb =
-		req->ml_link_state_resp_cb;
-	sta_ctx->ml_link_state.ml_link_state_req_context =
-		req->request_cookie;
-	mlo_dev_lock_release(mlo_ctx);
-
-	return QDF_STATUS_SUCCESS;
-}
-
-static QDF_STATUS ml_get_link_state_req_flush_cb(struct scheduler_msg *msg)
-{
-	mlo_debug("ml_get_link_state_req flush callback");
-	return QDF_STATUS_SUCCESS;
-}
-
-QDF_STATUS ml_post_get_link_state_msg(struct wlan_objmgr_vdev *vdev)
-{
-	struct scheduler_msg msg = {0};
-	QDF_STATUS qdf_status = 0;
-
-	msg.bodyptr = vdev;
-	msg.callback = ml_get_link_status_req_cb;
-	msg.flush_callback = ml_get_link_state_req_flush_cb;
-
-	qdf_status = scheduler_post_message(
-				QDF_MODULE_ID_OS_IF,
-				QDF_MODULE_ID_MLME,
-				QDF_MODULE_ID_OS_IF,
-				&msg);
-	return qdf_status;
-}
-

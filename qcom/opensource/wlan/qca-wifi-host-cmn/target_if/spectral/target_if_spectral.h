@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011,2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ *
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -140,7 +140,7 @@
 #define TLV_TAG_SEARCH_FFT_REPORT_GEN2           0xFB
 
 /**
- * The Maximum number of detector information to be filled in the SAMP msg
+ * The Maximum number of detector informations to be filled in the SAMP msg
  * is 3, only for 165MHz case. For all other cases this value will be 1.
  */
 #define MAX_NUM_DEST_DETECTOR_INFO    (3)
@@ -386,7 +386,7 @@ struct spectral_process_phyerr_info_gen2 {
 /**
  * struct phyerr_info - spectral search fft report for gen3
  * @data:       handle to phyerror buffer
- * @datalen:    length of phyerror buffer
+ * @datalen:    length of phyerror bufer
  * @p_rfqual:   rf quality matrices
  * @p_chaninfo: pointer to chaninfo
  * @tsf64:      64 bit TSF
@@ -942,12 +942,6 @@ struct vdev_spectral_enable_params;
  * channel information
  * @extract_pdev_spectral_session_detector_info: Extract Spectral scan session
  * detector information
- * @extract_spectral_caps_fixed_param: Extract fixed parameters from Spectral
- * capabilities event
- * @extract_spectral_scan_bw_caps: Extract bandwidth capabilities from Spectral
- * capabilities event
- * @extract_spectral_fft_size_caps: Extract fft size capabilities from Spectral
- * capabilities event
  */
 struct spectral_wmi_ops {
 	QDF_STATUS (*wmi_spectral_configure_cmd_send)(
@@ -981,15 +975,6 @@ struct spectral_wmi_ops {
 		wmi_unified_t wmi_handle, void *event,
 		struct spectral_session_det_info *det_info,
 		uint8_t det_info_idx);
-	QDF_STATUS (*extract_spectral_caps_fixed_param)(
-		wmi_unified_t wmi_handle, void *event,
-		struct spectral_capabilities_event_params *param);
-	QDF_STATUS (*extract_spectral_scan_bw_caps)(
-		wmi_unified_t wmi_handle, void *event,
-		struct spectral_scan_bw_capabilities *bw_caps);
-	QDF_STATUS (*extract_spectral_fft_size_caps)(
-		wmi_unified_t wmi_handle, void *event,
-		struct spectral_fft_size_capabilities *fft_size_caps);
 };
 
 /**
@@ -1060,7 +1045,7 @@ struct per_session_dest_det_info {
 /**
  * struct per_session_det_map - A map of per-session detector information,
  * keyed by the detector id obtained from the Spectral FFT report, mapping to
- * destination detector info in SAMP message.
+ * detination detector info in SAMP message.
  * @dest_det_info: Struct containing per-session detector information
  * @num_dest_det_info: Number of destination detectors to which information
  * of this detector is to be filled
@@ -1074,7 +1059,7 @@ struct per_session_det_map {
 	uint8_t num_dest_det_info;
 	enum spectral_msg_buf_type buf_type;
 	bool send_to_upper_layers;
-	bool det_map_valid[SPECTRAL_SCAN_MODE_MAX];
+	bool det_map_valid;
 };
 
 /**
@@ -1190,7 +1175,7 @@ int get_supported_sscan_bw_pos(enum phy_ch_width sscan_bw);
  * @send_single_packet: Deprecated
  * @spectral_sent_msg: Indicates whether we send report to upper layers
  * @params: Spectral parameters
- * @last_capture_time: Indicates timestamp of previous report
+ * @last_capture_time: Indicates timestamp of previouse report
  * @num_spectral_data: Number of Spectral samples received in current session
  * @total_spectral_data: Total number of Spectral samples received
  * @max_rssi: Maximum RSSI
@@ -1259,7 +1244,6 @@ int get_supported_sscan_bw_pos(enum phy_ch_width sscan_bw);
  * @supported_bws: Supported sscan bandwidths for all sscan modes and
  * operating widths
  * @supported_sscan_bw_list: List of supported sscan widths for all sscan modes
- * @data_stats: stats in Spectral data path
  */
 struct target_if_spectral {
 	struct wlan_objmgr_pdev *pdev_obj;
@@ -1393,7 +1377,6 @@ struct target_if_spectral {
 		supported_bws[SPECTRAL_SCAN_MODE_MAX][CH_WIDTH_MAX];
 	/* Whether a given sscan BW is supported on a given smode */
 	bool supported_sscan_bw_list[SPECTRAL_SCAN_MODE_MAX][CH_WIDTH_MAX];
-	struct spectral_data_stats data_stats;
 };
 
 /**
@@ -1497,7 +1480,7 @@ struct target_if_samp_msg_params {
  * @freq_loading: spectral control duty cycles
  * @noise_floor:  current noise floor (except for secondary 80 segment)
  * @noise_floor_sec80:  current noise floor for secondary 80 segment
- * @interf_list: List of interference sources
+ * @interf_list: List of interfernce sources
  * @classifier_params:  classifier parameters
  * @sc:  classifier parameters
  * @pri80ind: Indication from hardware that the sample was received on the
@@ -2996,52 +2979,4 @@ target_if_spectral_copy_fft_bins(struct target_if_spectral *spectral,
 				 uint32_t *bytes_copied,
 				 uint16_t pwr_format);
 #endif /* WLAN_CONV_SPECTRAL_ENABLE */
-
-struct spectral_capabilities_event_params;
-/**
- * target_if_wmi_extract_spectral_caps_fixed_param() - Wrapper function to
- * extract fixed params from Spectral capabilities WMI event
- * @psoc: Pointer to psoc object
- * @evt_buf: Event buffer
- * @param: Spectral capabilities event parameters data structure to be filled
- * by this API
- *
- * Return: QDF_STATUS of operation
- */
-QDF_STATUS target_if_wmi_extract_spectral_caps_fixed_param(
-			struct wlan_objmgr_psoc *psoc,
-			uint8_t *evt_buf,
-			struct spectral_capabilities_event_params *param);
-
-struct spectral_scan_bw_capabilities;
-/**
- * target_if_wmi_extract_spectral_scan_bw_caps() - Wrapper function to
- * extract bandwidth capabilities from Spectral capabilities WMI event
- * @psoc: Pointer to psoc object
- * @evt_buf: Event buffer
- * @bw_caps: Data structure to be filled by this API after extraction
- *
- * Return: QDF_STATUS of operation
- */
-QDF_STATUS
-target_if_wmi_extract_spectral_scan_bw_caps(
-			struct wlan_objmgr_psoc *psoc,
-			uint8_t *evt_buf,
-			struct spectral_scan_bw_capabilities *bw_caps);
-
-struct spectral_fft_size_capabilities;
-/**
- * target_if_wmi_extract_spectral_fft_size_caps() - Wrapper function to
- * extract fft size capabilities from Spectral capabilities WMI event
- * @psoc: Pointer to psoc object
- * @evt_buf: Event buffer
- * @fft_size_caps: Data structure to be filled by this API after extraction
- *
- * Return: QDF_STATUS of operation
- */
-QDF_STATUS
-target_if_wmi_extract_spectral_fft_size_caps(
-			struct wlan_objmgr_psoc *psoc,
-			uint8_t *evt_buf,
-			struct spectral_fft_size_capabilities *fft_size_caps);
 #endif /* _TARGET_IF_SPECTRAL_H_ */

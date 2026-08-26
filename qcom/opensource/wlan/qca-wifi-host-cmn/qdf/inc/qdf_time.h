@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -31,8 +31,6 @@ typedef __qdf_time_t qdf_time_t;
 typedef __qdf_ktime_t qdf_ktime_t;
 typedef __qdf_timespec_t qdf_timespec_t;
 typedef __qdf_work_struct_t qdf_work_struct_t;
-
-#define qdf_time_uint_to_ms(tu) (((tu) * 1024) / 1000)
 
 #ifdef ENHANCED_OS_ABSTRACTION
 /**
@@ -84,14 +82,6 @@ qdf_ktime_t qdf_ktime_add_ns(qdf_ktime_t ktime, int64_t ns);
  * Return: qdf_ktime_t in milliseconds
  */
 int64_t qdf_ktime_to_ms(qdf_ktime_t ktime);
-
-/**
- * qdf_ktime_to_us - Convert the qdf_ktime_t object into microseconds
- * @ktime: time as qdf_ktime_t object
- *
- * Return: qdf_ktime_t in microseconds
- */
-int64_t qdf_ktime_to_us(qdf_ktime_t ktime);
 
 /**
  * qdf_ktime_to_ns - Convert the qdf_ktime_t object into nanoseconds

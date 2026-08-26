@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2011,2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  *
  * Permission to use, copy, modify, and/or distribute this software for
@@ -90,7 +89,6 @@
 #define SPECTRAL_SCAN_DBM_ADJ_DEFAULT          (1)
 #define SPECTRAL_SCAN_CHN_MASK_DEFAULT         (1)
 #define SPECTRAL_SCAN_FREQUENCY_DEFAULT        (0)
-#define SPECTRAL_FFT_RECAPTURE_DEFAULT         (0)
 #endif				/* SPECTRAL_USE_EMU_DEFAULTS */
 
 /* The below two definitions apply only to pre-11ac chipsets */
@@ -467,23 +465,6 @@ struct spectral_cp_request {
 		struct spectral_scan_debug_request debug_req;
 		struct spectral_scan_dma_debug_request dma_debug_req;
 	};
-};
-
-/**
- * struct spectral_data_stats - Spectral data stats
- * @spectral_rx_events: Number of Spectral rx events
- * @consume_spectral_calls: Number of consume_spectral_report() invocations
- * @fill_samp_msg_calls: Number of fill_samp_msg() invocations
- * @msgs_ready_for_user: Number of SAMP messages that are ready to be sent to
- * user-space
- * @msgs_queued_to_user: Number of SAMP messages queued to the user-space
- */
-struct spectral_data_stats {
-	uint32_t spectral_rx_events;
-	uint32_t consume_spectral_calls;
-	uint32_t fill_samp_msg_calls;
-	uint32_t msgs_ready_for_user;
-	uint32_t msgs_queued_to_user;
 };
 
 #ifndef __KERNEL__

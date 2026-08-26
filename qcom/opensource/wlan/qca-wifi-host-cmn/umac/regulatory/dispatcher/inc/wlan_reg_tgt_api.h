@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ *
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -161,54 +161,5 @@ tgt_reg_set_disable_upper_6g_edge_ch_supp(struct wlan_objmgr_psoc *psoc,
 {
 	return QDF_STATUS_E_FAILURE;
 }
-#endif
-
-#ifdef CONFIG_AFC_SUPPORT
-/**
- * tgt_reg_set_afc_dev_type() - set target afc device type
- * @psoc: Pointer to psoc
- * @reg_afc_dev_type: afc device deployment type
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-tgt_reg_set_afc_dev_type(struct wlan_objmgr_psoc *psoc,
-			 enum reg_afc_dev_deploy_type reg_afc_dev_type);
-
-/**
- * tgt_reg_get_afc_dev_type() - get target afc device type
- * @psoc: Pointer to psoc
- * @reg_afc_dev_type: Pointer to afc device deploymenttype
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-tgt_reg_get_afc_dev_type(struct wlan_objmgr_psoc *psoc,
-			 enum reg_afc_dev_deploy_type *reg_afc_dev_type);
-
-/**
- * tgt_reg_set_eirp_preferred_support() - Set EIRP as the preferred
- * support for TPC power command
- * @psoc: psoc pointer
- * @reg_is_eirp_support_preferred: Boolean to indicate if target prefers EIRP
- * support for TPC power command
- *
- * Return: Success or Failure
- */
-QDF_STATUS
-tgt_reg_set_eirp_preferred_support(struct wlan_objmgr_psoc *psoc,
-				   bool reg_is_eirp_support_preferred);
-
-/**
- * tgt_reg_get_eirp_preferred_support() - Check if is EIRP support is
- * preferred by the target for TPC power command
- * @psoc: psoc pointer
- * @reg_is_eirp_support_preferred: Pointer to reg_is_eirp_support_preferred
- *
- * Return: Success or Failure
- */
-QDF_STATUS
-tgt_reg_get_eirp_preferred_support(struct wlan_objmgr_psoc *psoc,
-				   bool *reg_is_eirp_support_preferred);
 #endif
 #endif

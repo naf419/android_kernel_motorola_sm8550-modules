@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -220,7 +220,6 @@ struct pdev_scan_info {
 	struct chan_list custom_chan_list;
 	uint8_t conf_bssid[QDF_MAC_ADDR_SIZE];
 	struct wlan_ssid conf_ssid;
-	struct chan_list_scan_info chan_scan_info;
 };
 
 /**
@@ -324,7 +323,6 @@ struct extscan_def_config {
  * @conc_max_rest_time: default concurrent max rest time
  * @conc_min_rest_time: default concurrent min rest time
  * @conc_idle_time: default concurrent idle time
- * @conc_chlist_trim: enable to trim concurrent scan channel list
  * @repeat_probe_time: default repeat probe time
  * @probe_spacing_time: default probe spacing time
  * @probe_delay: default probe delay
@@ -351,7 +349,6 @@ struct extscan_def_config {
  * @extscan_adaptive_dwell_mode: Adaptive dwell mode during ext scan
  * @skip_6g_and_indoor_freq: skip 6Ghz and 5Gh indoor freq channel for
  * STA scan if hw is non-DBS and SAP is present
- * @last_scan_ageout_time: use last full scan results for provided time in ms
  * @scan_f_passive: passively scan all channels including active channels
  * @scan_f_bcast_probe: add wild card ssid prbreq even if ssid_list is specified
  * @scan_f_cck_rates: add cck rates to rates/xrates ie in prb req
@@ -359,11 +356,11 @@ struct extscan_def_config {
  * @scan_f_chan_stat_evnt: enable indication of chan load and noise floor
  * @scan_f_filter_prb_req: filter Probe request frames
  * @scan_f_bypass_dfs_chn: when set, do not scan DFS channels
- * @scan_f_continue_on_err:continue scan even if few certain errors have occurred
+ * @scan_f_continue_on_err:continue scan even if few certain erros have occurred
  * @scan_f_offchan_mgmt_tx: allow mgmt transmission during off channel scan
  * @scan_f_offchan_data_tx: allow data transmission during off channel scan
  * @scan_f_promisc_mode: scan with promiscuous mode
- * @scan_f_capture_phy_err: enable capture ppdu with phy errors
+ * @scan_f_capture_phy_err: enable capture ppdu with phy errrors
  * @scan_f_strict_passive_pch: do passive scan on passive channels
  * @scan_f_half_rate: enable HALF (10MHz) rate support
  * @scan_f_quarter_rate: set Quarter (5MHz) rate support
@@ -372,7 +369,7 @@ struct extscan_def_config {
  * @scan_f_add_ds_ie_in_probe: add DS ie in probe req frame
  * @scan_f_add_spoofed_mac_in_probe: use random mac address for TA in probe
  * @scan_f_add_rand_seq_in_probe: use random sequence number in probe
- * @scan_f_en_ie_allowlist_in_probe: enable ie allowlist in probe
+ * @scan_f_en_ie_whitelist_in_probe: enable ie whitelist in probe
  * @scan_f_forced: force scan even in presence of data traffic
  * @scan_f_2ghz: scan 2.4 GHz channels
  * @scan_f_5ghz: scan 5 GHz channels
@@ -383,7 +380,7 @@ struct extscan_def_config {
  * @scan_ev_completed: notify scan completed event
  * @scan_ev_bss_chan: notify bss chan event
  * @scan_ev_foreign_chan: notify foreign chan event
- * @scan_ev_dequeued: notify scan request dequeued event
+ * @scan_ev_dequeued: notify scan request dequed event
  * @scan_ev_preempted: notify scan preempted event
  * @scan_ev_start_failed: notify scan start failed event
  * @scan_ev_restarted: notify scan restarted event
@@ -418,7 +415,6 @@ struct scan_default_params {
 	uint32_t conc_max_rest_time;
 	uint32_t conc_min_rest_time;
 	uint32_t conc_idle_time;
-	bool conc_chlist_trim;
 	uint32_t repeat_probe_time;
 	uint32_t probe_spacing_time;
 	uint32_t probe_delay;
@@ -445,7 +441,6 @@ struct scan_default_params {
 	bool honour_nl_scan_policy_flags;
 	enum scan_dwelltime_adaptive_mode extscan_adaptive_dwell_mode;
 	bool skip_6g_and_indoor_freq;
-	uint32_t last_scan_ageout_time;
 	union {
 		struct {
 			uint32_t scan_f_passive:1,
@@ -468,7 +463,7 @@ struct scan_default_params {
 				scan_f_add_ds_ie_in_probe:1,
 				scan_f_add_spoofed_mac_in_probe:1,
 				scan_f_add_rand_seq_in_probe:1,
-				scan_f_en_ie_allowlist_in_probe:1,
+				scan_f_en_ie_whitelist_in_probe:1,
 				scan_f_forced:1,
 				scan_f_2ghz:1,
 				scan_f_5ghz:1,
@@ -501,13 +496,11 @@ struct scan_default_params {
  * @inform_beacon: cb to indicate frame to OS
  * @update_beacon: cb to indicate frame to MLME
  * @unlink_bss: cb to unlink bss from kernel cache
- * @inform_mbssid_bcn_prb_rsp: cb to indicate frames with mbssid
  */
 struct scan_cb {
 	update_beacon_cb inform_beacon;
 	update_beacon_cb update_beacon;
 	update_beacon_cb unlink_bss;
-	update_mbssid_bcn_prb_rsp inform_mbssid_bcn_prb_rsp;
 	/* Define nif/sif function callbacks here */
 };
 
@@ -525,7 +518,7 @@ struct scan_cb {
  * @pdev_info: pointer to pdev info
  * @pno_cfg: default pno configuration
  * @extscan_cfg: default extscan configuration
- * @ie_allowlist: default ie allowlist attrs
+ * @ie_whitelist: default ie whitelist attrs
  * @bt_a2dp_enabled: if bt a2dp is enabled
  * @miracast_enabled: miracast enabled
  * @disable_timeout: command timeout disabled
@@ -558,7 +551,7 @@ struct wlan_scan_obj {
 #ifdef FEATURE_WLAN_EXTSCAN
 	struct extscan_def_config extscan_cfg;
 #endif
-	struct probe_req_allowlist_attr ie_allowlist;
+	struct probe_req_whitelist_attr ie_whitelist;
 	bool bt_a2dp_enabled;
 	bool miracast_enabled;
 	bool disable_timeout;

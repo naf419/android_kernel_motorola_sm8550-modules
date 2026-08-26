@@ -53,75 +53,6 @@ extern enum timer_yield_status
 dp_should_timer_irq_yield(struct dp_soc *soc, uint32_t work_done,
 			  uint64_t start_time);
 
-#ifdef QCA_ENHANCED_STATS_SUPPORT
-void
-dp_mon_populate_ppdu_info_1_0(struct hal_rx_ppdu_info *hal_ppdu_info,
-			      struct cdp_rx_indication_ppdu *ppdu)
-{
-	ppdu->u.preamble = hal_ppdu_info->rx_status.preamble_type;
-	ppdu->u.bw = hal_ppdu_info->rx_status.bw;
-	ppdu->punc_bw = 0;
-}
-
-/*
- * is_ppdu_txrx_capture_enabled() - API to check both pktlog and debug_sniffer
- *                              modes are enabled or not.
- * @dp_pdev: dp pdev handle.
- *
- * Return: bool
- */
-static inline bool is_ppdu_txrx_capture_enabled(struct dp_pdev *pdev)
-{
-	struct dp_mon_pdev *mon_pdev = pdev->monitor_pdev;
-
-	if (!mon_pdev->pktlog_ppdu_stats && !mon_pdev->tx_sniffer_enable &&
-	    !mon_pdev->mcopy_mode)
-		return true;
-	else
-		return false;
-}
-
-/**
- * dp_mon_tx_enable_enhanced_stats_1_0() - Send HTT cmd to FW to enable stats
- * @pdev: Datapath pdev handle
- *
- * Return: none
- */
-static void dp_mon_tx_enable_enhanced_stats_1_0(struct dp_pdev *pdev)
-{
-	struct dp_mon_pdev *mon_pdev = pdev->monitor_pdev;
-
-	if (is_ppdu_txrx_capture_enabled(pdev) && !mon_pdev->bpr_enable) {
-		dp_h2t_cfg_stats_msg_send(pdev, DP_PPDU_STATS_CFG_ENH_STATS,
-					  pdev->pdev_id);
-	} else if (is_ppdu_txrx_capture_enabled(pdev) &&
-		   mon_pdev->bpr_enable) {
-		dp_h2t_cfg_stats_msg_send(pdev,
-					  DP_PPDU_STATS_CFG_BPR_ENH,
-					  pdev->pdev_id);
-	}
-}
-
-/**
- * dp_mon_tx_disable_enhanced_stats_1_0() - Send HTT cmd to FW to disable stats
- * @pdev: Datapath pdev handle
- *
- * Return: none
- */
-static void dp_mon_tx_disable_enhanced_stats_1_0(struct dp_pdev *pdev)
-{
-	struct dp_mon_pdev *mon_pdev = pdev->monitor_pdev;
-
-	if (is_ppdu_txrx_capture_enabled(pdev) && !mon_pdev->bpr_enable) {
-		dp_h2t_cfg_stats_msg_send(pdev, 0, pdev->pdev_id);
-	} else if (is_ppdu_txrx_capture_enabled(pdev) && mon_pdev->bpr_enable) {
-		dp_h2t_cfg_stats_msg_send(pdev,
-					  DP_PPDU_STATS_CFG_BPR,
-					  pdev->pdev_id);
-	}
-}
-#endif
-
 #ifdef QCA_SUPPORT_FULL_MON
 static QDF_STATUS
 dp_config_full_mon_mode(struct cdp_soc_t *soc_handle,
@@ -178,13 +109,10 @@ void dp_flush_monitor_rings(struct dp_soc *soc)
 	hal_soc_handle_t hal_soc = soc->hal_soc;
 	uint32_t lmac_id;
 	uint32_t hp, tp;
+	int dp_intr_id;
 	int budget;
 	void *mon_dst_srng;
 	struct dp_mon_pdev *mon_pdev = pdev->monitor_pdev;
-	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-
-	if (qdf_unlikely(mon_soc->full_mon_mode))
-		return;
 
 	/* Reset monitor filters before reaping the ring*/
 	qdf_spin_lock_bh(&mon_pdev->mon_lock);
@@ -193,11 +121,15 @@ void dp_flush_monitor_rings(struct dp_soc *soc)
 		dp_info("failed to reset monitor filters");
 	qdf_spin_unlock_bh(&mon_pdev->mon_lock);
 
-	if (qdf_unlikely(mon_pdev->mon_chan_band >= REG_BAND_UNKNOWN))
+	if (mon_pdev->mon_chan_band == REG_BAND_UNKNOWN)
 		return;
 
 	lmac_id = pdev->ch_band_lmac_id_mapping[mon_pdev->mon_chan_band];
 	if (qdf_unlikely(lmac_id == DP_MON_INVALID_LMAC_ID))
+		return;
+
+	dp_intr_id = soc->mon_intr_id_lmac_map[lmac_id];
+	if (qdf_unlikely(dp_intr_id == DP_MON_INVALID_LMAC_ID))
 		return;
 
 	mon_dst_srng = dp_rxdma_get_mon_dst_ring(pdev, lmac_id);
@@ -206,12 +138,12 @@ void dp_flush_monitor_rings(struct dp_soc *soc)
 	budget = wlan_cfg_get_dma_mon_stat_ring_size(pdev->wlan_cfg_ctx);
 
 	hal_get_sw_hptp(hal_soc, mon_dst_srng, &tp, &hp);
-	dp_info("Before flush: Monitor DST ring HP %u TP %u", hp, tp);
+	dp_info("Before reap: Monitor DST ring HP %u TP %u", hp, tp);
 
-	dp_mon_drop_packets_for_mac(pdev, lmac_id, budget, true);
+	dp_mon_process(soc, &soc->intr_ctx[dp_intr_id], lmac_id, budget);
 
 	hal_get_sw_hptp(hal_soc, mon_dst_srng, &tp, &hp);
-	dp_info("After flush: Monitor DST ring HP %u TP %u", hp, tp);
+	dp_info("After reap: Monitor DST ring HP %u TP %u", hp, tp);
 }
 
 static
@@ -352,7 +284,7 @@ QDF_STATUS dp_mon_rings_alloc_1_0(struct dp_pdev *pdev)
 #endif
 
 #ifdef QCA_MONITOR_PKT_SUPPORT
-QDF_STATUS dp_vdev_set_monitor_mode_buf_rings(struct dp_pdev *pdev)
+void dp_vdev_set_monitor_mode_buf_rings(struct dp_pdev *pdev)
 {
 	uint32_t mac_id;
 	uint32_t mac_for_pdev;
@@ -391,7 +323,6 @@ QDF_STATUS dp_vdev_set_monitor_mode_buf_rings(struct dp_pdev *pdev)
 			}
 		}
 	}
-	return QDF_STATUS_SUCCESS;
 }
 #endif
 
@@ -410,7 +341,7 @@ QDF_STATUS dp_vdev_set_monitor_mode_rings(struct dp_pdev *pdev,
 
 	pdev_cfg_ctx = pdev->wlan_cfg_ctx;
 
-	/* If monitor rings are already initialized, return from here */
+	/* If monitor rings are aleady initilized, return from here */
 	if (mon_pdev->pdev_mon_init)
 		return QDF_STATUS_SUCCESS;
 
@@ -564,13 +495,10 @@ static void dp_mon_reap_timer_init(struct dp_soc *soc)
 {
 	struct dp_mon_soc *mon_soc = soc->monitor_soc;
 
-	qdf_spinlock_create(&mon_soc->reap_timer_lock);
-	qdf_timer_init(soc->osdev, &mon_soc->mon_reap_timer,
-		       dp_mon_reap_timer_handler, (void *)soc,
-		       QDF_TIMER_TYPE_WAKE_APPS);
-	qdf_mem_zero(mon_soc->mon_reap_src_bitmap,
-		     sizeof(mon_soc->mon_reap_src_bitmap));
-	mon_soc->reap_timer_init = 1;
+        qdf_timer_init(soc->osdev, &mon_soc->mon_reap_timer,
+                       dp_mon_reap_timer_handler, (void *)soc,
+                       QDF_TIMER_TYPE_WAKE_APPS);
+        mon_soc->reap_timer_init = 1;
 }
 #else
 static void dp_mon_reap_timer_init(struct dp_soc *soc)
@@ -582,81 +510,29 @@ static void dp_mon_reap_timer_deinit(struct dp_soc *soc)
 {
 	struct dp_mon_soc *mon_soc = soc->monitor_soc;
         if (mon_soc->reap_timer_init) {
-		mon_soc->reap_timer_init = 0;
-		qdf_timer_free(&mon_soc->mon_reap_timer);
-		qdf_spinlock_destroy(&mon_soc->reap_timer_lock);
+                qdf_timer_free(&mon_soc->mon_reap_timer);
+                mon_soc->reap_timer_init = 0;
         }
 }
 
-/**
- * dp_mon_reap_timer_start() - start reap timer of monitor status ring
- * @soc: point to soc
- * @source: trigger source
- *
- * If the source is CDP_MON_REAP_SOURCE_ANY, skip bit set, and start timer
- * if any bit has been set in the bitmap; while for the other sources, set
- * the bit and start timer if the bitmap is empty before that.
- *
- * Return: true if timer-start is performed, false otherwise.
- */
-static bool
-dp_mon_reap_timer_start(struct dp_soc *soc, enum cdp_mon_reap_source source)
+static void dp_mon_reap_timer_start(struct dp_soc *soc)
 {
 	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-	bool do_start;
+        if (mon_soc->reap_timer_init) {
+                qdf_timer_mod(&mon_soc->mon_reap_timer, DP_INTR_POLL_TIMER_MS);
+        }
 
-	if (!mon_soc->reap_timer_init)
-		return false;
-
-	qdf_spin_lock_bh(&mon_soc->reap_timer_lock);
-	do_start = qdf_bitmap_empty(mon_soc->mon_reap_src_bitmap,
-				    CDP_MON_REAP_SOURCE_NUM);
-	if (source == CDP_MON_REAP_SOURCE_ANY)
-		do_start = !do_start;
-	else
-		qdf_set_bit(source, mon_soc->mon_reap_src_bitmap);
-	qdf_spin_unlock_bh(&mon_soc->reap_timer_lock);
-
-	if (do_start)
-		qdf_timer_mod(&mon_soc->mon_reap_timer, DP_INTR_POLL_TIMER_MS);
-
-	return do_start;
 }
 
-/**
- * dp_mon_reap_timer_stop() - stop reap timer of monitor status ring
- * @soc: point to soc
- * @source: trigger source
- *
- * If the source is CDP_MON_REAP_SOURCE_ANY, skip bit clear, and stop timer
- * if any bit has been set in the bitmap; while for the other sources, clear
- * the bit and stop the timer if the bitmap is empty after that.
- *
- * Return: true if timer-stop is performed, false otherwise.
- */
-static bool
-dp_mon_reap_timer_stop(struct dp_soc *soc, enum cdp_mon_reap_source source)
+static bool dp_mon_reap_timer_stop(struct dp_soc *soc)
 {
 	struct dp_mon_soc *mon_soc = soc->monitor_soc;
-	bool do_stop;
+        if (mon_soc->reap_timer_init) {
+                qdf_timer_sync_cancel(&mon_soc->mon_reap_timer);
+                return true;
+        }
 
-	if (!mon_soc->reap_timer_init)
-		return false;
-
-	qdf_spin_lock_bh(&mon_soc->reap_timer_lock);
-	if (source != CDP_MON_REAP_SOURCE_ANY)
-		qdf_clear_bit(source, mon_soc->mon_reap_src_bitmap);
-
-	do_stop = qdf_bitmap_empty(mon_soc->mon_reap_src_bitmap,
-				   CDP_MON_REAP_SOURCE_NUM);
-	if (source == CDP_MON_REAP_SOURCE_ANY)
-		do_stop = !do_stop;
-	qdf_spin_unlock_bh(&mon_soc->reap_timer_lock);
-
-	if (do_stop)
-		qdf_timer_sync_cancel(&mon_soc->mon_reap_timer);
-
-	return do_stop;
+        return false;
 }
 
 static void dp_mon_vdev_timer_init(struct dp_soc *soc)
@@ -804,9 +680,6 @@ QDF_STATUS dp_mon_htt_srng_setup_1_0(struct dp_soc *soc,
 			return status;
 	}
 
-	if (!soc->rxdma_mon_status_ring[mac_id].hal_srng)
-		return QDF_STATUS_SUCCESS;
-
 	status = htt_srng_setup(soc->htt_handle, mac_for_pdev,
 				soc->rxdma_mon_status_ring[mac_id]
 				.hal_srng,
@@ -851,33 +724,27 @@ void dp_service_mon_rings(struct  dp_soc *soc, uint32_t quota)
 #endif
 
 /*
- * dp_mon_peer_tx_init() – Initialize receive TID state in monitor peer
+ * dp_peer_tx_init() – Initialize receive TID state
  * @pdev: Datapath pdev
  * @peer: Datapath peer
  *
  */
 static void
-dp_mon_peer_tx_init(struct dp_pdev *pdev, struct dp_peer *peer)
+dp_peer_tx_init(struct dp_pdev *pdev, struct dp_peer *peer)
 {
-	if (!peer->monitor_peer)
-		return;
-
 	dp_peer_tid_queue_init(peer);
 	dp_peer_update_80211_hdr(peer->vdev, peer);
 }
 
 /*
- * dp_mon_peer_tx_cleanup() – Deinitialize receive TID state in monitor peer
+ * dp_peer_tx_cleanup() – Deinitialize receive TID state
  * @vdev: Datapath vdev
  * @peer: Datapath peer
  *
  */
 static void
-dp_mon_peer_tx_cleanup(struct dp_vdev *vdev, struct dp_peer *peer)
+dp_peer_tx_cleanup(struct dp_vdev *vdev, struct dp_peer *peer)
 {
-	if (!peer->monitor_peer)
-		return;
-
 	dp_peer_tid_queue_cleanup(peer);
 }
 
@@ -932,86 +799,6 @@ dp_set_bpr_enable_1_0(struct dp_pdev *pdev, int val)
 }
 #endif
 
-#ifdef QCA_ENHANCED_STATS_SUPPORT
-#if defined(WDI_EVENT_ENABLE) && !defined(WLAN_TX_PKT_CAPTURE_ENH)
-/**
- * dp_ppdu_desc_notify_1_0 - Notify upper layer for PPDU indication via WDI
- *
- * @pdev: Datapath pdev handle
- * @nbuf: Buffer to be shipped
- *
- * Return: void
- */
-static void dp_ppdu_desc_notify_1_0(struct dp_pdev *pdev, qdf_nbuf_t nbuf)
-{
-	struct dp_mon_pdev *mon_pdev = pdev->monitor_pdev;
-	struct cdp_tx_completion_ppdu *ppdu_desc = NULL;
-
-	ppdu_desc = (struct cdp_tx_completion_ppdu *)qdf_nbuf_data(nbuf);
-
-	/**
-	 * Deliver PPDU stats only for valid (acked) data
-	 * frames if sniffer mode is not enabled.
-	 * If sniffer mode is enabled, PPDU stats
-	 * for all frames including mgmt/control
-	 * frames should be delivered to upper layer
-	 */
-	if (mon_pdev->tx_sniffer_enable || mon_pdev->mcopy_mode) {
-		dp_wdi_event_handler(WDI_EVENT_TX_PPDU_DESC,
-				     pdev->soc,
-				     nbuf, HTT_INVALID_PEER,
-				     WDI_NO_VAL,
-				     pdev->pdev_id);
-	} else {
-		if (ppdu_desc->num_mpdu != 0 &&
-		    ppdu_desc->num_users != 0 &&
-		    ppdu_desc->frame_ctrl &
-		    HTT_FRAMECTRL_DATATYPE) {
-			dp_wdi_event_handler(WDI_EVENT_TX_PPDU_DESC,
-					     pdev->soc,
-					     nbuf, HTT_INVALID_PEER,
-					     WDI_NO_VAL,
-					     pdev->pdev_id);
-		} else {
-			qdf_nbuf_free(nbuf);
-		}
-	}
-}
-#endif
-
-/**
- * dp_ppdu_stats_feat_enable_check_1_0 - Check if feature(s) is enabled to
- *				consume ppdu stats from FW
- *
- * @pdev: Datapath pdev handle
- *
- * Return: true if enabled, else return false
- */
-static bool dp_ppdu_stats_feat_enable_check_1_0(struct dp_pdev *pdev)
-{
-	struct dp_mon_pdev *mon_pdev = pdev->monitor_pdev;
-
-	if (!mon_pdev->enhanced_stats_en && !mon_pdev->tx_sniffer_enable &&
-	    !mon_pdev->mcopy_mode && !mon_pdev->bpr_enable)
-		return false;
-	else
-		return true;
-}
-
-/**
- * dp_mon_tx_stats_update_1_0 - Update Tx stats from HTT PPDU completion path
- *
- * @monitor: Monitor peer
- * @ppdu: Tx PPDU user completion info
- */
-void
-dp_mon_tx_stats_update_1_0(struct dp_mon_peer *mon_peer,
-			   struct cdp_tx_completion_ppdu_user *ppdu)
-{
-	ppdu->punc_mode = NO_PUNCTURE;
-}
-#endif
-
 #ifndef QCA_SUPPORT_FULL_MON
 /**
  * dp_rx_mon_process () - Core brain processing for monitor mode
@@ -1047,27 +834,11 @@ dp_rx_mon_process_1_0(struct dp_soc *soc, struct dp_intr *int_ctx,
 	return dp_rx_mon_status_process(soc, int_ctx, mac_id, quota);
 }
 
-#if defined(WDI_EVENT_ENABLE) &&\
-	(defined(QCA_ENHANCED_STATS_SUPPORT) || !defined(REMOVE_PKT_LOG))
-static inline
-void dp_mon_ppdu_stats_handler_register(struct dp_mon_soc *mon_soc)
-{
-	mon_soc->mon_ops->mon_ppdu_stats_ind_handler =
-					dp_ppdu_stats_ind_handler;
-}
-#else
-static inline
-void dp_mon_ppdu_stats_handler_register(struct dp_mon_soc *mon_soc)
-{
-}
-#endif
-
 static void dp_mon_register_intr_ops_1_0(struct dp_soc *soc)
 {
 	struct dp_mon_soc *mon_soc = soc->monitor_soc;
 
 	mon_soc->mon_rx_process = dp_rx_mon_process_1_0;
-	dp_mon_ppdu_stats_handler_register(mon_soc);
 }
 #endif
 
@@ -1089,8 +860,8 @@ dp_mon_register_feature_ops_1_0(struct dp_soc *soc)
 	}
 
 	mon_ops->mon_config_debug_sniffer = dp_config_debug_sniffer;
-	mon_ops->mon_peer_tx_init = dp_mon_peer_tx_init;
-	mon_ops->mon_peer_tx_cleanup = dp_mon_peer_tx_cleanup;
+	mon_ops->mon_peer_tx_init = dp_peer_tx_init;
+	mon_ops->mon_peer_tx_cleanup = dp_peer_tx_cleanup;
 	mon_ops->mon_htt_ppdu_stats_attach = dp_htt_ppdu_stats_attach;
 	mon_ops->mon_htt_ppdu_stats_detach = dp_htt_ppdu_stats_detach;
 	mon_ops->mon_print_pdev_rx_mon_stats = dp_print_pdev_rx_mon_stats;
@@ -1102,23 +873,20 @@ dp_mon_register_feature_ops_1_0(struct dp_soc *soc)
 	mon_ops->mon_pdev_get_filter_non_data = dp_pdev_get_filter_non_data;
 	mon_ops->mon_neighbour_peer_add_ast = dp_mon_neighbour_peer_add_ast;
 #ifdef WLAN_TX_PKT_CAPTURE_ENH
-	mon_ops->mon_peer_tid_peer_id_update = dp_peer_tid_peer_id_update_1_0;
-	mon_ops->mon_tx_capture_debugfs_init = dp_tx_capture_debugfs_init_1_0;
-	mon_ops->mon_tx_add_to_comp_queue = dp_tx_add_to_comp_queue_1_0;
+	mon_ops->mon_peer_tid_peer_id_update = dp_peer_tid_peer_id_update;
+	mon_ops->mon_tx_ppdu_stats_attach = dp_tx_ppdu_stats_attach;
+	mon_ops->mon_tx_ppdu_stats_detach = dp_tx_ppdu_stats_detach;
+	mon_ops->mon_tx_capture_debugfs_init = dp_tx_capture_debugfs_init;
+	mon_ops->mon_tx_add_to_comp_queue = dp_tx_add_to_comp_queue;
+	mon_ops->mon_peer_tx_capture_filter_check =
+				dp_peer_tx_capture_filter_check;
 	mon_ops->mon_print_pdev_tx_capture_stats =
-				dp_print_pdev_tx_capture_stats_1_0;
-	mon_ops->mon_config_enh_tx_capture = dp_config_enh_tx_capture_1_0;
-	mon_ops->mon_tx_peer_filter = dp_peer_set_tx_capture_enabled_1_0;
-	mon_ops->mon_peer_tx_capture_get_stats = dp_get_peer_tx_capture_stats;
-	mon_ops->mon_pdev_tx_capture_get_stats = dp_get_pdev_tx_capture_stats;
+				dp_print_pdev_tx_capture_stats;
+	mon_ops->mon_config_enh_tx_capture = dp_config_enh_tx_capture;
 #endif
-#if (defined(WIFI_MONITOR_SUPPORT) && !defined(WLAN_TX_PKT_CAPTURE_ENH))
-	mon_ops->mon_peer_tid_peer_id_update = NULL;
-	mon_ops->mon_tx_capture_debugfs_init = NULL;
-	mon_ops->mon_tx_add_to_comp_queue = NULL;
-	mon_ops->mon_print_pdev_tx_capture_stats = NULL;
-	mon_ops->mon_config_enh_tx_capture = NULL;
-	mon_ops->mon_tx_peer_filter = NULL;
+#if defined(WDI_EVENT_ENABLE) &&\
+	(defined(QCA_ENHANCED_STATS_SUPPORT) || !defined(REMOVE_PKT_LOG))
+	mon_ops->mon_ppdu_stats_ind_handler = dp_ppdu_stats_ind_handler;
 #endif
 #ifdef WLAN_RX_PKT_CAPTURE_ENH
 	mon_ops->mon_config_enh_rx_capture = dp_config_enh_rx_capture;
@@ -1147,30 +915,11 @@ dp_mon_register_feature_ops_1_0(struct dp_soc *soc)
 				dp_mon_filter_setup_enhanced_stats_1_0;
 	mon_ops->mon_filter_reset_enhanced_stats =
 				dp_mon_filter_reset_enhanced_stats_1_0;
-	mon_ops->mon_tx_enable_enhanced_stats =
-				dp_mon_tx_enable_enhanced_stats_1_0;
-	mon_ops->mon_tx_disable_enhanced_stats =
-				dp_mon_tx_disable_enhanced_stats_1_0;
-	mon_ops->mon_ppdu_stats_feat_enable_check =
-				dp_ppdu_stats_feat_enable_check_1_0;
-#ifndef WLAN_TX_PKT_CAPTURE_ENH
-	mon_ops->mon_ppdu_desc_deliver = dp_ppdu_desc_deliver;
-#ifdef WDI_EVENT_ENABLE
-	mon_ops->mon_ppdu_desc_notify = dp_ppdu_desc_notify_1_0;
-#endif
-#else
-	mon_ops->mon_ppdu_desc_deliver = dp_ppdu_desc_deliver_1_0;
-#endif
-	mon_ops->mon_tx_stats_update = dp_mon_tx_stats_update_1_0;
 #endif
 #if defined(ATH_SUPPORT_NAC_RSSI) || defined(ATH_SUPPORT_NAC)
 	mon_ops->mon_filter_setup_smart_monitor =
 				dp_mon_filter_setup_smart_monitor_1_0;
-	mon_ops->mon_filter_reset_smart_monitor =
-				dp_mon_filter_reset_smart_monitor_1_0;
 #endif
-	mon_ops->mon_filter_set_reset_mon_mac_filter =
-				dp_mon_set_reset_mon_mac_filter_1_0;
 #ifdef WLAN_RX_PKT_CAPTURE_ENH
 	mon_ops->mon_filter_setup_rx_enh_capture =
 				dp_mon_filter_setup_rx_enh_capture_1_0;
@@ -1189,40 +938,24 @@ dp_mon_register_feature_ops_1_0(struct dp_soc *soc)
 				dp_mon_filter_setup_rx_pkt_log_cbf_1_0;
 	mon_ops->mon_filter_reset_rx_pkt_log_cbf =
 				dp_mon_filter_reset_rx_pktlog_cbf_1_0;
-#ifdef BE_PKTLOG_SUPPORT
-	mon_ops->mon_filter_setup_pktlog_hybrid = NULL;
-	mon_ops->mon_filter_reset_pktlog_hybrid = NULL;
+#ifdef QCA_WIFI_QCN9224
+	mon_ops->mon_filter_setup_pktlog_hybrid =
+				dp_mon_filter_setup_pktlog_hybrid_1_0;
+	mon_ops->mon_filter_reset_pktlog_hybrid =
+				dp_mon_filter_reset_pktlog_hybrid_1_0;
 #endif
 #endif
 #if defined(DP_CON_MON) && !defined(REMOVE_PKT_LOG)
 	mon_ops->mon_pktlogmod_exit = dp_pktlogmod_exit;
 #endif
-	mon_ops->rx_hdr_length_set = NULL;
 	mon_ops->rx_packet_length_set = NULL;
-	mon_ops->rx_mon_enable = NULL;
 	mon_ops->rx_wmask_subscribe = NULL;
 	mon_ops->rx_enable_mpdu_logging = NULL;
-	mon_ops->rx_enable_fpmo = NULL;
 	mon_ops->mon_neighbour_peers_detach = dp_neighbour_peers_detach;
 	mon_ops->mon_vdev_set_monitor_mode_buf_rings =
 				dp_vdev_set_monitor_mode_buf_rings;
 	mon_ops->mon_vdev_set_monitor_mode_rings =
 				dp_vdev_set_monitor_mode_rings;
-#ifdef QCA_ENHANCED_STATS_SUPPORT
-	mon_ops->mon_rx_stats_update = NULL;
-	mon_ops->mon_rx_populate_ppdu_usr_info = NULL;
-	mon_ops->mon_rx_populate_ppdu_info = dp_mon_populate_ppdu_info_1_0;
-#endif
-#ifdef QCA_UNDECODED_METADATA_SUPPORT
-	mon_ops->mon_config_undecoded_metadata_capture =
-		dp_mon_config_undecoded_metadata_capture;
-	mon_ops->mon_filter_setup_undecoded_metadata_capture =
-		dp_mon_filter_setup_undecoded_metadata_capture_1_0;
-	mon_ops->mon_filter_reset_undecoded_metadata_capture =
-		dp_mon_filter_reset_undecoded_metadata_capture_1_0;
-#endif
-	mon_ops->mon_rx_print_advanced_stats = NULL;
-	mon_ops->mon_mac_filter_set = dp_mon_mac_filter_set;
 }
 
 struct dp_mon_ops monitor_ops_1_0 = {
@@ -1237,12 +970,6 @@ struct dp_mon_ops monitor_ops_1_0 = {
 	.mon_vdev_detach = dp_mon_vdev_detach,
 	.mon_peer_attach = dp_mon_peer_attach,
 	.mon_peer_detach = dp_mon_peer_detach,
-	.mon_peer_get_peerstats_ctx = dp_mon_peer_get_peerstats_ctx,
-	.mon_peer_reset_stats = dp_mon_peer_reset_stats,
-	.mon_peer_get_stats = dp_mon_peer_get_stats,
-	.mon_invalid_peer_update_pdev_stats =
-				dp_mon_invalid_peer_update_pdev_stats,
-	.mon_peer_get_stats_param = dp_mon_peer_get_stats_param,
 	.mon_flush_rings = dp_flush_monitor_rings,
 #if !defined(DISABLE_MON_CONFIG)
 	.mon_pdev_htt_srng_setup = dp_mon_htt_srng_setup_1_0,
@@ -1264,13 +991,9 @@ struct dp_mon_ops monitor_ops_1_0 = {
 	.mon_reap_timer_start = dp_mon_reap_timer_start,
 	.mon_reap_timer_stop = dp_mon_reap_timer_stop,
 	.mon_reap_timer_deinit = dp_mon_reap_timer_deinit,
-	.mon_filter_setup_rx_mon_mode = dp_mon_filter_setup_mon_mode_1_0,
-	.mon_filter_reset_rx_mon_mode = dp_mon_filter_reset_mon_mode_1_0,
-	.mon_filter_setup_tx_mon_mode = NULL,
-	.mon_filter_reset_tx_mon_mode = NULL,
-	.rx_mon_filter_update = dp_mon_filter_update_1_0,
-	.tx_mon_filter_update = NULL,
-	.set_mon_mode_buf_rings_tx = NULL,
+	.mon_filter_setup_mon_mode = dp_mon_filter_setup_mon_mode_1_0,
+	.mon_filter_reset_mon_mode = dp_mon_filter_reset_mon_mode_1_0,
+	.mon_filter_update = dp_mon_filter_update_1_0,
 	.rx_mon_desc_pool_init = dp_rx_pdev_mon_desc_pool_init,
 	.rx_mon_desc_pool_deinit = dp_rx_pdev_mon_desc_pool_deinit,
 	.rx_mon_desc_pool_alloc = dp_rx_pdev_mon_desc_pool_alloc,
@@ -1281,7 +1004,6 @@ struct dp_mon_ops monitor_ops_1_0 = {
 	.tx_mon_desc_pool_deinit = NULL,
 	.tx_mon_desc_pool_alloc = NULL,
 	.tx_mon_desc_pool_free = NULL,
-	.tx_mon_filter_alloc = NULL,
 	.mon_rings_alloc = dp_mon_rings_alloc_1_0,
 	.mon_rings_free = dp_mon_rings_free_1_0,
 	.mon_rings_init = dp_mon_rings_init_1_0,
@@ -1290,20 +1012,6 @@ struct dp_mon_ops monitor_ops_1_0 = {
 	.mon_register_intr_ops = dp_mon_register_intr_ops_1_0,
 #endif
 	.mon_register_feature_ops = dp_mon_register_feature_ops_1_0,
-#ifdef WLAN_TX_PKT_CAPTURE_ENH
-	.mon_tx_ppdu_stats_attach = dp_tx_ppdu_stats_attach_1_0,
-	.mon_tx_ppdu_stats_detach = dp_tx_ppdu_stats_detach_1_0,
-	.mon_peer_tx_capture_filter_check = dp_peer_tx_capture_filter_check_1_0,
-#endif
-#if (defined(WIFI_MONITOR_SUPPORT) && !defined(WLAN_TX_PKT_CAPTURE_ENH))
-	.mon_tx_ppdu_stats_attach = NULL,
-	.mon_tx_ppdu_stats_detach = NULL,
-	.mon_peer_tx_capture_filter_check = NULL,
-#endif
-	.mon_lite_mon_alloc = NULL,
-	.mon_lite_mon_dealloc = NULL,
-	.mon_lite_mon_vdev_delete = NULL,
-	.mon_lite_mon_disable_rx = NULL,
 };
 
 struct cdp_mon_ops dp_ops_mon_1_0 = {
@@ -1313,65 +1021,14 @@ struct cdp_mon_ops dp_ops_mon_1_0 = {
 	.txrx_deliver_tx_mgmt = dp_deliver_tx_mgmt,
 	.config_full_mon_mode = dp_config_full_mon_mode,
 	.soc_config_full_mon_mode = dp_soc_config_full_mon_mode,
-	.get_mon_pdev_rx_stats = dp_pdev_get_rx_mon_stats,
-	.txrx_enable_mon_reap_timer = dp_enable_mon_reap_timer,
-#ifdef QCA_SUPPORT_LITE_MONITOR
-	.txrx_set_lite_mon_config = NULL,
-	.txrx_get_lite_mon_config = NULL,
-	.txrx_set_lite_mon_peer_config = NULL,
-	.txrx_get_lite_mon_peer_config = NULL,
-	.txrx_is_lite_mon_enabled = NULL,
-#endif
-	.txrx_set_mon_pdev_params_rssi_dbm_conv =
-				dp_mon_pdev_params_rssi_dbm_conv,
 };
 
-#ifdef QCA_MONITOR_OPS_PER_SOC_SUPPORT
-void dp_mon_ops_register_1_0(struct dp_mon_soc *mon_soc)
+struct dp_mon_ops *dp_mon_ops_get_1_0(void)
 {
-	struct dp_mon_ops *mon_ops = NULL;
-
-	if (mon_soc->mon_ops) {
-		dp_mon_err("monitor ops is allocated");
-		return;
-	}
-
-	mon_ops = qdf_mem_malloc(sizeof(struct dp_mon_ops));
-	if (!mon_ops) {
-		dp_mon_err("Failed to allocate memory for mon ops");
-		return;
-	}
-
-	qdf_mem_copy(mon_ops, &monitor_ops_1_0, sizeof(struct dp_mon_ops));
-	mon_soc->mon_ops = mon_ops;
+	return &monitor_ops_1_0;
 }
 
-void dp_mon_cdp_ops_register_1_0(struct cdp_ops *ops)
+struct cdp_mon_ops *dp_mon_cdp_ops_get_1_0(void)
 {
-	struct cdp_mon_ops *mon_ops = NULL;
-
-	if (ops->mon_ops) {
-		dp_mon_err("cdp monitor ops is allocated");
-		return;
-	}
-
-	mon_ops = qdf_mem_malloc(sizeof(struct cdp_mon_ops));
-	if (!mon_ops) {
-		dp_mon_err("Failed to allocate memory for cdp mon ops");
-		return;
-	}
-
-	qdf_mem_copy(mon_ops, &dp_ops_mon_1_0, sizeof(struct cdp_mon_ops));
-	ops->mon_ops = mon_ops;
+	return &dp_ops_mon_1_0;
 }
-#else
-void dp_mon_ops_register_1_0(struct dp_mon_soc *mon_soc)
-{
-	mon_soc->mon_ops = &monitor_ops_1_0;
-}
-
-void dp_mon_cdp_ops_register_1_0(struct cdp_ops *ops)
-{
-	ops->mon_ops = &dp_ops_mon_1_0;
-}
-#endif

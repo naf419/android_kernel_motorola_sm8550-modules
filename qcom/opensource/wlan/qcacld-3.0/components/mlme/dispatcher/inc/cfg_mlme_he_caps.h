@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -201,7 +200,7 @@
 #define CFG_HE_DYNAMIC_SMPS CFG_BOOL( \
 				"he_dynamic_smps", \
 				0, \
-				"He Dynamic SMPS")
+				"He Dyanmic SMPS")
 
 #define CFG_HE_PUNCTURED_SOUNDING CFG_BOOL( \
 				"he_punctured_sounding", \
@@ -221,11 +220,11 @@
 				CFG_VALUE_OR_DEFAULT, \
 				"He Chan Width")
 
-#define CFG_HE_RX_PREAM_PUNC CFG_INI_UINT( \
+#define CFG_HE_RX_PREAM_PUNC CFG_UINT( \
 				"he_rx_pream_punc", \
 				0, \
 				0xF, \
-				0x3, \
+				0, \
 				CFG_VALUE_OR_DEFAULT, \
 				"He Rx Pream Punc")
 
@@ -749,7 +748,7 @@
 #define CFG_ENABLE_UL_MIMO CFG_INI_BOOL( \
 				"enable_ul_mimo", \
 				1, \
-				"He Enable Ul Mimo Name")
+				"He Enble Ul Mimo Name")
 
 /*
  * <ini>

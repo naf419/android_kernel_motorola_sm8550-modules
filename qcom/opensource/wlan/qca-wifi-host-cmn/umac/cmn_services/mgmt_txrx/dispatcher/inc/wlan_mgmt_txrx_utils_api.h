@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -125,7 +125,6 @@ enum mgmt_subtype {
  * @ACTION_CATEGORY_CDMG: CDMG Action frame
  * @ACTION_CATEGORY_CMMG: CMMG Action frame
  * @ACTION_CATEGORY_GLK: GLK Action frame
- * @ACTION_CATEGORY_PROTECTED_EHT: Protected EHT Action frame
  * @ACTION_CATEGORY_VENDOR_SPECIFIC_PROTECTED: vendor specific protected
  *                                             action category
  * @ACTION_CATEGORY_VENDOR_SPECIFIC: vendor specific action category
@@ -161,7 +160,6 @@ enum mgmt_action_category {
 	ACTION_CATEGORY_CDMG = 27,
 	ACTION_CATEGORY_CMMG = 28,
 	ACTION_CATEGORY_GLK = 29,
-	ACTION_CATEGORY_PROTECTED_EHT = 37,
 	ACTION_CATEGORY_VENDOR_SPECIFIC_PROTECTED = 126,
 	ACTION_CATEGORY_VENDOR_SPECIFIC = 127,
 };
@@ -231,7 +229,7 @@ enum block_ack_actioncode {
  * @PUB_ACTION_GAS_INITIAL_REQUEST: GAS initial request action frame
  * @PUB_ACTION_GAS_INITIAL_RESPONSE: GAS initial response action frame
  * @PUB_ACTION_GAS_COMEBACK_REQUEST: GAS comeback request action frame
- * @PUB_ACTION_GAS_COMEBACK_RESPONSE: GAS comeback response action frame
+ * @PUB_ACTION_GAS_COMEBACK_RESPONSE: GAS comeback respose action frame
  * @PUB_ACTION_TDLS_DISCRESP: tdls discovery response public action frame
  * @PUB_ACTION_FTM_REQUEST: FTM request action frame
  * @PUB_ACTION_FTM_RESPONSE: FTM response action frame
@@ -512,18 +510,6 @@ enum twt_actioncode {
 };
 
 /**
- * enum eht_actioncode - Protected EHT action frames
- * @EHT_T2LM_REQUEST: T2LM request action frame
- * @EHT_T2LM_RESPONSE: T2LM response action frame
- * @EHT_T2LM_TEARDOWN: T2LM teardown action frame
- */
-enum eht_actioncode {
-	EHT_T2LM_REQUEST = 0,
-	EHT_T2LM_RESPONSE = 1,
-	EHT_T2LM_TEARDOWN = 2,
-};
-
-/**
  * struct action_frm_hdr - action frame header
  * @action_category: action category
  * @action_code: action code
@@ -662,9 +648,6 @@ struct action_frm_hdr {
  * @MGMT_ACTION_TWT_SETUP: TWT setup frame
  * @MGMT_ACTION_TWT_TEARDOWN: TWT teardown frame
  * @MGMT_ACTION_TWT_INFORMATION: TWT information frame
- * @MGMT_ACTION_EHT_T2LM_REQUEST: T2LM request frame
- * @MGMT_ACTION_EHT_T2LM_RESPONSE: T2LM response frame
- * @MGMT_ACTION_EHT_T2LM_TEARDOWN: T2LM teardown frame
  * @MGMT_ACTION_FTM_REQUEST: FTM request frame
  * @MGMT_ACTION_FTM_RESPONSE: FTM response frame
  * @MGMT_ACTION_FILS_DISCOVERY: FILS Discovery frame
@@ -797,9 +780,6 @@ enum mgmt_frame_type {
 	MGMT_ACTION_TWT_SETUP,
 	MGMT_ACTION_TWT_TEARDOWN,
 	MGMT_ACTION_TWT_INFORMATION,
-	MGMT_ACTION_EHT_T2LM_REQUEST,
-	MGMT_ACTION_EHT_T2LM_RESPONSE,
-	MGMT_ACTION_EHT_T2LM_TEARDOWN,
 	MGMT_ACTION_FTM_REQUEST,
 	MGMT_ACTION_FTM_RESPONSE,
 	MGMT_ACTION_FILS_DISCOVERY,
@@ -807,89 +787,9 @@ enum mgmt_frame_type {
 };
 
 #define WLAN_MGMT_TXRX_HOST_MAX_ANTENNA          4
-#define WLAN_MGMT_TXRX_HOST_MAX_PN_LEN           8
 #define WLAN_INVALID_PER_CHAIN_RSSI             0xFF
 #define WLAN_INVALID_PER_CHAIN_SNR              0x80
 #define WLAN_NOISE_FLOOR_DBM_DEFAULT            -96
-
-/**
- * struct frame_pn_params - host PN params
- * @curr_pn: current running PN of rx frames
- * @prev_pn: previous PN of rx frames
- */
-struct frame_pn_params {
-	uint8_t curr_pn[WLAN_MGMT_TXRX_HOST_MAX_PN_LEN];
-	uint8_t prev_pn[WLAN_MGMT_TXRX_HOST_MAX_PN_LEN];
-};
-
-/**
- * struct frm_conn_ap - connected ap
- * @mgmt_frm_sub_type: type of frame
- * @is_conn_ap_frm:     set if frm is from connected ap
- */
-struct frm_conn_ap {
-	uint8_t mgmt_frm_sub_type;
-	uint8_t is_conn_ap_frm;
-};
-
-/**
- * struct mgmt_rx_event_ext_params - Host mgmt extended params
- * @ba_win_size: Block-Ack window size
- * @reo_win_size: Reo win size
- */
-struct mgmt_rx_event_ext_params {
-	uint16_t ba_win_size;
-	uint16_t reo_win_size;
-};
-
-#ifdef WLAN_FEATURE_11BE_MLO
-#define CU_VDEV_MAP_MASK 0xFFFF
-#define CU_MAX_MLO_LINKS 6
-#define MAX_AP_MLDS_PER_LINK 16
-/**
- * struct mlo_mgmt_ml_info - Ongoing Critical Update information.
- * @cu_vdev_map: Per link critical update ap vdev bit map.
- *               bit 0  Indicate vap with least vdev id in a link
- *               bit 15 Indicate vap with max vdev id in a link
- * @vdev_bpcc: Each byte contains BPCC value per MLO VAP
- *             16 byte entries for each link corresponding to AP MLD in a link.
- *             Max number of byte entries will be
- *             (max MLO links supported * max AP MLDs in a link).
- *
- * The mlo_mgmt_ml_info contain AP MLD CU indication and latest copies of BSS
- * parameter change count BPCC values of all AP MLDs in an available MLO links.
- * Per-link contains 16 AP MLDs at max.
- * 16 bits to indicate respective AP MLD VDEVs in a link.
- * Number of max links supported are 6.
- */
-struct mlo_mgmt_ml_info {
-	uint16_t cu_vdev_map[CU_MAX_MLO_LINKS];
-	uint8_t  vdev_bpcc[MAX_AP_MLDS_PER_LINK * CU_MAX_MLO_LINKS];
-};
-
-/**
- * struct mlo_bcast_t2lm_info - TID-to-link mapping broadcast info
- * @num_vdevs: Number of vdevs for which FW populated the expected duration
- * @vdev_id: Array of vdev ids
- * @expected_duration: Array of expected duration for vdev ids
- */
-struct mlo_bcast_t2lm_info {
-	uint8_t num_vdevs;
-	uint8_t vdev_id[MAX_AP_MLDS_PER_LINK];
-	uint32_t expected_duration[MAX_AP_MLDS_PER_LINK];
-};
-
-/**
- * struct mlo_vdev_pause - ML vdev pause info
- * @vdev_id: vdev id of vdev to be paused
- * @vdev_pause_duration: vdev pause duration
- */
-struct mlo_vdev_pause {
-	uint16_t vdev_id;
-	uint32_t vdev_pause_duration;
-};
-#endif
-
 /**
  * struct mgmt_rx_event_params - host mgmt header params
  * @chan_freq: channel frequency on which this frame is received
@@ -904,7 +804,6 @@ struct mlo_vdev_pause {
  *          WMI_HOST_RXERR_DECRYPT = 0x08
  *          WMI_HOST_RXERR_MIC = 0x10
  *          WMI_HOST_RXERR_KEY_CACHE_MISS = 0x20
- *          WMI_HOST_RXERR_PN = 0x80
  * @flags: information about the management frame e.g. can give a
  *         scan source for a scan result mgmt frame
  * @rssi: combined RSSI, i.e. the sum of the snr + noise floor (dBm units)
@@ -914,12 +813,6 @@ struct mlo_vdev_pause {
  * @rx_params: pointer to other rx params
  *             (win specific, will be removed in phase 4)
  * @reo_params: Pointer to MGMT Rx REO params
- * @pn_params: Frame PN params
- * @ext_params: Extended params
- * @is_conn_ap: Frame is from connected ap
- * @link_removal_info: MLO link removal information array
- * @num_link_removal_info: Number of elements in @link_removal_info
- * @t2lm_params: T2LM related info received from FW
  */
 struct mgmt_rx_event_params {
 	uint32_t    chan_freq;
@@ -939,23 +832,7 @@ struct mgmt_rx_event_params {
 #ifdef WLAN_MGMT_RX_REO_SUPPORT
 	struct mgmt_rx_reo_params *reo_params;
 #endif
-	struct frame_pn_params pn_params;
-	struct mgmt_rx_event_ext_params *ext_params;
-	struct frm_conn_ap is_conn_ap;
-#ifdef WLAN_FEATURE_11BE_MLO
-	struct mlo_mgmt_ml_info cu_params;
-	struct mgmt_rx_mlo_link_removal_info *link_removal_info;
-	int num_link_removal_info;
-	struct mlo_bcast_t2lm_info t2lm_params;
-#endif
 };
-
-#ifdef WLAN_FEATURE_11BE_MLO
-#define free_mgmt_rx_mlo_link_removal_info(rx_params) \
-			qdf_mem_free((rx_params)->link_removal_info)
-#else
-#define free_mgmt_rx_mlo_link_removal_info(rx_params)
-#endif
 
 #ifdef WLAN_MGMT_RX_REO_SUPPORT
 static inline
@@ -975,26 +852,14 @@ struct mgmt_rx_event_params *alloc_mgmt_rx_event_params(void)
 		return NULL;
 	}
 
-	rx_params->ext_params =
-		qdf_mem_malloc(sizeof(struct mgmt_rx_event_ext_params));
-
-	if (!rx_params->ext_params) {
-		qdf_mem_free(rx_params->reo_params);
-		qdf_mem_free(rx_params);
-		return NULL;
-	}
-
 	return rx_params;
 }
 
 static inline void
 free_mgmt_rx_event_params(struct mgmt_rx_event_params *rx_params)
 {
-	if (rx_params) {
-		qdf_mem_free(rx_params->ext_params);
+	if (rx_params)
 		qdf_mem_free(rx_params->reo_params);
-		free_mgmt_rx_mlo_link_removal_info(rx_params);
-	}
 
 	qdf_mem_free(rx_params);
 }
@@ -1008,27 +873,10 @@ struct mgmt_rx_event_params *alloc_mgmt_rx_event_params(void)
 	if (!rx_params)
 		return NULL;
 
-	rx_params->ext_params =
-		qdf_mem_malloc(sizeof(struct mgmt_rx_event_ext_params));
-
-	if (!rx_params->ext_params) {
-		qdf_mem_free(rx_params);
-		return NULL;
-	}
-
 	return rx_params;
 }
 
-static inline void
-free_mgmt_rx_event_params(struct mgmt_rx_event_params *rx_params)
-{
-	if (rx_params) {
-		qdf_mem_free(rx_params->ext_params);
-		free_mgmt_rx_mlo_link_removal_info(rx_params);
-	}
-
-	qdf_mem_free(rx_params);
-}
+#define free_mgmt_rx_event_params(rx_params) qdf_mem_free((rx_params))
 #endif
 
 /**
@@ -1173,7 +1021,7 @@ QDF_STATUS wlan_mgmt_txrx_beacon_frame_tx(struct wlan_objmgr_peer *peer,
  * @buf: buffer to be transmitted
  * @comp_id: umac component id
  *
- * This function transmits the FILS Discovery Action frame to
+ * This function transmits the FILS Dicovery Action frame to
  * southbound interface.
  *
  * Return: QDF_STATUS_SUCCESS - in case of success

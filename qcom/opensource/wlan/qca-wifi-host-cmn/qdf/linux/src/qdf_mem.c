@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -43,33 +43,6 @@
 #include <net/cnss_prealloc.h>
 #endif
 #endif
-
-/* cnss prealloc maintains various prealloc pools of 8Kb, 16Kb, 32Kb and so
- * on and allocates buffer from the pool for wlan driver. When wlan driver
- * requests to free the memory buffer then cnss prealloc derives slab_cache
- * from virtual memory via page struct to identify prealloc pool id to put
- * back memory buffer into the pool. Kernel 5.17 removed slab_cache from page
- * struct. So add headroom to store cache pointer at the beginning of
- * allocated memory buffer to use it later in identifying prealloc pool id.
- */
-#if defined(CNSS_MEM_PRE_ALLOC) && defined(CONFIG_CNSS_OUT_OF_TREE)
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0))
-static inline bool add_headroom_for_cnss_prealloc_cache_ptr(void)
-{
-	return true;
-}
-#else /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)) */
-static inline bool add_headroom_for_cnss_prealloc_cache_ptr(void)
-{
-	return false;
-}
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)) */
-#else /* defined(CNSS_MEM_PRE_ALLOC) && defined(CONFIG_CNSS_OUT_OF_TREE) */
-static inline bool add_headroom_for_cnss_prealloc_cache_ptr(void)
-{
-	return false;
-}
-#endif /* defined(CNSS_MEM_PRE_ALLOC) && defined(CONFIG_CNSS_OUT_OF_TREE) */
 
 #if defined(MEMORY_DEBUG) || defined(NBUF_MEMORY_DEBUG)
 static bool mem_debug_disabled;
@@ -138,7 +111,7 @@ enum list_type {
  * @type:            type of the list to be parsed
  * @threshold:       configured by user by overwriting the respective debugfs
  *                   sys entry. This is to list the functions which requested
- *                   memory/dma allocations more than threshold number of times.
+ *                   memory/dma allocations more than threshold nubmer of times.
  */
 struct major_alloc_priv {
 	enum list_type type;
@@ -537,7 +510,7 @@ qdf_export_symbol(prealloc_disabled);
 
 int qdf_mem_malloc_flags(void)
 {
-	if (in_interrupt() || !preemptible() || rcu_preempt_depth())
+	if (in_interrupt() || irqs_disabled() || in_atomic())
 		return GFP_ATOMIC;
 
 	return GFP_KERNEL;
@@ -809,6 +782,7 @@ qdf_print_major_nbuf_allocs(uint32_t threshold,
 	uint32_t nbuf_iter;
 	unsigned long irq_flag = 0;
 	QDF_NBUF_TRACK *p_node;
+	QDF_NBUF_TRACK *p_prev;
 	struct __qdf_mem_info table[QDF_MEM_STAT_TABLE_SIZE];
 	struct qdf_mem_header meta;
 	bool is_full;
@@ -841,6 +815,7 @@ qdf_print_major_nbuf_allocs(uint32_t threshold,
 				qdf_mem_zero(table, sizeof(table));
 			}
 
+			p_prev = p_node;
 			p_node = p_node->p_next;
 		}
 		qdf_nbuf_release_track_lock(nbuf_iter, irq_flag);
@@ -1440,9 +1415,6 @@ static void *qdf_mem_prealloc_get(size_t size)
 	if (!ptr)
 		return NULL;
 
-	if (add_headroom_for_cnss_prealloc_cache_ptr())
-		ptr += sizeof(void *);
-
 	memset(ptr, 0, size);
 
 	return ptr;
@@ -1521,7 +1493,7 @@ static void qdf_mem_debug_init(void)
 	if (is_initial_mem_debug_disabled)
 		return;
 
-	/* Initializing the list with maximum size of 60000 */
+	/* Initalizing the list with maximum size of 60000 */
 	for (i = 0; i < QDF_DEBUG_DOMAIN_COUNT; ++i)
 		qdf_list_create(&qdf_mem_domains[i], 60000);
 	qdf_spinlock_create(&qdf_mem_list_lock);
@@ -1614,9 +1586,6 @@ void *qdf_mem_malloc_debug(size_t size, const char *func, uint32_t line,
 		return NULL;
 	}
 
-	if (add_headroom_for_cnss_prealloc_cache_ptr())
-		size += sizeof(void *);
-
 	ptr = qdf_mem_prealloc_get(size);
 	if (ptr)
 		return ptr;
@@ -1649,105 +1618,9 @@ void *qdf_mem_malloc_debug(size_t size, const char *func, uint32_t line,
 
 	qdf_mem_kmalloc_inc(ksize(header));
 
-	if (add_headroom_for_cnss_prealloc_cache_ptr())
-		ptr += sizeof(void *);
-
 	return ptr;
 }
 qdf_export_symbol(qdf_mem_malloc_debug);
-
-void *qdf_mem_malloc_atomic_debug(size_t size, const char *func,
-				  uint32_t line, void *caller)
-{
-	QDF_STATUS status;
-	enum qdf_debug_domain current_domain = qdf_debug_domain_get();
-	qdf_list_t *mem_list = qdf_mem_list_get(current_domain);
-	struct qdf_mem_header *header;
-	void *ptr;
-	unsigned long start, duration;
-
-	if (is_initial_mem_debug_disabled)
-		return qdf_mem_malloc_atomic_debug_fl(size, func, line);
-
-	if (!size || size > QDF_MEM_MAX_MALLOC) {
-		qdf_err("Cannot malloc %zu bytes @ %s:%d", size, func, line);
-		return NULL;
-	}
-
-	if (add_headroom_for_cnss_prealloc_cache_ptr())
-		size += sizeof(void *);
-
-	ptr = qdf_mem_prealloc_get(size);
-	if (ptr)
-		return ptr;
-
-	start = qdf_mc_timer_get_system_time();
-	header = kzalloc(size + QDF_MEM_DEBUG_SIZE, GFP_ATOMIC);
-	duration = qdf_mc_timer_get_system_time() - start;
-
-	if (duration > QDF_MEM_WARN_THRESHOLD)
-		qdf_warn("Malloc slept; %lums, %zuB @ %s:%d",
-			 duration, size, func, line);
-
-	if (!header) {
-		qdf_warn("Failed to malloc %zuB @ %s:%d", size, func, line);
-		return NULL;
-	}
-
-	qdf_mem_header_init(header, size, func, line, caller);
-	qdf_mem_trailer_init(header);
-	ptr = qdf_mem_get_ptr(header);
-
-	qdf_spin_lock_irqsave(&qdf_mem_list_lock);
-	status = qdf_list_insert_front(mem_list, &header->node);
-	qdf_spin_unlock_irqrestore(&qdf_mem_list_lock);
-	if (QDF_IS_STATUS_ERROR(status))
-		qdf_err("Failed to insert memory header; status %d", status);
-
-	qdf_mem_kmalloc_inc(ksize(header));
-
-	if (add_headroom_for_cnss_prealloc_cache_ptr())
-		ptr += sizeof(void *);
-
-	return ptr;
-}
-
-qdf_export_symbol(qdf_mem_malloc_atomic_debug);
-
-void *qdf_mem_malloc_atomic_debug_fl(size_t size, const char *func,
-				     uint32_t line)
-{
-	void *ptr;
-
-	if (!size || size > QDF_MEM_MAX_MALLOC) {
-		qdf_nofl_err("Cannot malloc %zu bytes @ %s:%d", size, func,
-			     line);
-		return NULL;
-	}
-
-	if (add_headroom_for_cnss_prealloc_cache_ptr())
-		size += sizeof(void *);
-
-	ptr = qdf_mem_prealloc_get(size);
-	if (ptr)
-		return ptr;
-
-	ptr = kzalloc(size, GFP_ATOMIC);
-	if (!ptr) {
-		qdf_nofl_warn("Failed to malloc %zuB @ %s:%d",
-			      size, func, line);
-		return NULL;
-	}
-
-	qdf_mem_kmalloc_inc(ksize(ptr));
-
-	if (add_headroom_for_cnss_prealloc_cache_ptr())
-		ptr += sizeof(void *);
-
-	return ptr;
-}
-
-qdf_export_symbol(qdf_mem_malloc_atomic_debug_fl);
 
 void qdf_mem_free_debug(void *ptr, const char *func, uint32_t line)
 {
@@ -1763,9 +1636,6 @@ void qdf_mem_free_debug(void *ptr, const char *func, uint32_t line)
 	/* freeing a null pointer is valid */
 	if (qdf_unlikely(!ptr))
 		return;
-
-	if (add_headroom_for_cnss_prealloc_cache_ptr())
-		ptr = ptr - sizeof(void *);
 
 	if (qdf_mem_prealloc_put(ptr))
 		return;
@@ -1836,7 +1706,7 @@ void qdf_mem_check_for_leaks(void)
  */
 void qdf_mem_multi_pages_alloc_debug(qdf_device_t osdev,
 				     struct qdf_mem_multi_page_t *pages,
-				     size_t element_size, uint32_t element_num,
+				     size_t element_size, uint16_t element_num,
 				     qdf_dma_context_t memctxt, bool cacheable,
 				     const char *func, uint32_t line,
 				     void *caller)
@@ -1992,9 +1862,6 @@ void *qdf_mem_malloc_atomic_fl(size_t size, const char *func, uint32_t line)
 		return NULL;
 	}
 
-	if (add_headroom_for_cnss_prealloc_cache_ptr())
-		size += sizeof(void *);
-
 	ptr = qdf_mem_prealloc_get(size);
 	if (ptr)
 		return ptr;
@@ -2007,9 +1874,6 @@ void *qdf_mem_malloc_atomic_fl(size_t size, const char *func, uint32_t line)
 	}
 
 	qdf_mem_kmalloc_inc(ksize(ptr));
-
-	if (add_headroom_for_cnss_prealloc_cache_ptr())
-		ptr += sizeof(void *);
 
 	return ptr;
 }
@@ -2033,7 +1897,7 @@ qdf_export_symbol(qdf_mem_malloc_atomic_fl);
  */
 void qdf_mem_multi_pages_alloc(qdf_device_t osdev,
 			       struct qdf_mem_multi_page_t *pages,
-			       size_t element_size, uint32_t element_num,
+			       size_t element_size, uint16_t element_num,
 			       qdf_dma_context_t memctxt, bool cacheable)
 {
 	uint16_t page_idx;
@@ -2195,9 +2059,6 @@ void __qdf_mem_free(void *ptr)
 	if (!ptr)
 		return;
 
-	if (add_headroom_for_cnss_prealloc_cache_ptr())
-		ptr = ptr - sizeof(void *);
-
 	if (qdf_might_be_prealloc(ptr)) {
 		if (qdf_mem_prealloc_put(ptr))
 			return;
@@ -2220,9 +2081,6 @@ void *__qdf_mem_malloc(size_t size, const char *func, uint32_t line)
 		return NULL;
 	}
 
-	if (add_headroom_for_cnss_prealloc_cache_ptr())
-		size += sizeof(void *);
-
 	ptr = qdf_mem_prealloc_get(size);
 	if (ptr)
 		return ptr;
@@ -2232,9 +2090,6 @@ void *__qdf_mem_malloc(size_t size, const char *func, uint32_t line)
 		return NULL;
 
 	qdf_mem_kmalloc_inc(ksize(ptr));
-
-	if (add_headroom_for_cnss_prealloc_cache_ptr())
-		ptr += sizeof(void *);
 
 	return ptr;
 }
@@ -2324,73 +2179,6 @@ void *qdf_aligned_malloc_fl(uint32_t *size,
 }
 
 qdf_export_symbol(qdf_aligned_malloc_fl);
-
-#if defined(DP_UMAC_HW_RESET_SUPPORT) || defined(WLAN_SUPPORT_PPEDS)
-/**
- * qdf_tx_desc_pool_free_bufs() - Go through elems and call the registered  cb
- * @ctxt: Context to be passed to the cb
- * @pages: Multi page information storage
- * @elem_size: Each element size
- * @elem_count: Total number of elements should be allocated
- * @cacheable: Coherent memory or cacheable memory
- * @cb: Callback to free the elements
- * @elem_list: elem list for delayed free
- *
- * Return: 0 on Succscc, or Error code
- */
-int qdf_tx_desc_pool_free_bufs(void *ctxt, struct qdf_mem_multi_page_t *pages,
-			       uint32_t elem_size, uint32_t elem_count,
-			       uint8_t cacheable, qdf_mem_release_cb cb,
-			       void *elem_list)
-{
-	uint16_t i, i_int;
-	void *page_info;
-	void *elem;
-	uint32_t num_link = 0;
-
-	for (i = 0; i < pages->num_pages; i++) {
-		if (cacheable)
-			page_info = pages->cacheable_pages[i];
-		else
-			page_info = pages->dma_pages[i].page_v_addr_start;
-
-		if (!page_info)
-			return -ENOMEM;
-
-		elem = page_info;
-		for (i_int = 0; i_int < pages->num_element_per_page; i_int++) {
-			if (i_int == (pages->num_element_per_page - 1)) {
-				cb(ctxt, elem, elem_list);
-
-				if ((i + 1) == pages->num_pages)
-					break;
-				if (cacheable)
-					elem =
-					(void *)(pages->cacheable_pages[i + 1]);
-				else
-					elem = (void *)(pages->
-					dma_pages[i + 1].page_v_addr_start);
-
-				num_link++;
-
-				break;
-			}
-
-			cb(ctxt, elem, elem_list);
-			elem = ((char *)elem + elem_size);
-			num_link++;
-
-			/* Last link established exit */
-			if (num_link == (elem_count - 1))
-				break;
-		}
-	}
-
-	return 0;
-}
-
-qdf_export_symbol(qdf_tx_desc_pool_free_bufs);
-#endif
 
 /**
  * qdf_mem_multi_page_link() - Make links for multi page elements
@@ -3133,75 +2921,4 @@ qdf_dma_addr_t qdf_mem_paddr_from_dmaaddr(qdf_device_t osdev,
 }
 
 qdf_export_symbol(qdf_mem_paddr_from_dmaaddr);
-#endif
-
-#ifdef QCA_KMEM_CACHE_SUPPORT
-qdf_kmem_cache_t
-__qdf_kmem_cache_create(const char *cache_name,
-			qdf_size_t size)
-{
-	struct kmem_cache *cache;
-
-	cache = kmem_cache_create(cache_name, size,
-				  0, 0, NULL);
-
-	if (!cache)
-		return NULL;
-
-	return cache;
-}
-qdf_export_symbol(__qdf_kmem_cache_create);
-
-void
-__qdf_kmem_cache_destroy(qdf_kmem_cache_t cache)
-{
-	kmem_cache_destroy(cache);
-}
-
-qdf_export_symbol(__qdf_kmem_cache_destroy);
-
-void*
-__qdf_kmem_cache_alloc(qdf_kmem_cache_t cache)
-{
-	int flags = GFP_KERNEL;
-
-	if (in_interrupt() || irqs_disabled() || in_atomic())
-		flags = GFP_ATOMIC;
-
-	return kmem_cache_alloc(cache, flags);
-}
-
-qdf_export_symbol(__qdf_kmem_cache_alloc);
-
-void
-__qdf_kmem_cache_free(qdf_kmem_cache_t cache, void *node)
-
-{
-	kmem_cache_free(cache, node);
-}
-
-qdf_export_symbol(__qdf_kmem_cache_free);
-#else
-qdf_kmem_cache_t
-__qdf_kmem_cache_create(const char *cache_name,
-			qdf_size_t size)
-{
-	return NULL;
-}
-
-void
-__qdf_kmem_cache_destroy(qdf_kmem_cache_t cache)
-{
-}
-
-void *
-__qdf_kmem_cache_alloc(qdf_kmem_cache_t cache)
-{
-	return NULL;
-}
-
-void
-__qdf_kmem_cache_free(qdf_kmem_cache_t cache, void *node)
-{
-}
 #endif

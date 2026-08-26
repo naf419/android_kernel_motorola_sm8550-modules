@@ -39,24 +39,11 @@
   ---------------------------------------------------------------------------*/
 #define HAL_OFFSET(block, field) block ## _ ## field ## _OFFSET
 
-#define HAL_TX_LSB(block, field) block ## _ ## field ## _LSB
-
-#define HAL_TX_MASK(block, field) block ## _ ## field ## _MASK
-
-#define HAL_TX_DESC_OFFSET(desc, block, field) \
-	(((uint8_t *)desc) + HAL_OFFSET(block, field))
-
 #define HAL_SET_FLD(desc, block , field) \
 	(*(uint32_t *) ((uint8_t *) desc + HAL_OFFSET(block, field)))
 
 #define HAL_SET_FLD_OFFSET(desc, block , field, offset) \
 	(*(uint32_t *) ((uint8_t *) desc + HAL_OFFSET(block, field) + (offset)))
-
-#define HAL_SET_FLD_64(desc, block, field) \
-	(*(uint64_t *)((uint8_t *)desc + HAL_OFFSET(block, field)))
-
-#define HAL_SET_FLD_OFFSET_64(desc, block, field, offset) \
-	(*(uint64_t *)((uint8_t *)desc + HAL_OFFSET(block, field) + (offset)))
 
 #define HAL_TX_DESC_SET_TLV_HDR(desc, tag, len) \
 do {                                            \
@@ -80,21 +67,8 @@ do {                                            \
 #define HAL_TX_DESC_GET(desc, block, field) \
 	HAL_TX_MS(block, field, HAL_SET_FLD(desc, block, field))
 
-#define HAL_TX_DESC_OFFSET_GET(desc, block, field, offset) \
-	HAL_TX_MS(block, field, HAL_SET_FLD_OFFSET(desc, block, field, offset))
-
 #define HAL_TX_DESC_SUBBLOCK_GET(desc, block, sub, field) \
 	HAL_TX_MS(sub, field, HAL_SET_FLD(desc, block, sub))
-
-#define HAL_TX_DESC_GET_64(desc, block, field) \
-	HAL_TX_MS(block, field, HAL_SET_FLD_64(desc, block, field))
-
-#define HAL_TX_DESC_OFFSET_GET_64(desc, block, field, offset) \
-	HAL_TX_MS(block, field, HAL_SET_FLD_OFFSET_64(desc, block, field,\
-		  offset))
-
-#define HAL_TX_DESC_SUBBLOCK_GET_64(desc, block, sub, field) \
-	HAL_TX_MS(sub, field, HAL_SET_FLD_64(desc, block, sub))
 
 #define HAL_TX_BUF_TYPE_BUFFER 0
 #define HAL_TX_BUF_TYPE_EXT_DESC 1
@@ -117,7 +91,6 @@ do {                                            \
 #define HAL_MAX_HW_DSCP_TID_MAPS_11AX 32
 
 #define HAL_MAX_HW_DSCP_TID_V2_MAPS 48
-#define HAL_MAX_HW_DSCP_TID_V2_MAPS_5332 24
 #define HTT_META_HEADER_LEN_BYTES 64
 #define HAL_TX_EXT_DESC_WITH_META_DATA \
 	(HTT_META_HEADER_LEN_BYTES + HAL_TX_EXTENSION_DESC_LEN_BYTES)
@@ -136,7 +109,7 @@ do {                                            \
 
 /*
  * Offset of HTT Tx Descriptor in WBM Completion
- * HTT Tx Desc structure is passed from firmware to host overlaid
+ * HTT Tx Desc structure is passed from firmware to host overlayed
  * on wbm_release_ring DWORDs 2,3 ,4 and 5for software based completions
  * (Exception frames and TQM bypass frames)
  */
@@ -194,8 +167,6 @@ do {                                            \
  *       <enum 1 transmit_bw_40_MHz>
  *       <enum 2 transmit_bw_80_MHz>
  *       <enum 3 transmit_bw_160_MHz>
- *       <enum 4 transmit_bw_320_MHz>
- *       <enum 5 transmit_bw_240_MHz>
  * @pkt_type: Transmit Packet Type
  * @stbc: When set, STBC transmission rate was used
  * @ldpc: When set, use LDPC transmission rates
@@ -222,7 +193,7 @@ struct hal_tx_completion_status {
 	uint8_t first_msdu:1,
 		last_msdu:1,
 		msdu_part_of_amsdu:1;
-	uint32_t bw:3,
+	uint32_t bw:2,
 		 pkt_type:4,
 		 stbc:1,
 		 ldpc:1,
@@ -236,7 +207,7 @@ struct hal_tx_completion_status {
 	uint8_t transmit_cnt;
 	uint8_t tid;
 	uint16_t peer_id;
-#if defined(WLAN_FEATURE_TSF_UPLINK_DELAY) || defined(WLAN_CONFIG_TX_DELAY)
+#ifdef WLAN_FEATURE_TSF_UPLINK_DELAY
 	uint32_t buffer_timestamp:19;
 #endif
 };
@@ -313,15 +284,6 @@ enum hal_tx_encap_type {
  *				remove reason is fw_reason3
  * @HAL_TX_TQM_RR_REM_CMD_DISABLE_QUEUE : Remove command where fw indicated that
  *				remove reason is remove disable queue
- * @HAL_TX_TQM_RR_REM_CMD_TILL_NONMATCHING: Remove command from fw to remove
- *				all mpdu until 1st non-match
- * @HAL_TX_TQM_RR_DROP_THRESHOLD: Dropped due to drop threshold criteria
- * @HAL_TX_TQM_RR_LINK_DESC_UNAVAILABLE: Dropped due to link desc not available
- * @HAL_TX_TQM_RR_DROP_OR_INVALID_MSDU: Dropped due drop bit set or null flow
- * @HAL_TX_TQM_RR_MULTICAST_DROP: Dropped due mcast drop set for VDEV
- * @HAL_TX_TQM_RR_VDEV_MISMATCH_DROP: Dropped due to being set with
- *				'TCL_drop_reason'
- *
  */
 enum hal_tx_tqm_release_reason {
 	HAL_TX_TQM_RR_FRAME_ACKED,
@@ -338,7 +300,6 @@ enum hal_tx_tqm_release_reason {
 	HAL_TX_TQM_RR_LINK_DESC_UNAVAILABLE,
 	HAL_TX_TQM_RR_DROP_OR_INVALID_MSDU,
 	HAL_TX_TQM_RR_MULTICAST_DROP,
-	HAL_TX_TQM_RR_VDEV_MISMATCH_DROP,
 };
 
 /* enum - Table IDs for 2 DSCP-TID mapping Tables that TCL H/W supports
@@ -374,7 +335,7 @@ static inline void hal_tx_ext_desc_set_tso_enable(void *desc,
 /**
  * hal_tx_ext_desc_set_tso_flags() - Set TSO Flags
  * @desc: Handle to Tx MSDU Extension Descriptor
- * @flags: 32-bit word with all TSO flags consolidated
+ * @falgs: 32-bit word with all TSO flags consolidated
  *
  * Return: none
  */
@@ -476,32 +437,6 @@ static inline void hal_tx_ext_desc_set_buffer(void *desc,
 	HAL_SET_FLD_OFFSET(desc, HAL_TX_MSDU_EXTENSION, BUF0_LEN,
 			   (frag_num << 3)) |=
 		((HAL_TX_SM(HAL_TX_MSDU_EXTENSION, BUF0_LEN, length)));
-}
-
-/**
- * hal_tx_ext_desc_get_frag_info() - Get the frag_num'th frag iova and len
- * @desc: Handle to Tx MSDU Extension Descriptor
- * @frag_num: fragment number (value can be 0 to 5)
- * @iova: fragment dma address
- * @len: fragment Length
- *
- * Return: None
- */
-static inline void hal_tx_ext_desc_get_frag_info(void *desc, uint8_t frag_num,
-						 qdf_dma_addr_t *iova,
-						 uint32_t *len)
-{
-	uint64_t iova_hi;
-
-	*iova = HAL_TX_DESC_OFFSET_GET(desc, HAL_TX_MSDU_EXTENSION,
-				       BUF0_PTR_31_0, (frag_num << 3));
-
-	iova_hi = HAL_TX_DESC_OFFSET_GET(desc, HAL_TX_MSDU_EXTENSION,
-					 BUF0_PTR_39_32, (frag_num << 3));
-	*iova |= (iova_hi << 32);
-
-	*len = HAL_TX_DESC_OFFSET_GET(desc, HAL_TX_MSDU_EXTENSION, BUF0_LEN,
-				      (frag_num << 3));
 }
 
 /**
@@ -867,7 +802,7 @@ static inline void hal_tx_update_pcp_tid_map(hal_soc_handle_t hal_soc_hdl,
 {
 	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
 
-	hal_soc->ops->hal_tx_update_pcp_tid_map(hal_soc, pcp, tid);
+	hal_soc->ops->hal_tx_update_pcp_tid_map(hal_soc, tid, tid);
 }
 
 /**
@@ -900,43 +835,5 @@ uint8_t hal_get_wbm_internal_error(hal_soc_handle_t hal_soc_hdl, void *hal_desc)
 	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
 
 	return hal_soc->ops->hal_get_wbm_internal_error(hal_desc);
-}
-
-/**
- * hal_get_tsf2_offset() - get tsf2 offset
- *
- * @hal_soc_hdl: HAL SoC context
- * @mac_id: mac id
- * @value: pointer to update tsf2 offset value
- *
- * Return: void
- */
-static inline void
-hal_get_tsf2_offset(hal_soc_handle_t hal_soc_hdl, uint8_t mac_id,
-		    uint64_t *value)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	if (hal_soc->ops->hal_get_tsf2_scratch_reg)
-		hal_soc->ops->hal_get_tsf2_scratch_reg(hal_soc_hdl, mac_id,
-						       value);
-}
-
-/**
- * hal_get_tqm_offset() - get tqm offset
- *
- * @hal_soc_hdl: HAL SoC context
- * @value: pointer to update tqm offset value
- *
- * Return: void
- */
-
-static inline void
-hal_get_tqm_offset(hal_soc_handle_t hal_soc_hdl, uint64_t *value)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	if (hal_soc->ops->hal_get_tqm_scratch_reg)
-		hal_soc->ops->hal_get_tqm_scratch_reg(hal_soc_hdl, value);
 }
 #endif /* HAL_TX_H */

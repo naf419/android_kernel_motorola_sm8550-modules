@@ -872,9 +872,9 @@ send_update_tdls_peer_state_cmd_tlv(wmi_unified_t wmi_handle,
 
 		if (in_chan_info->dfs_set) {
 			WMI_SET_CHANNEL_FLAG(chan_info, WMI_CHAN_FLAG_PASSIVE);
-			wmi_debug("chan_freq[%d] DFS[%d]",
-				  in_chan_info->ch_freq,
-				  in_chan_info->dfs_set);
+			wmi_debug("chan[%d] DFS[%d]",
+				 in_chan_info->chan_id,
+				 in_chan_info->dfs_set);
 		}
 
 		if (chan_info->mhz < WMI_2_4_GHZ_MAX_FREQ)
@@ -1123,19 +1123,19 @@ static QDF_STATUS send_set_base_macaddr_indicate_cmd_tlv(wmi_unified_t wmi_handl
 	return 0;
 }
 
-#if defined(WLAN_FEATURE_ROAM_OFFLOAD) && defined(FEATURE_DENYLIST_MGR)
+#if defined(WLAN_FEATURE_ROAM_OFFLOAD) && defined(FEATURE_BLACKLIST_MGR)
 
 static WMI_BSSID_DISALLOW_LIST_TYPE
-wmi_get_wmi_reject_ap_type(enum dlm_reject_ap_type reject_ap_type)
+wmi_get_wmi_reject_ap_type(enum blm_reject_ap_type reject_ap_type)
 {
 	switch (reject_ap_type) {
 	case USERSPACE_AVOID_TYPE:
 		return WMI_BSSID_DISALLOW_USER_SPACE_AVOID_LIST;
 	case DRIVER_AVOID_TYPE:
 		return WMI_BSSID_DISALLOW_DRIVER_AVOID_LIST;
-	case USERSPACE_DENYLIST_TYPE:
+	case USERSPACE_BLACKLIST_TYPE:
 		return WMI_BSSID_DISALLOW_USER_SPACE_BLACK_LIST;
-	case DRIVER_DENYLIST_TYPE:
+	case DRIVER_BLACKLIST_TYPE:
 		return WMI_BSSID_DISALLOW_DRIVER_BLACK_LIST;
 	case DRIVER_RSSI_REJECT_TYPE:
 		return WMI_BSSID_DISALLOW_RSSI_REJECT_LIST;
@@ -1145,7 +1145,7 @@ wmi_get_wmi_reject_ap_type(enum dlm_reject_ap_type reject_ap_type)
 }
 
 static WMI_BLACKLIST_REASON_ID
-wmi_get_reject_reason(enum dlm_reject_ap_reason reject_reason)
+wmi_get_reject_reason(enum blm_reject_ap_reason reject_reason)
 {
 	switch(reject_reason) {
 	case REASON_NUD_FAILURE:
@@ -1248,7 +1248,7 @@ error:
 	return status;
 }
 
-void wmi_denylist_mgr_attach_tlv(struct wmi_unified *wmi_handle)
+void wmi_blacklist_mgr_attach_tlv(struct wmi_unified *wmi_handle)
 {
 	struct wmi_ops *ops = wmi_handle->ops;
 
@@ -2469,6 +2469,6 @@ void wmi_sta_attach_tlv(wmi_unified_t wmi_handle)
 
 	wmi_tdls_attach_tlv(wmi_handle);
 	wmi_policy_mgr_attach_tlv(wmi_handle);
-	wmi_denylist_mgr_attach_tlv(wmi_handle);
+	wmi_blacklist_mgr_attach_tlv(wmi_handle);
 }
 

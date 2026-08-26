@@ -1161,14 +1161,12 @@ static void hal_hw_txrx_ops_attach_6290(struct hal_soc *hal_soc)
 					hal_rx_get_mpdu_mac_ad4_valid_6290;
 	hal_soc->ops->hal_rx_mpdu_start_sw_peer_id_get =
 		hal_rx_mpdu_start_sw_peer_id_get_6290;
-	hal_soc->ops->hal_rx_tlv_peer_meta_data_get =
+	hal_soc->ops->hal_rx_mpdu_peer_meta_data_get =
 		hal_rx_mpdu_peer_meta_data_get_li;
 	hal_soc->ops->hal_rx_mpdu_get_to_ds = hal_rx_mpdu_get_to_ds_6290;
 	hal_soc->ops->hal_rx_mpdu_get_fr_ds = hal_rx_mpdu_get_fr_ds_6290;
 	hal_soc->ops->hal_rx_get_mpdu_frame_control_valid =
 				hal_rx_get_mpdu_frame_control_valid_6290;
-	hal_soc->ops->hal_rx_get_frame_ctrl_field =
-				hal_rx_get_frame_ctrl_field_li;
 	hal_soc->ops->hal_rx_mpdu_get_addr1 = hal_rx_mpdu_get_addr1_6290;
 	hal_soc->ops->hal_rx_mpdu_get_addr2 = hal_rx_mpdu_get_addr2_6290;
 	hal_soc->ops->hal_rx_mpdu_get_addr3 = hal_rx_mpdu_get_addr3_6290;
@@ -1235,11 +1233,11 @@ static void hal_hw_txrx_ops_attach_6290(struct hal_soc *hal_soc)
 					hal_compute_reo_remap_ix2_ix3_6290;
 	hal_soc->ops->hal_setup_link_idle_list =
 				hal_setup_link_idle_list_generic_li;
+	hal_soc->ops->hal_compute_reo_remap_ix0 = NULL;
 #ifdef WLAN_FEATURE_MARK_FIRST_WAKEUP_PACKET
 	hal_soc->ops->hal_get_first_wow_wakeup_packet =
 		hal_get_first_wow_wakeup_packet_6290;
 #endif
-	hal_soc->ops->hal_compute_reo_remap_ix0 = NULL;
 };
 
 struct hal_hw_srng_config hw_srng_table_6290[] = {

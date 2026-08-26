@@ -47,8 +47,6 @@
 #include "wlan_reg_ucfg_api.h"
 #include "wlan_hdd_sta_info.h"
 #include "wlan_hdd_object_manager.h"
-#include "wlan_dp_ucfg_api.h"
-#include "cfg_ucfg_api.h"
 
 #define WE_WLAN_VERSION     1
 
@@ -130,7 +128,7 @@ static iw_softap_get_ini_cfg(struct net_device *dev,
 }
 
 /**
- * __iw_softap_set_two_ints_getnone() - Generic "set two integer" ioctl handler
+ * iw_softap_set_two_ints_getnone() - Generic "set two integer" ioctl handler
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -149,7 +147,7 @@ static int __iw_softap_set_two_ints_getnone(struct net_device *dev,
 	struct hdd_context *hdd_ctx;
 	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
 	struct cdp_txrx_stats_req req = {0};
-	struct hdd_station_info *sta_info, *tmp = NULL;
+	struct hdd_station_info *sta_info;
 
 	hdd_enter_dev(dev);
 
@@ -180,8 +178,8 @@ static int __iw_softap_set_two_ints_getnone(struct net_device *dev,
 			ret = cdp_txrx_stats_request(soc, adapter->vdev_id,
 						     &req);
 
-			hdd_for_each_sta_ref_safe(
-					adapter->sta_info_list, sta_info, tmp,
+			hdd_for_each_sta_ref(
+					adapter->sta_info_list, sta_info,
 					STA_INFO_SAP_SET_TWO_INTS_GETNONE) {
 				hdd_debug("bss_id: " QDF_MAC_ADDR_FMT,
 					  QDF_MAC_ADDR_REF(
@@ -257,15 +255,6 @@ static int __iw_softap_set_two_ints_getnone(struct net_device *dev,
 	return ret;
 }
 
-/**
- * iw_softap_set_two_ints_getnone() - Generic "set two integer" ioctl handler
- * @dev: device upon which the ioctl was received
- * @info: ioctl request information
- * @wrqu: ioctl request data
- * @extra: ioctl extra data
- *
- * Return: 0 on success, non-zero on error
- */
 static int iw_softap_set_two_ints_getnone(struct net_device *dev,
 					  struct iw_request_info *info,
 					  union iwreq_data *wrqu, char *extra)
@@ -331,7 +320,7 @@ static QDF_STATUS hdd_print_acl(struct hdd_adapter *adapter)
 	if (QDF_STATUS_SUCCESS == wlansap_get_acl_accept_list(sap_ctx,
 							      &maclist[0],
 							      &listnum)) {
-		pr_info("******* ALLOW LIST ***********\n");
+		pr_info("******* WHITE LIST ***********\n");
 		if (listnum <= MAX_ACL_MAC_ADDRESS)
 			print_mac_list(&maclist[0], listnum);
 	} else {
@@ -341,7 +330,7 @@ static QDF_STATUS hdd_print_acl(struct hdd_adapter *adapter)
 	if (QDF_STATUS_SUCCESS == wlansap_get_acl_deny_list(sap_ctx,
 							    &maclist[0],
 							    &listnum)) {
-		pr_info("******* DENY LIST ***********\n");
+		pr_info("******* BLACK LIST ***********\n");
 		if (listnum <= MAX_ACL_MAC_ADDRESS)
 			print_mac_list(&maclist[0], listnum);
 	} else {
@@ -357,33 +346,15 @@ static __iw_softap_setparam(struct net_device *dev,
 {
 	struct hdd_adapter *adapter = (netdev_priv(dev));
 	mac_handle_t mac_handle;
-        //BEGIN MOT a19110 IKDREL3KK-11113 Fix iwpriv panic
-        int *value;
-        int sub_cmd;
-        int set_value;
-        int *tmp = (int *) extra;
-       //END IKDREL3KK-11113
+	int *value = (int *)extra;
+	int sub_cmd = value[0];
+	int set_value = value[1];
 	QDF_STATUS status;
 	int ret = 0;
 	struct hdd_context *hdd_ctx;
 	bool bval = false;
 
 	hdd_enter_dev(dev);
-        //BEGIN MOT a19110 IKDREL3KK-11113 Fix iwpriv panic to 8998
-        if (tmp[0] < 0 || tmp[0] > QCSAP_SET_BTCOEX_LOW_RSSI_THRESHOLD) {
-               value = (int *)(wrqu->data.pointer);
-        } else {
-               value = (int *)extra;
-        }
-
-        sub_cmd = value[0];
-        set_value = value[1];
-
-        if (!adapter || !adapter->hdd_ctx) {
-               hdd_err("Either hostpad adapter is null or Hal ctx is null");
-               return -EINVAL;
-        }
-        //END IKDREL3KK-11113
 
 	hdd_ctx = WLAN_HDD_GET_CTX(adapter);
 	ret = wlan_hdd_validate_context(hdd_ctx);
@@ -454,17 +425,17 @@ static __iw_softap_setparam(struct net_device *dev,
 		break;
 
 	case QCSAP_PARAM_MAX_ASSOC:
-		if (set_value < cfg_min(CFG_ASSOC_STA_LIMIT)) {
+		if (WNI_CFG_ASSOC_STA_LIMIT_STAMIN > set_value) {
 			hdd_err("Invalid setMaxAssoc value %d",
 			       set_value);
 			ret = -EINVAL;
 		} else {
-			if (set_value > cfg_max(CFG_ASSOC_STA_LIMIT)) {
+			if (WNI_CFG_ASSOC_STA_LIMIT_STAMAX < set_value) {
 				hdd_warn("setMaxAssoc %d > max allowed %d.",
-					 set_value,
-					 cfg_max(CFG_ASSOC_STA_LIMIT));
+				       set_value,
+				       WNI_CFG_ASSOC_STA_LIMIT_STAMAX);
 				hdd_warn("Setting it to max allowed and continuing");
-				set_value = cfg_max(CFG_ASSOC_STA_LIMIT);
+				set_value = WNI_CFG_ASSOC_STA_LIMIT_STAMAX;
 			}
 			if (ucfg_mlme_set_assoc_sta_limit(hdd_ctx->psoc,
 							  set_value) !=
@@ -718,9 +689,8 @@ static __iw_softap_setparam(struct net_device *dev,
 		struct sap_config *config =
 			&adapter->session.ap.sap_config;
 
-		if (config->SapHw_mode < eCSR_DOT11_MODE_11ac ||
-		    config->SapHw_mode == eCSR_DOT11_MODE_11ax_ONLY ||
-		    config->SapHw_mode == eCSR_DOT11_MODE_11be_ONLY) {
+		if (config->SapHw_mode != eCSR_DOT11_MODE_11ac &&
+		    config->SapHw_mode != eCSR_DOT11_MODE_11ac_ONLY) {
 			hdd_err("SET_VHT_RATE: SapHw_mode= 0x%x, ch_freq: %d",
 			       config->SapHw_mode, config->chan_freq);
 			ret = -EIO;
@@ -985,12 +955,13 @@ static __iw_softap_setparam(struct net_device *dev,
 		hdd_debug("QCASAP_CLEAR_STATS val %d", set_value);
 		switch (set_value) {
 		case CDP_HDD_STATS:
-			ucfg_dp_clear_net_dev_stats(adapter->dev);
+			memset(&adapter->stats, 0,
+						sizeof(adapter->stats));
 			memset(&adapter->hdd_stats, 0,
 					sizeof(adapter->hdd_stats));
 			break;
 		case CDP_TXRX_HIST_STATS:
-			ucfg_wlan_dp_clear_tx_rx_histogram(hdd_ctx->psoc);
+			wlan_hdd_clear_tx_rx_histogram(hdd_ctx);
 			break;
 		case CDP_HDD_NETIF_OPER_HISTORY:
 			wlan_hdd_clear_netif_queue_history(hdd_ctx);
@@ -1417,8 +1388,8 @@ static iw_softap_getparam(struct net_device *dev,
 }
 
 /* Usage:
- *  DENY_LIST  = 0
- *  ALLOW_LIST  = 1
+ *  BLACK_LIST  = 0
+ *  WHITE_LIST  = 1
  *  ADD MAC = 0
  *  REMOVE MAC  = 1
  *
@@ -1431,9 +1402,9 @@ static iw_softap_getparam(struct net_device *dev,
  *  <6 octet mac addr> <list type> <cmd type>
  *
  *  Examples:
- *  eg 1. to add a mac addr 00:0a:f5:89:89:90 to the deny list
+ *  eg 1. to add a mac addr 00:0a:f5:89:89:90 to the black list
  *  iwpriv softap.0 modify_acl 0x00 0x0a 0xf5 0x89 0x89 0x90 0 0
- *  eg 2. to delete a mac addr 00:0a:f5:89:89:90 from allow list
+ *  eg 2. to delete a mac addr 00:0a:f5:89:89:90 from white list
  *  iwpriv softap.0 modify_acl 0x00 0x0a 0xf5 0x89 0x89 0x90 1 1
  */
 static
@@ -1442,7 +1413,7 @@ int __iw_softap_modify_acl(struct net_device *dev,
 			   union iwreq_data *wrqu, char *extra)
 {
 	struct hdd_adapter *adapter = (netdev_priv(dev));
-	uint8_t *value = (uint8_t *)(wrqu->data.pointer);
+	uint8_t *value = (uint8_t *) extra;
 	uint8_t peer_mac[QDF_MAC_ADDR_SIZE];
 	int list_type, cmd, i;
 	int ret;
@@ -1558,7 +1529,7 @@ static __iw_softap_set_max_tx_power(struct net_device *dev,
 {
 	struct hdd_adapter *adapter = (netdev_priv(dev));
 	struct hdd_context *hdd_ctx;
-	int *value = (int *)(wrqu->data.pointer);
+	int *value = (int *)extra;
 	int set_value;
 	int ret;
 	struct qdf_mac_addr bssid = QDF_MAC_ADDR_BCAST_INIT;
@@ -1727,7 +1698,7 @@ static __iw_softap_getassoc_stamacaddr(struct net_device *dev,
 				       union iwreq_data *wrqu, char *extra)
 {
 	struct hdd_adapter *adapter = (netdev_priv(dev));
-	struct hdd_station_info *sta_info, *tmp = NULL;
+	struct hdd_station_info *sta_info;
 	struct hdd_context *hdd_ctx;
 	char *buf;
 	int left;
@@ -1776,8 +1747,8 @@ static __iw_softap_getassoc_stamacaddr(struct net_device *dev,
 	maclist_index = sizeof(maclist_index);
 	left = wrqu->data.length - maclist_index;
 
-	hdd_for_each_sta_ref_safe(adapter->sta_info_list, sta_info, tmp,
-				  STA_INFO_SAP_GETASSOC_STAMACADDR) {
+	hdd_for_each_sta_ref(adapter->sta_info_list, sta_info,
+			     STA_INFO_SAP_GETASSOC_STAMACADDR) {
 		if (!qdf_is_macaddr_broadcast(&sta_info->sta_mac)) {
 			memcpy(&buf[maclist_index], &sta_info->sta_mac,
 			       QDF_MAC_ADDR_SIZE);
@@ -1861,7 +1832,7 @@ static __iw_softap_disassoc_sta(struct net_device *dev,
 	/* iwpriv tool or framework calls this ioctl with
 	 * data passed in extra (less than 16 octets);
 	 */
-	peer_macaddr = (uint8_t *) (wrqu->data.pointer);
+	peer_macaddr = (uint8_t *) (extra);
 
 	hdd_debug("data " QDF_MAC_ADDR_FMT,
 		  QDF_MAC_ADDR_REF(peer_macaddr));
@@ -1895,7 +1866,7 @@ static iw_softap_disassoc_sta(struct net_device *dev,
 }
 
 /**
- * __iw_get_char_setnone() - Generic "get char" private ioctl handler
+ * iw_get_char_setnone() - Generic "get char" private ioctl handler
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -1938,15 +1909,6 @@ static int __iw_get_char_setnone(struct net_device *dev,
 	return ret;
 }
 
-/**
- * iw_get_char_setnone() - Generic "get char" private ioctl handler
- * @dev: device upon which the ioctl was received
- * @info: ioctl request information
- * @wrqu: ioctl request data
- * @extra: ioctl extra data
- *
- * Return: 0 on success, non-zero on error
- */
 static int iw_get_char_setnone(struct net_device *dev,
 				struct iw_request_info *info,
 				union iwreq_data *wrqu, char *extra)
@@ -2273,22 +2235,18 @@ static int hdd_softap_get_sta_info(struct hdd_adapter *adapter,
 				   int size)
 {
 	int written;
-	struct hdd_station_info *sta, *tmp = NULL;
+	struct hdd_station_info *sta;
 
 	hdd_enter();
 
 	written = scnprintf(buf, size, "\nstaId staAddress\n");
 
-	hdd_for_each_sta_ref_safe(adapter->sta_info_list, sta, tmp,
-				  STA_INFO_SOFTAP_GET_STA_INFO) {
+	hdd_for_each_sta_ref(adapter->sta_info_list, sta,
+			     STA_INFO_SOFTAP_GET_STA_INFO) {
 		if (written >= size - 1) {
 			hdd_put_sta_info_ref(&adapter->sta_info_list,
 					     &sta, true,
 					     STA_INFO_SOFTAP_GET_STA_INFO);
-			if (tmp)
-				hdd_put_sta_info_ref(&adapter->sta_info_list,
-						&tmp, true,
-						STA_INFO_SOFTAP_GET_STA_INFO);
 			break;
 		}
 
@@ -2520,9 +2478,8 @@ int __iw_get_softap_linkspeed(struct net_device *dev,
 
 	hdd_debug("wrqu->data.length(%d)", wrqu->data.length);
 
-	/* Linkspeed is allowed for GO/SAP mode */
-	if (adapter->device_mode != QDF_P2P_GO_MODE &&
-	    adapter->device_mode != QDF_SAP_MODE) {
+	/* Linkspeed is allowed only for P2P mode */
+	if (adapter->device_mode != QDF_P2P_GO_MODE) {
 		hdd_err("Link Speed is not allowed in Device mode %s(%d)",
 			qdf_opmode_str(adapter->device_mode),
 			adapter->device_mode);
@@ -2546,10 +2503,10 @@ int __iw_get_softap_linkspeed(struct net_device *dev,
 	 * link speed for first connected client will be returned.
 	 */
 	if (wrqu->data.length < 17 || !QDF_IS_STATUS_SUCCESS(status)) {
-		struct hdd_station_info *sta_info, *tmp = NULL;
+		struct hdd_station_info *sta_info;
 
-		hdd_for_each_sta_ref_safe(adapter->sta_info_list, sta_info, tmp,
-					  STA_INFO_GET_SOFTAP_LINKSPEED) {
+		hdd_for_each_sta_ref(adapter->sta_info_list, sta_info,
+				     STA_INFO_GET_SOFTAP_LINKSPEED) {
 			if (!qdf_is_macaddr_broadcast(&sta_info->sta_mac)) {
 				qdf_copy_macaddr(&mac_address,
 						 &sta_info->sta_mac);
@@ -2557,11 +2514,6 @@ int __iw_get_softap_linkspeed(struct net_device *dev,
 				hdd_put_sta_info_ref(
 						&adapter->sta_info_list,
 						&sta_info, true,
-						STA_INFO_GET_SOFTAP_LINKSPEED);
-				if (tmp)
-					hdd_put_sta_info_ref(
-						&adapter->sta_info_list,
-						&tmp, true,
 						STA_INFO_GET_SOFTAP_LINKSPEED);
 				break;
 			}
@@ -2619,7 +2571,7 @@ iw_get_softap_linkspeed(struct net_device *dev,
  * @dev: net device
  * @info: iwpriv request information
  * @wrqu: iwpriv command parameter
- * @extra: extra data pointer
+ * @extra
  *
  * This function will call wlan_cfg80211_mc_cp_stats_get_peer_rssi
  * to get rssi
@@ -2700,7 +2652,7 @@ __iw_get_peer_rssi(struct net_device *dev, struct iw_request_info *info,
  * @dev: net device
  * @info: iwpriv request information
  * @wrqu: iwpriv command parameter
- * @extra: extra data pointer
+ * @extra
  *
  * This function will call __iw_get_peer_rssi
  *
@@ -3330,7 +3282,7 @@ const struct iw_handler_def hostapd_handler_def = {
 };
 
 /**
- * hdd_register_hostapd_wext() - register hostapd wext context
+ * hdd_register_wext() - register wext context
  * @dev: net device handle
  *
  * Registers wext interface context for a given net device

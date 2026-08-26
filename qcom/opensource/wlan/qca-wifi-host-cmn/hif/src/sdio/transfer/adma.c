@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2019-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -100,7 +99,7 @@ QDF_STATUS hif_dev_dsr_handler(void *context)
 /**
  * hif_dev_map_service_to_pipe() - maps ul/dl pipe to service id.
  * @pDev: SDIO HIF object
- * @ServiceId: service index
+ * @ServiceId: sevice index
  * @ULPipe: uplink pipe id
  * @DLPipe: down-linklink pipe id
  *
@@ -707,7 +706,7 @@ void ul_xfer_cb(struct sdio_al_channel_handle *ch_handle,
  */
 /* Use the asynchronous method of transfer. This will help in
  * completing READ in the transfer done callback later which
- * runs in sdio al thread context. If we do the synchronous
+ * runs in sdio al thread context. If we do the syncronous
  * transfer here, the thread context won't be available and
  * perhaps a new thread may be required here.
  */

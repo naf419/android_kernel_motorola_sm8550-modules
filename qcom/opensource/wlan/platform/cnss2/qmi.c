@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -12,13 +12,6 @@
 #include "main.h"
 #include "qmi.h"
 #include "genl.h"
-
-// BEGIN Support loading different bdwlan.elf
-#include <linux/bootconfig.h>
-#include <linux/slab.h>
-#include <linux/vmalloc.h>
-#define BOOTCONFIG_FULLPATH "/proc/bootconfig"
-//END Support loading different bdwlan.elf
 
 #define WLFW_SERVICE_INS_ID_V01		1
 #define WLFW_CLIENT_ID			0x4b4e454c
@@ -85,150 +78,6 @@ void cnss_ignore_qmi_failure(bool ignore)
 #define CNSS_QMI_ASSERT() do { } while (0)
 void cnss_ignore_qmi_failure(bool ignore) { }
 #endif
-// BEGIN Support loading different bdwlan.elf
-#define NV_EPA "epa"
-#define NV_IPA "ipa"
-#define MOTO_STRING_LEN 32
-static char device_ptr[MOTO_STRING_LEN] = {0};
-static char radio_ptr[MOTO_STRING_LEN] = {0};
-static char *bootargs_str;
-
-typedef struct moto_product {
-	char hw_device[32];
-	char hw_radio[32];
-	char nv_name[64];
-} moto_product;
-
-static moto_product products_list[] = {
-	{"rtwo",	"NA",	"na.epa"},
-	{"rtwo",        "PRC",  "prc.epa"},
-	{"rtwo",        "ROW",  "row.epa"},
-	{"rtwo",        "VZW",  "vzw.epa"},
-	{"ctwo",        "NA",  "na.epa"},
-	{"ctwo",        "PRC",  "prc.epa"},
-	{"ctwo",        "ROW",  "row.epa"},
-	{"ctwo",        "INDIA",  "india.epa"},
-	{"oberon",	"all",	NV_EPA}, //a19110 IKSWT-74269
-	/* Terminator */
-	{{0}, {0}, {0}},
-};
-
-
-static int cnss_get_bootarg_dt(char *key, char **value, char *prop, char *spl_flag)
-{
-	const char *bootargs_tmp = NULL;
-	char *idx = NULL;
-	char *kvpair = NULL;
-	int err = 1;
-	struct device_node *n = of_find_node_by_path("/chosen");
-	size_t bootargs_tmp_len = 0;
-
-	if (n == NULL)
-		goto err;
-
-	if (of_property_read_string(n, prop, &bootargs_tmp) != 0)
-		goto putnode;
-
-	bootargs_tmp_len = strlen(bootargs_tmp);
-	if (!bootargs_str) {
-		/* The following operations need a non-const
-		 * version of bootargs
-		 */
-		bootargs_str = kzalloc(bootargs_tmp_len + 1, GFP_KERNEL);
-		if (!bootargs_str)
-			goto putnode;
-	}
-	strlcpy(bootargs_str, bootargs_tmp, bootargs_tmp_len + 1);
-
-	idx = strnstr(bootargs_str, key, strlen(bootargs_str));
-	if (idx) {
-		kvpair = strsep(&idx, " ");
-		if (kvpair)
-			if (strsep(&kvpair, "=")) {
-				*value = strsep(&kvpair, spl_flag);
-				if (*value)
-					err = 0;
-			}
-	}
-
-putnode:
-	of_node_put(n);
-err:
-	return err;
-}
-
-static int is_void_product(moto_product *entry)
-{
-	return entry && !strlen(entry->hw_device) && !strlen(entry->hw_radio);
-}
-
-static int num_of_products(moto_product *list)
-{
-	int num = 0;
-	if (!list) return 0;
-	while (!is_void_product(list + num)) num++;
-	return num;
-}
-
-static int get_moto_device(void)
-{
-        char *bootdevice = NULL;
-        int rc = 0;
-	rc = cnss_get_bootarg_dt("androidboot.device=", &bootdevice, "mmi,bootconfig", "\n");
-        if (rc || !bootdevice){
-            cnss_pr_err("device string is error");
-            return -ENOMEM;
-        }else{
-            strlcpy(device_ptr, bootdevice,MOTO_STRING_LEN);
-            return 0;
-        }
-}
-
-static int get_moto_radio(void)
-{
-        char *radiodevice = NULL;
-        int rc = 0;
-	rc = cnss_get_bootarg_dt("androidboot.radio=", &radiodevice, "mmi,bootconfig", "\n");
-        if (rc || !radiodevice){
-            cnss_pr_err("radio string is error");
-            return -ENOMEM;
-        }else{
-            strlcpy(radio_ptr, radiodevice,MOTO_STRING_LEN);
-            return 0;
-        }
-}
-
-static int selectFileNameByProduct(struct cnss_plat_data *plat_priv, char *filename)
-{
-	int i, num, ret = 0;
-        if(get_moto_radio() != 0 || get_moto_device() != 0){
-              cnss_pr_err("device or radio not present ");
-        }
-
-	num = num_of_products(products_list);
-	for (i = 0; i < num; i++) {
-		if (strncmp(device_ptr, (products_list+i)->hw_device, strlen((products_list+i)->hw_device)) == 0) {
-			if(strncmp(radio_ptr, (products_list+i)->hw_radio, strlen((products_list+i)->hw_radio)) == 0 ||
-				strncmp((products_list+i)->hw_radio, "all", strlen((products_list+i)->hw_radio)) == 0) {
-				if(0x400c1211 == plat_priv->soc_info.soc_id)  //GF chip
-				{
-					sprintf(filename, "%s.%s.%s", ELF_BDF_FILE_NAME_GF,
-					(products_list+i)->hw_device, (products_list+i)->nv_name);
-				}
-				else{
-					sprintf(filename, "%s.%s.%s", ELF_BDF_FILE_NAME,
-					(products_list+i)->hw_device, (products_list+i)->nv_name);
-				}
-
-				ret = 1;
-				break;
-			}
-		}
-	}
-
-        return ret;
-}
-// END Support loading different bdwlan.elf
 
 static char *cnss_qmi_mode_to_str(enum cnss_driver_mode mode)
 {
@@ -341,8 +190,6 @@ static int cnss_wlfw_ind_register_send_sync(struct cnss_plat_data *plat_priv)
 	req->respond_get_info_enable = 1;
 	req->wfc_call_twt_config_enable_valid = 1;
 	req->wfc_call_twt_config_enable = 1;
-	req->async_data_enable_valid = 1;
-	req->async_data_enable = 1;
 
 	ret = qmi_txn_init(&plat_priv->qmi_wlfw, &txn,
 			   wlfw_ind_register_resp_msg_v01_ei, resp);
@@ -792,22 +639,14 @@ int cnss_wlfw_tgt_cap_send_sync(struct cnss_plat_data *plat_priv)
 	for (i = 0; i < plat_priv->on_chip_pmic_devices_count; i++) {
 		if (plat_priv->board_info.board_id ==
 		    plat_priv->on_chip_pmic_board_ids[i]) {
-			char buf[CNSS_MBOX_MSG_MAX_LEN] =
-				"{class: wlan_pdc, ss: rf, res: pdc, enable: 0}";
 			cnss_pr_dbg("Disabling WLAN PDC for board_id: %02x\n",
 				    plat_priv->board_info.board_id);
-			ret = cnss_aop_send_msg(plat_priv, buf);
+			ret = cnss_aop_send_msg(plat_priv,
+						"{class: wlan_pdc, ss: rf, res: pdc, enable: 0}");
 			if (ret < 0)
 				cnss_pr_dbg("Failed to Send AOP Msg");
 			break;
 		}
-	}
-
-	if (resp->serial_id_valid) {
-		plat_priv->serial_id = resp->serial_id;
-		cnss_pr_info("serial id  0x%x 0x%x\n",
-			     resp->serial_id.serial_id_msb,
-			     resp->serial_id.serial_id_lsb);
 	}
 
 	cnss_pr_dbg("Target capability: chip_id: 0x%x, chip_family: 0x%x, board_id: 0x%x, soc_id: 0x%x, otp_version: 0x%x\n",
@@ -859,12 +698,8 @@ static int cnss_get_bdf_file_name(struct cnss_plat_data *plat_priv,
 
 	switch (bdf_type) {
 	case CNSS_BDF_ELF:
-		// Support loading different bdwlan.elf
-		if (selectFileNameByProduct(plat_priv, filename_tmp) > 0) {
-			cnss_pr_dbg("%s: Using %s for %s\n",
-				    __func__, filename_tmp, device_ptr);
 		/* Board ID will be equal or less than 0xFF in GF mask case */
-		} else if (plat_priv->board_info.board_id == 0xFF) {
+		if (plat_priv->board_info.board_id == 0xFF) {
 			if (plat_priv->chip_info.chip_id & CHIP_ID_GF_MASK)
 				snprintf(filename_tmp, filename_len,
 					 ELF_BDF_FILE_NAME_GF);
@@ -1188,8 +1023,7 @@ int cnss_wlfw_tme_opt_file_dnld_send_sync(struct cnss_plat_data *plat_priv,
 		file_name = TME_DPR_FILE_NAME;
 	}
 
-	if (!tme_opt_file_mem || !tme_opt_file_mem->pa ||
-	    !tme_opt_file_mem->size) {
+	if (!tme_opt_file_mem->pa || !tme_opt_file_mem->size) {
 		cnss_pr_err("Memory for TME opt file is not available\n");
 		ret = -ENOMEM;
 		goto out;
@@ -1585,9 +1419,9 @@ end:
 	return ret;
 }
 
-static void cnss_get_qdss_cfg_filename(struct cnss_plat_data *plat_priv,
-				       char *filename, u32 filename_len,
-				       bool fallback_file)
+void cnss_get_qdss_cfg_filename(struct cnss_plat_data *plat_priv,
+				char *filename, u32 filename_len,
+				bool fallback_file)
 {
 	char filename_tmp[MAX_FIRMWARE_NAME_LEN];
 	char *build_str = QDSS_FILE_BUILD_STR;
@@ -3266,33 +3100,6 @@ static void cnss_wlfw_respond_get_info_ind_cb(struct qmi_handle *qmi_wlfw,
 				       ind_msg->data_len);
 }
 
-static void cnss_wlfw_driver_async_data_ind_cb(struct qmi_handle *qmi_wlfw,
-					       struct sockaddr_qrtr *sq,
-					       struct qmi_txn *txn,
-					       const void *data)
-{
-	struct cnss_plat_data *plat_priv =
-		container_of(qmi_wlfw, struct cnss_plat_data, qmi_wlfw);
-	const struct wlfw_driver_async_data_ind_msg_v01 *ind_msg = data;
-
-	cnss_pr_buf("Received QMI WLFW driver async data indication\n");
-
-	if (!txn) {
-		cnss_pr_err("Spurious indication\n");
-		return;
-	}
-
-	cnss_pr_buf("Extract message with event length: %d, type: %d\n",
-		    ind_msg->data_len, ind_msg->type);
-
-	if (plat_priv->get_driver_async_data_ctx &&
-			plat_priv->get_driver_async_data_cb)
-		plat_priv->get_driver_async_data_cb(
-			plat_priv->get_driver_async_data_ctx, ind_msg->type,
-			(void *)ind_msg->data, ind_msg->data_len);
-}
-
-
 static int cnss_ims_wfc_call_twt_cfg_send_sync
 	(struct cnss_plat_data *plat_priv,
 	 const struct wlfw_wfc_call_twt_config_ind_msg_v01 *ind_msg)
@@ -3503,14 +3310,6 @@ static struct qmi_msg_handler qmi_wlfw_msg_handlers[] = {
 		.decoded_size =
 		sizeof(struct wlfw_wfc_call_twt_config_ind_msg_v01),
 		.fn = cnss_wlfw_process_twt_cfg_ind
-	},
-	{
-		.type = QMI_INDICATION,
-		.msg_id = QMI_WLFW_DRIVER_ASYNC_DATA_IND_V01,
-		.ei = wlfw_driver_async_data_ind_msg_v01_ei,
-		.decoded_size =
-		sizeof(struct wlfw_driver_async_data_ind_msg_v01),
-		.fn = cnss_wlfw_driver_async_data_ind_cb
 	},
 	{}
 };
@@ -3810,8 +3609,7 @@ static int dms_new_server(struct qmi_handle *qmi_dms,
 static void cnss_dms_server_exit_work(struct work_struct *work)
 {
 	int ret;
-	struct cnss_plat_data *plat_priv =
-		container_of(work, struct cnss_plat_data, cnss_dms_del_work);
+	struct cnss_plat_data *plat_priv = cnss_get_plat_priv(NULL);
 
 	cnss_dms_deinit(plat_priv);
 
@@ -3822,6 +3620,8 @@ static void cnss_dms_server_exit_work(struct work_struct *work)
 	if (ret < 0)
 		cnss_pr_err("QMI DMS service registraton failed, ret\n", ret);
 }
+
+static DECLARE_WORK(cnss_dms_del_work, cnss_dms_server_exit_work);
 
 static void dms_del_server(struct qmi_handle *qmi_dms,
 			   struct qmi_service *service)
@@ -3842,12 +3642,12 @@ static void dms_del_server(struct qmi_handle *qmi_dms,
 	clear_bit(CNSS_QMI_DMS_CONNECTED, &plat_priv->driver_state);
 	cnss_pr_info("QMI DMS service disconnected, state: 0x%lx\n",
 		     plat_priv->driver_state);
-	schedule_work(&plat_priv->cnss_dms_del_work);
+	schedule_work(&cnss_dms_del_work);
 }
 
-void cnss_cancel_dms_work(struct cnss_plat_data *plat_priv)
+void cnss_cancel_dms_work(void)
 {
-	cancel_work_sync(&plat_priv->cnss_dms_del_work);
+	cancel_work_sync(&cnss_dms_del_work);
 }
 
 static struct qmi_ops qmi_dms_ops = {
@@ -3865,8 +3665,6 @@ int cnss_dms_init(struct cnss_plat_data *plat_priv)
 		cnss_pr_err("Failed to initialize DMS handle, err: %d\n", ret);
 		goto out;
 	}
-
-	INIT_WORK(&plat_priv->cnss_dms_del_work, cnss_dms_server_exit_work);
 
 	ret = qmi_add_lookup(&plat_priv->qmi_dms, DMS_SERVICE_ID_V01,
 			     DMS_SERVICE_VERS_V01, 0);
@@ -4114,7 +3912,7 @@ void cnss_unregister_coex_service(struct cnss_plat_data *plat_priv)
 }
 
 /* IMS Service */
-static int ims_subscribe_for_indication_send_async(struct cnss_plat_data *plat_priv)
+int ims_subscribe_for_indication_send_async(struct cnss_plat_data *plat_priv)
 {
 	int ret;
 	struct ims_private_service_subscribe_for_indications_req_msg_v01 *req;
@@ -4144,7 +3942,7 @@ static int ims_subscribe_for_indication_send_async(struct cnss_plat_data *plat_p
 	(&plat_priv->ims_qmi, NULL, txn,
 	QMI_IMS_PRIVATE_SERVICE_SUBSCRIBE_FOR_INDICATIONS_REQ_V01,
 	IMS_PRIVATE_SERVICE_SUBSCRIBE_FOR_INDICATIONS_REQ_MSG_V01_MAX_MSG_LEN,
-	ims_private_service_subscribe_ind_req_msg_v01_ei, req);
+	ims_private_service_subscribe_for_indications_req_msg_v01_ei, req);
 	if (ret < 0) {
 		qmi_txn_cancel(txn);
 		cnss_pr_err("Fail to send ims subscribe for indication req %d\n",
@@ -4235,7 +4033,7 @@ static struct qmi_msg_handler qmi_ims_msg_handlers[] = {
 		.msg_id =
 		QMI_IMS_PRIVATE_SERVICE_SUBSCRIBE_FOR_INDICATIONS_REQ_V01,
 		.ei =
-		ims_private_service_subscribe_ind_rsp_msg_v01_ei,
+		ims_private_service_subscribe_for_indications_rsp_msg_v01_ei,
 		.decoded_size = sizeof(struct
 		ims_private_service_subscribe_for_indications_rsp_msg_v01),
 		.fn = ims_subscribe_for_indication_resp_cb

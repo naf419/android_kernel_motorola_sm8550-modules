@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2015-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -20,7 +20,7 @@
 /**
  * DOC: if_snoc.c
  *
- * c file for snoc specific implementations.
+ * c file for snoc specif implementations.
  */
 
 #include "hif.h"
@@ -299,7 +299,7 @@ QDF_STATUS hif_snoc_enable_bus(struct hif_softc *ol_sc,
 	hif_register_tbl_attach(ol_sc, hif_type);
 	hif_target_register_tbl_attach(ol_sc, target_type);
 
-	/* the bus should remain on during suspend for snoc */
+	/* the bus should remain on durring suspend for snoc */
 	hif_vote_link_up(GET_HIF_OPAQUE_HDL(ol_sc));
 
 	hif_debug("X - hif_type = 0x%x, target_type = 0x%x",
@@ -421,7 +421,7 @@ int hif_snoc_bus_suspend(struct hif_softc *scn)
  * @scn: hif context
  *
  * Clear wakeup interrupt configuration.
- * Re-enable ce interrupts
+ * Reenable ce interrupts
  *
  * Return: 0 on success
  */
@@ -438,7 +438,7 @@ int hif_snoc_bus_resume(struct hif_softc *scn)
  * @scn: hif context
  *
  * Ensure that if we received the wakeup message before the irq
- * was disabled that the message is processed before suspending.
+ * was disabled that the message is pocessed before suspending.
  *
  * Return: -EBUSY if we fail to flush the tasklets.
  */
@@ -480,3 +480,50 @@ bool hif_snoc_needs_bmi(struct hif_softc *scn)
 {
 	return false;
 }
+
+#ifdef FEATURE_ENABLE_CE_DP_IRQ_AFFINE
+static void hif_snoc_ce_dp_irq_set_affinity_hint(struct hif_softc *scn)
+{
+	struct CE_state *ce_state;
+	qdf_cpu_mask ce_cpu_mask;
+	unsigned int cpus;
+	int ce_id;
+	int ret, irq;
+
+	qdf_cpumask_clear(&ce_cpu_mask);
+
+	qdf_for_each_online_cpu(cpus) {
+		if (qdf_topology_physical_package_id(cpus) ==
+			CPU_CLUSTER_TYPE_PERF) {
+			qdf_cpumask_set_cpu(cpus,
+					    &ce_cpu_mask);
+		}
+	}
+
+	if (qdf_cpumask_empty(&ce_cpu_mask)) {
+		hif_err_rl("Empty cpu_mask, unable to set CE DP IRQ affinity");
+		return;
+	}
+
+	for (ce_id = 0; ce_id < scn->ce_count; ce_id++) {
+		ce_state = scn->ce_id_to_state[ce_id];
+		if (!ce_state || !ce_state->htt_rx_data)
+			continue;
+
+		irq = pld_get_irq(scn->qdf_dev->dev, ce_id);
+		ret = hif_irq_set_affinity_hint(irq, &ce_cpu_mask);
+		if (ret)
+			hif_err_rl("Set affinity %*pbl fails for CE DP IRQ %d",
+				   qdf_cpumask_pr_args(&ce_cpu_mask), irq);
+		else
+			hif_debug_rl("Set affinity %*pbl for CE DP IRQ: %d",
+				     qdf_cpumask_pr_args(&ce_cpu_mask), irq);
+	}
+}
+
+void hif_snoc_configure_irq_affinity(struct hif_softc *scn)
+{
+	if (scn->hif_config.enable_ce_dp_irq_affine)
+		hif_snoc_ce_dp_irq_set_affinity_hint(scn);
+}
+#endif

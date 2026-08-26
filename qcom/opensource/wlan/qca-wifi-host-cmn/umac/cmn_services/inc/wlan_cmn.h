@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -73,8 +73,8 @@
 /* Max vdev_id */
 #define WLAN_UMAC_VDEV_ID_MAX 0xFF
 
-/* MAX AID */
-#define WLAN_UMAC_MAX_AID 2008
+/* TODO: MAX AID */
+#define WLAN_UMAC_MAX_AID 2048
 
 /* Invalid pdev_id */
 #define WLAN_INVALID_PDEV_ID 0xFFFFFFFF
@@ -280,7 +280,7 @@
  * @WLAN_UMAC_COMP_ACTION_OUI:    ACTION OUI
  * @WLAN_UMAC_COMP_FWOL           FW Offload
  * @WLAN_UMAC_COMP_INTEROP_ISSUES_AP       interop issues ap component
- * @WLAN_UMAC_COMP_DENYLIST_MGR:      Denylist mgr component
+ * @WLAN_UMAC_COMP_BLACKLIST_MGR:      Blacklist mgr component
  * @WLAN_UMAC_COMP_COEX:          Coex config component
  * @WLAN_UMAC_COMP_FTM_TIME_SYNC: WLAN FTM TIMESYNC
  * @WLAN_UMAC_COMP_PKT_CAPTURE:   Packet capture component
@@ -293,11 +293,8 @@
  * @WLAN_UMAC_COMP_MBSS:          MBSS Framework
  * @WLAN_UMAC_COMP_WIFI_RADAR:    WIFI RADAR component
  * @WLAN_UMAC_COMP_TWT:           Target Wake Time (TWT) Component
- * @WLAN_UMAC_COMP_PRE_CAC:       PRE CAC component
  * @WLAN_COMP_DP:                 DP component
  * @WLAN_UMAC_COMP_COAP:          Constrained Application Protocol component
- * @WLAN_UMAC_COMP_QMI:           QMI component
- * @WLAN_UMAC_COMP_AFC:           AFC component
  * @WLAN_UMAC_COMP_ID_MAX:        Maximum components in UMAC
  *
  * This id is static.
@@ -336,7 +333,7 @@ enum wlan_umac_comp_id {
 	WLAN_UMAC_COMP_FWOL               = 29,
 	WLAN_UMAC_COMP_CFR                = 30,
 	WLAN_UMAC_COMP_INTEROP_ISSUES_AP  = 31,
-	WLAN_UMAC_COMP_DENYLIST_MGR       = 32,
+	WLAN_UMAC_COMP_BLACKLIST_MGR      = 32,
 	WLAN_UMAC_COMP_COEX               = 33,
 	WLAN_UMAC_COMP_FTM_TIME_SYNC      = 34,
 	WLAN_UMAC_COMP_PKT_CAPTURE        = 35,
@@ -349,12 +346,8 @@ enum wlan_umac_comp_id {
 	WLAN_UMAC_COMP_MBSS               = 42,
 	WLAN_UMAC_COMP_WIFI_RADAR         = 43,
 	WLAN_UMAC_COMP_TWT                = 44,
-	WLAN_UMAC_COMP_PRE_CAC            = 45,
 	WLAN_COMP_DP                      = 46,
-	WLAN_COMP_TELEMETRY_AGENT         = 47,
 	WLAN_UMAC_COMP_COAP               = 48,
-	WLAN_UMAC_COMP_QMI                = 49,
-	WLAN_UMAC_COMP_AFC                = 50,
 	WLAN_UMAC_COMP_ID_MAX,
 };
 
@@ -511,7 +504,6 @@ enum wlan_phymode {
 	((mode) == WLAN_PHYMODE_11BEA_EHT320); })
 
 #else
-#define IS_WLAN_PHYMODE_320MHZ(_mode) 0
 
 #define IS_WLAN_PHYMODE_160MHZ(_mode) ({typeof(_mode) mode = (_mode); \
 	((mode) == WLAN_PHYMODE_11AC_VHT80_80) || \
@@ -593,7 +585,9 @@ enum phy_ch_width {
 	CH_WIDTH_80P80MHZ,
 	CH_WIDTH_5MHZ,
 	CH_WIDTH_10MHZ,
+#ifdef WLAN_FEATURE_11BE
 	CH_WIDTH_320MHZ,
+#endif
 	CH_WIDTH_INVALID,
 	CH_WIDTH_MAX
 };
@@ -627,7 +621,6 @@ enum wifi_traffic_ac {
  * @WLAN_PEER_IBSS:     IBSS Peer
  * @WLAN_PEER_NDP:      NDP Peer
  * @WLAN_PEER_MLO_TEMP: MLO Peer Temp (host only node)
- * @WLAN_PEER_RTT_PASN: Ranging PASN peer
  */
 enum wlan_peer_type {
 	WLAN_PEER_SELF     = 1,
@@ -641,7 +634,6 @@ enum wlan_peer_type {
 	WLAN_PEER_IBSS     = 9,
 	WLAN_PEER_NDP      = 10,
 	WLAN_PEER_MLO_TEMP = 11,
-	WLAN_PEER_RTT_PASN = 12,
 };
 
 /**
@@ -710,19 +702,9 @@ struct wlan_ssid {
 
 #ifdef WLAN_FEATURE_11BE
 #define PSOC_HOST_MAX_EHT_MAC_SIZE 1
-#define PSOC_HOST_MAX_EHT_PHY_SIZE 3
+#define PSOC_HOST_MAX_EHT_PHY_SIZE 2
 #define PSOC_HOST_EHT_MCS_NSS_MAP_2G_SIZE 2
 #define PSOC_HOST_EHT_MCS_NSS_MAP_5G_SIZE 4
 #endif
-
-/**
- * enum host_edca_param_type - Host edca param type
- * @HOST_EDCA_PARAM_TYPE_AGGRESSIVE: Aggressive type
- * @HOST_EDCA_PARAM_TYPE_PIFS: Pifs type
- */
-enum host_edca_param_type {
-	HOST_EDCA_PARAM_TYPE_AGGRESSIVE = 0,
-	HOST_EDCA_PARAM_TYPE_PIFS = 1,
-};
 
 #endif /* _WLAN_OBJMGR_CMN_H_*/

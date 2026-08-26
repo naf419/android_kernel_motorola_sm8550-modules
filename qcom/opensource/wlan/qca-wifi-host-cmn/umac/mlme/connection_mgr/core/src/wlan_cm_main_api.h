@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2015, 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -50,24 +50,6 @@
 #define CM_PREFIX_REF(vdev_id, cm_id) (vdev_id), (cm_id)
 
 /*************** CONNECT APIs ****************/
-
-/**
- * cm_fill_failure_resp_from_cm_id() - This API will fill failure connect
- * response
- * @cm_ctx: connection manager context
- * @resp: connect failure resp
- * @cm_id: cm_id for connect response to be filled.
- * @reason: connect failure reason
- *
- * This function will fill connect failure response structure with the provided
- * reason with the help of given cm id.
- *
- * Return: void
- */
-void cm_fill_failure_resp_from_cm_id(struct cnx_mgr *cm_ctx,
-				     struct wlan_cm_connect_resp *resp,
-				     wlan_cm_id cm_id,
-				     enum wlan_cm_connect_fail_reason reason);
 
 /**
  * cm_connect_start() - This API will be called to initiate the connect
@@ -217,28 +199,6 @@ QDF_STATUS cm_try_next_candidate(struct cnx_mgr *cm_ctx,
 QDF_STATUS
 cm_resume_connect_after_peer_create(struct cnx_mgr *cm_ctx, wlan_cm_id *cm_id);
 
-#if defined(CONN_MGR_ADV_FEATURE) && defined(WLAN_FEATURE_11BE_MLO)
-/**
- * cm_bss_peer_create_resp_mlo_attach() - Create MLO peer and attach objmgr peer
- * @vdev: VDEV object manager pointer
- * @peer_mac: MAC addr pointer for BSS peer created
- *
- * Creates MLO peer for the peer with @peer_mac and adds the objmgr peer to
- * the created MLO peer context and holds reference for the MLO peer.
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS cm_bss_peer_create_resp_mlo_attach(struct wlan_objmgr_vdev *vdev,
-					      struct qdf_mac_addr *peer_mac);
-#else
-static inline QDF_STATUS
-cm_bss_peer_create_resp_mlo_attach(struct wlan_objmgr_vdev *vdev,
-				   struct qdf_mac_addr *peer_mac)
-{
-	return QDF_STATUS_SUCCESS;
-}
-#endif
-
 /**
  * cm_bss_peer_create_rsp() - handle bss peer create response
  * @vdev: vdev
@@ -322,18 +282,6 @@ QDF_STATUS
 cm_send_connect_start_fail(struct cnx_mgr *cm_ctx,
 			   struct cm_connect_req *req,
 			   enum wlan_cm_connect_fail_reason reason);
-
-/**
- * cm_find_bss_from_candidate_list() - get bss entry by bssid value
- * @candidate_list: candidate list
- * @bssid: bssid to find
- * @entry_found: found bss entry
- *
- * Return: true if find bss entry with bssid
- */
-bool cm_find_bss_from_candidate_list(qdf_list_t *candidate_list,
-				     struct qdf_mac_addr *bssid,
-				     struct scan_cache_node **entry_found);
 
 #ifdef WLAN_POLICY_MGR_ENABLE
 /**
@@ -521,24 +469,15 @@ void cm_send_disconnect_resp(struct cnx_mgr *cm_ctx, wlan_cm_id cm_id);
 /**
  * cm_disconnect_continue_after_rso_stop() - Continue disconnect after RSO stop
  * @vdev: Objmgr vdev
+ * @is_ho_fail: True if ho_fail happened
  * @req: pointer to cm vdev disconnect req
  *
  * Return: QDF_STATUS
  */
 QDF_STATUS
 cm_disconnect_continue_after_rso_stop(struct wlan_objmgr_vdev *vdev,
+				      bool is_ho_fail,
 				      struct wlan_cm_vdev_discon_req *req);
-
-/**
- * cm_handle_rso_stop_rsp() - Handle RSO stop response
- * @vdev: Objmgr vdev
- * @req: pointer to cm vdev disconnect req
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-cm_handle_rso_stop_rsp(struct wlan_objmgr_vdev *vdev,
-		       struct wlan_cm_vdev_discon_req *req);
 
 /*************** UTIL APIs ****************/
 
@@ -631,14 +570,14 @@ void cm_store_wep_key(struct cnx_mgr *cm_ctx,
 		      wlan_cm_id cm_id);
 
 /**
- * cm_inform_dlm_connect_complete() - inform bsl about connect complete
+ * cm_inform_blm_connect_complete() - inform bsl about connect complete
  * @vdev: vdev
  * @resp: connect resp
  *
  * Return: QDF_STATUS
  */
 QDF_STATUS
-cm_inform_dlm_connect_complete(struct wlan_objmgr_vdev *vdev,
+cm_inform_blm_connect_complete(struct wlan_objmgr_vdev *vdev,
 			       struct wlan_cm_connect_resp *resp);
 
 static inline QDF_STATUS
@@ -661,7 +600,7 @@ static inline void cm_store_wep_key(struct cnx_mgr *cm_ctx,
 {}
 
 static inline QDF_STATUS
-cm_inform_dlm_connect_complete(struct wlan_objmgr_vdev *vdev,
+cm_inform_blm_connect_complete(struct wlan_objmgr_vdev *vdev,
 			       struct wlan_cm_connect_resp *resp)
 {
 	return QDF_STATUS_SUCCESS;
@@ -958,7 +897,7 @@ bool cm_is_vdev_connected(struct wlan_objmgr_vdev *vdev);
 bool cm_is_vdev_active(struct wlan_objmgr_vdev *vdev);
 
 /**
- * cm_is_vdev_disconnecting() - check if vdev is in disconnecting state
+ * cm_is_vdev_disconnecting() - check if vdev is in disconneting state
  * @vdev: vdev pointer
  *
  * Return: bool
@@ -1035,7 +974,7 @@ cm_get_active_req_type(struct wlan_objmgr_vdev *vdev);
  * @vdev: vdev pointer
  * @req: pointer to the copy of the active connect request
  * *
- * Context: Should be called only in the context of the
+ * Context: Should be called only in the conext of the
  * cm request activation
  *
  * Return: true and connect req if any request is active
@@ -1048,7 +987,7 @@ bool cm_get_active_connect_req(struct wlan_objmgr_vdev *vdev,
  * @vdev: vdev pointer
  * @req: pointer to the copy of the active disconnect request
  * *
- * Context: Should be called only in the context of the
+ * Context: Should be called only in the conext of the
  * cm request activation
  *
  * Return: true and disconnect req if any request is active
@@ -1084,72 +1023,6 @@ cm_connect_handle_event_post_fail(struct cnx_mgr *cm_ctx, wlan_cm_id cm_id);
  */
 struct cm_req *cm_get_req_by_scan_id(struct cnx_mgr *cm_ctx,
 				     wlan_scan_id scan_id);
-
-#ifdef WLAN_FEATURE_11BE_MLO
-/**
- * cm_connect_resp_fill_mld_addr_from_candidate() - API to fill MLD
- * address in connect resp from scan entry.
- * @vdev: VDEV objmgr pointer.
- * @entry: Scan entry.
- * @resp: connect response pointer.
- *
- * If the MLO VDEV flag is set, get the MLD address from the scan
- * entry and fill in MLD address field in @resp.
- *
- * Return: void
- */
-void
-cm_connect_resp_fill_mld_addr_from_candidate(struct wlan_objmgr_vdev *vdev,
-					     struct scan_cache_entry *entry,
-					     struct wlan_cm_connect_resp *resp);
-/**
- * cm_connect_resp_fill_mld_addr_from_cm_id() - API to fill MLD address
- * in connect resp from connect request ID.
- * @vdev: VDEV objmgr pointer.
- * @cm_id: connect request ID.
- * @rsp: connect resp pointer.
- *
- * The API gets scan entry from the connect request using the connect request
- * ID and fills MLD address from the scan entry into the connect response.
- *
- * Return: void
- */
-void
-cm_connect_resp_fill_mld_addr_from_cm_id(struct wlan_objmgr_vdev *vdev,
-					 wlan_cm_id cm_id,
-					 struct wlan_cm_connect_resp *rsp);
-
-static inline void
-cm_connect_rsp_get_mld_addr_or_bssid(struct wlan_cm_connect_resp *resp,
-				     struct qdf_mac_addr *bssid)
-{
-	if (!qdf_is_macaddr_zero(&resp->mld_addr))
-		qdf_copy_macaddr(bssid, &resp->mld_addr);
-	else
-		qdf_copy_macaddr(bssid, &resp->bssid);
-}
-#else
-static inline void
-cm_connect_resp_fill_mld_addr_from_candidate(struct wlan_objmgr_vdev *vdev,
-					     struct scan_cache_entry *entry,
-					     struct wlan_cm_connect_resp *resp)
-{
-}
-
-static inline void
-cm_connect_resp_fill_mld_addr_from_cm_id(struct wlan_objmgr_vdev *vdev,
-					 wlan_cm_id cm_id,
-					 struct wlan_cm_connect_resp *rsp)
-{
-}
-
-static inline void
-cm_connect_rsp_get_mld_addr_or_bssid(struct wlan_cm_connect_resp *resp,
-				     struct qdf_mac_addr *bssid)
-{
-	qdf_copy_macaddr(bssid, &resp->bssid);
-}
-#endif
 
 /**
  * cm_get_cm_id_by_scan_id() - Get cm id by matching the scan id
@@ -1311,116 +1184,4 @@ void cm_set_candidate_custom_sort_cb(
 				 qdf_list_t *list));
 
 #endif
-
-/**
- * cm_is_connect_req_reassoc() - Is connect req for reassoc
- * @req: connect req
- *
- * Return: void
- */
-bool cm_is_connect_req_reassoc(struct wlan_cm_connect_req *req);
-
-#ifdef CONN_MGR_ADV_FEATURE
-/**
- * cm_get_curr_candidate_entry() - Get the current candidate from cnx mgr
- * @vdev: VDEV object manager.
- * @cm_id: cnx mgr ID.
- *
- * Get current entry of connection from the cnx mgr list.
- * Caller to free the returned scan entry if not NULL.
- *
- * Return: Scan entry
- */
-struct scan_cache_entry *
-cm_get_curr_candidate_entry(struct wlan_objmgr_vdev *vdev, wlan_cm_id cm_id);
-
-/**
- * cm_is_first_candidate_connect_attempt() - Is it a first attempt to
- * connect to a candidate after receiving connect request
- * @vdev: vdev pointer
- *
- * Return: True if it is the first connect attempt to a candidate
- * after receiving the connect request from the userspace
- */
-bool cm_is_first_candidate_connect_attempt(struct wlan_objmgr_vdev *vdev);
-
-/**
- * cm_get_active_connect_req_param() - Get Connect request parameter
- * @vdev: vdev pointer
- * @req: Connection request buffer to be filled
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS cm_get_active_connect_req_param(struct wlan_objmgr_vdev *vdev,
-					   struct wlan_cm_connect_req *req);
-
-/**
- * cm_free_connect_rsp_ies() - Function to free all connection IEs.
- * @connect_rsp: pointer to connect rsp
- *
- * Function to free up all the IE in connect response structure.
- *
- * Return: void
- */
-void cm_free_connect_rsp_ies(struct wlan_cm_connect_resp *connect_rsp);
-
-/**
- * cm_store_first_candidate_rsp() - store the connection failure response
- * @cm_ctx: connection manager context
- * @cm_id: cm_id for connect response to be filled
- * @resp: first connect failure response
- *
- * This API would be called when candidate fails to connect. It will cache the
- * first connect failure response in connect req structure.
- *
- * Return: void
- */
-void cm_store_first_candidate_rsp(struct cnx_mgr *cm_ctx, wlan_cm_id cm_id,
-				  struct wlan_cm_connect_resp *resp);
-
-/**
- * cm_get_first_candidate_rsp() - fetch first candidate response
- * @cm_ctx: connection manager context
- * @cm_id: cm_id for connect response to be filled
- * @first_candid_rsp: first connect failure response
- *
- * This API would be called when last candidate is failed to connect. It will
- * fetch the first candidate failure response which was cached in connect
- * request structure.
- *
- * Return: QDF_STATUS_SUCCESS when rsp is fetch successfully
- */
-QDF_STATUS
-cm_get_first_candidate_rsp(struct cnx_mgr *cm_ctx, wlan_cm_id cm_id,
-			   struct wlan_cm_connect_resp *first_candid_rsp);
-
-/**
- * cm_store_n_send_failed_candidate() - stored failed connect response and sent
- * it to osif.
- * @cm_ctx: connection manager context
- * @cm_id: connection manager id
- *
- * This API will stored failed connect response in connect request structure
- * and sent it to osif layer.
- *
- * Return: void
- */
-void cm_store_n_send_failed_candidate(struct cnx_mgr *cm_ctx, wlan_cm_id cm_id);
-#else
-static inline
-void cm_free_connect_rsp_ies(struct wlan_cm_connect_resp *connect_rsp)
-{
-}
-
-static inline
-void cm_store_first_candidate_rsp(struct cnx_mgr *cm_ctx, wlan_cm_id cm_id,
-				  struct wlan_cm_connect_resp *resp)
-{
-}
-
-static inline
-void cm_store_n_send_failed_candidate(struct cnx_mgr *cm_ctx, wlan_cm_id cm_id)
-{
-}
-#endif /* CONN_MGR_ADV_FEATURE */
 #endif /* __WLAN_CM_MAIN_API_H__ */

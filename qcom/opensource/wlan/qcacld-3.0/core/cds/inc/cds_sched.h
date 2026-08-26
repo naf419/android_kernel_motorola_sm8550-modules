@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -53,7 +52,7 @@
 #define RX_REFILL_SUSPEND_EVENT        0x002
 #define RX_REFILL_SHUTDOWN_EVENT       0x004
 
-#ifdef WLAN_DP_LEGACY_OL_RX_THREAD
+#ifdef QCA_CONFIG_SMP
 /*
 ** Maximum number of cds messages to be allocated for
 ** OL Rx thread.
@@ -90,12 +89,12 @@ struct cds_ol_rx_pkt {
 ** CDS Scheduler context
 ** The scheduler context contains the following:
 **   ** the messages queues
-**   ** the handle to the thread
+**   ** the handle to the tread
 **   ** pointer to the events that gracefully shutdown the MC and Tx threads
 **
 */
 typedef struct _cds_sched_context {
-#ifdef WLAN_DP_LEGACY_OL_RX_THREAD
+#ifdef QCA_CONFIG_SMP
 	spinlock_t ol_rx_thread_lock;
 
 	/* OL Rx thread handle */
@@ -145,7 +144,7 @@ typedef struct _cds_sched_context {
 	/* high throughput required */
 	bool high_throughput_required;
 
-	/* affinity required during uplink traffic*/
+	/* affinity requied during uplink traffic*/
 	bool rx_affinity_required;
 	uint8_t conf_rx_thread_ul_affinity;
 
@@ -228,9 +227,9 @@ struct cds_context {
 };
 
 /*---------------------------------------------------------------------------
-   Function declarations and documentation
+   Function declarations and documenation
    ---------------------------------------------------------------------------*/
-#ifdef WLAN_DP_LEGACY_OL_RX_THREAD
+#ifdef QCA_CONFIG_SMP
 int cds_sched_handle_cpu_hot_plug(void);
 int cds_sched_handle_throughput_req(bool high_tput_required);
 

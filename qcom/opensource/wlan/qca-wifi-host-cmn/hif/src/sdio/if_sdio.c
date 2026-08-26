@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2013-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -232,7 +231,7 @@ void hif_sdio_claim_device(struct hif_softc *hif_sc)
 }
 
 /**
- * hif_sdio_mask_interrupt_call() - disable hif device irq
+ * hif_sdio_mask_interrupt_call() - disbale hif device irq
  * @scn: pointr to softc structure
  *
  * Return: None

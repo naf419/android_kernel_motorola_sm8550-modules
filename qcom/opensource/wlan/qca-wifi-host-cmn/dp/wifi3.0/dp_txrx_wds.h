@@ -1,6 +1,6 @@
+
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -42,7 +42,7 @@ int dp_peer_find_ast_index_by_flowq_id(struct cdp_soc_t *soc,
 void
 dp_rx_da_learn(struct dp_soc *soc,
 	       uint8_t *rx_tlv_hdr,
-	       struct dp_txrx_peer *ta_peer,
+	       struct dp_peer *ta_peer,
 	       qdf_nbuf_t nbuf);
 
 void dp_tx_mec_handler(struct dp_vdev *vdev, uint8_t *status);
@@ -116,7 +116,7 @@ static inline void dp_wds_ext_peer_learn(struct dp_soc *soc,
 
 	if (ta_peer->vdev->wds_ext_enabled &&
 	    !qdf_atomic_test_and_set_bit(WDS_EXT_PEER_INIT_BIT,
-					 &ta_peer->txrx_peer->wds_ext.init)) {
+					 &ta_peer->wds_ext.init)) {
 		qdf_mem_copy(wds_ext_src_mac, &ta_peer->mac_addr.raw[0],
 			     QDF_MAC_ADDR_SIZE);
 		soc->cdp_soc.ol_ops->rx_wds_ext_peer_learn(
@@ -137,7 +137,7 @@ static inline void dp_wds_ext_peer_learn(struct dp_soc *soc,
  * dp_rx_wds_add_or_update_ast() - Add or update the ast entry.
  *
  * @soc: core txrx main context
- * @ta_txrx_peer: WDS repeater txrx peer
+ * @ta_peer: WDS repeater peer
  * @mac_addr: mac address of the peer
  * @is_ad4_valid: 4-address valid flag
  * @is_sa_valid: source address valid flag
@@ -148,8 +148,7 @@ static inline void dp_wds_ext_peer_learn(struct dp_soc *soc,
  * Return: void:
  */
 static inline void
-dp_rx_wds_add_or_update_ast(struct dp_soc *soc,
-			    struct dp_txrx_peer *ta_peer,
+dp_rx_wds_add_or_update_ast(struct dp_soc *soc, struct dp_peer *ta_peer,
 			    qdf_nbuf_t nbuf, uint8_t is_ad4_valid,
 			    uint8_t is_sa_valid, uint8_t is_chfrag_start,
 			    uint16_t sa_idx, uint16_t sa_sw_peer_id)
@@ -160,28 +159,41 @@ dp_rx_wds_add_or_update_ast(struct dp_soc *soc,
 	uint32_t ret = 0;
 	struct dp_pdev *pdev = ta_peer->vdev->pdev;
 	uint8_t wds_src_mac[QDF_MAC_ADDR_SIZE];
-	struct dp_peer *ta_base_peer;
 
-
-	if (!(is_chfrag_start && is_ad4_valid))
-		return;
+	/* For AP mode : Do wds source port learning only if it is a
+	 * 4-address mpdu
+	 *
+	 * For STA mode : Frames from RootAP backend will be in 3-address mode,
+	 * till RootAP does the WDS source port learning; Hence in repeater/STA
+	 * mode, we enable learning even in 3-address mode , to avoid RootAP
+	 * backbone getting wrongly learnt as MEC on repeater
+	 */
+	if (ta_peer->vdev->opmode != wlan_op_mode_sta) {
+		if (!(is_chfrag_start && is_ad4_valid))
+			return;
+	} else {
+		/* For HKv2 Source port learing is not needed in STA mode
+		 * as we have support in HW
+		 *
+		 * if sa_valid bit is set there is a AST entry added on AP VAP
+		 * and this peer has roamed behind ROOT AP in this case proceed
+		 * further to check for roaming
+		 */
+		if (soc->ast_override_support && !is_sa_valid)
+			return;
+	}
 
 	if (qdf_unlikely(!is_sa_valid)) {
 		qdf_mem_copy(wds_src_mac,
 			     (qdf_nbuf_data(nbuf) + QDF_MAC_ADDR_SIZE),
 			     QDF_MAC_ADDR_SIZE);
 
-		ta_base_peer = dp_peer_get_ref_by_id(soc, ta_peer->peer_id,
-						     DP_MOD_ID_RX);
-		if (ta_base_peer) {
-			if (ta_peer->vdev->opmode == wlan_op_mode_ap)
-				dp_wds_ext_peer_learn(soc, ta_base_peer);
-
-			ret = dp_peer_add_ast(soc, ta_base_peer, wds_src_mac,
-					      CDP_TXRX_AST_TYPE_WDS, flags);
-
-			dp_peer_unref_delete(ta_base_peer, DP_MOD_ID_RX);
-		}
+		dp_wds_ext_peer_learn(soc, ta_peer);
+		ret = dp_peer_add_ast(soc,
+				      ta_peer,
+				      wds_src_mac,
+				      CDP_TXRX_AST_TYPE_WDS,
+				      flags);
 		return;
 	}
 
@@ -208,19 +220,11 @@ dp_rx_wds_add_or_update_ast(struct dp_soc *soc,
 				     (qdf_nbuf_data(nbuf) + QDF_MAC_ADDR_SIZE),
 				     QDF_MAC_ADDR_SIZE);
 
-			ta_base_peer = dp_peer_get_ref_by_id(soc,
-							     ta_peer->peer_id,
-							     DP_MOD_ID_RX);
-
-			if (ta_base_peer) {
-				ret = dp_peer_add_ast(soc, ta_base_peer,
-						      wds_src_mac,
-						      CDP_TXRX_AST_TYPE_WDS,
-						      flags);
-
-				dp_peer_unref_delete(ta_base_peer,
-						     DP_MOD_ID_RX);
-			}
+			ret = dp_peer_add_ast(soc,
+					      ta_peer,
+					      wds_src_mac,
+					      CDP_TXRX_AST_TYPE_WDS,
+					      flags);
 			return;
 		} else {
 			/* In HKv2 smart monitor case, when NAC client is
@@ -230,20 +234,18 @@ dp_rx_wds_add_or_update_ast(struct dp_soc *soc,
 			 * smart monitor is enabled and send add_ast command
 			 * to FW.
 			 */
-			ta_base_peer = dp_peer_get_ref_by_id(soc,
-							     ta_peer->peer_id,
-							     DP_MOD_ID_RX);
-			if (ta_base_peer) {
-				dp_monitor_neighbour_peer_add_ast(pdev,
-								  ta_base_peer,
-								  wds_src_mac,
-								  nbuf,
-								  flags);
-				dp_peer_unref_delete(ta_base_peer,
-						     DP_MOD_ID_RX);
-			}
+			dp_monitor_neighbour_peer_add_ast(pdev, ta_peer,
+							  wds_src_mac, nbuf,
+							  flags);
 			return;
 		}
+	}
+
+
+	if ((ast->type == CDP_TXRX_AST_TYPE_WDS_HM) ||
+	    (ast->type == CDP_TXRX_AST_TYPE_WDS_HM_SEC)) {
+		qdf_spin_unlock_bh(&soc->ast_lock);
+		return;
 	}
 
 	/*
@@ -255,12 +257,7 @@ dp_rx_wds_add_or_update_ast(struct dp_soc *soc,
 	if (ast->is_mapped && (ast->ast_idx == sa_idx))
 		ast->is_active = TRUE;
 
-	if (ast->peer_id != ta_peer->peer_id) {
-		if ((ast->type == CDP_TXRX_AST_TYPE_WDS_HM) ||
-		    (ast->type == CDP_TXRX_AST_TYPE_WDS_HM_SEC)) {
-			qdf_spin_unlock_bh(&soc->ast_lock);
-			return;
-		}
+	if (sa_sw_peer_id != ta_peer->peer_id) {
 
 		if ((ast->type != CDP_TXRX_AST_TYPE_STATIC) &&
 		    (ast->type != CDP_TXRX_AST_TYPE_SELF) &&
@@ -288,20 +285,8 @@ dp_rx_wds_add_or_update_ast(struct dp_soc *soc,
 				    (ta_peer->vdev->opmode == wlan_op_mode_sta)) {
 					dp_peer_del_ast(soc, ast);
 				} else {
-					ta_base_peer =
-					dp_peer_get_ref_by_id(soc,
-							      ta_peer->peer_id,
-							      DP_MOD_ID_RX);
-					if (ta_base_peer) {
-						dp_wds_ext_peer_learn(soc,
-								ta_base_peer);
-						dp_peer_update_ast(soc,
-								   ta_base_peer,
-								   ast, flags);
-
-						dp_peer_unref_delete(ta_base_peer,
-								DP_MOD_ID_RX);
-					}
+					dp_wds_ext_peer_learn(soc, ta_peer);
+					dp_peer_update_ast(soc, ta_peer, ast, flags);
 				}
 				qdf_spin_unlock_bh(&soc->ast_lock);
 				return;
@@ -362,7 +347,7 @@ dp_rx_wds_add_or_update_ast(struct dp_soc *soc,
 static inline void
 dp_rx_wds_srcport_learn(struct dp_soc *soc,
 			uint8_t *rx_tlv_hdr,
-			struct dp_txrx_peer *ta_peer,
+			struct dp_peer *ta_peer,
 			qdf_nbuf_t nbuf,
 			struct hal_rx_msdu_metadata msdu_end_info)
 {
@@ -385,44 +370,6 @@ dp_rx_wds_srcport_learn(struct dp_soc *soc,
 				    sa_is_valid, is_chfrag_start,
 				    msdu_end_info.sa_idx, msdu_end_info.sa_sw_peer_id);
 }
-
-#ifdef IPA_WDS_EASYMESH_FEATURE
-/**
- * dp_rx_ipa_wds_srcport_learn() - Add or update the STA PEER which
- *				is behind the WDS repeater.
- *
- * @soc: core txrx main context
- * @ta_peer: WDS repeater peer
- * @nbuf: rx pkt
- * @msdu_end_info: msdu end info
- * @ad4_valid: address4 valid bit
- * @chfrag_start: Msdu start bit
- *
- * Return: void
- */
-static inline void
-dp_rx_ipa_wds_srcport_learn(struct dp_soc *soc,
-			    struct dp_peer *ta_peer, qdf_nbuf_t nbuf,
-			    struct hal_rx_msdu_metadata msdu_end_info,
-			    bool ad4_valid, bool chfrag_start)
-{
-	uint8_t sa_is_valid = qdf_nbuf_is_sa_valid(nbuf);
-	uint8_t is_chfrag_start = (uint8_t)chfrag_start;
-	uint8_t is_ad4_valid = (uint8_t)ad4_valid;
-	struct dp_txrx_peer *peer = (struct dp_txrx_peer *)ta_peer;
-
-	if (qdf_unlikely(!ta_peer))
-		return;
-
-	/*
-	 * Get the AST entry from HW SA index and mark it as active
-	 */
-	dp_rx_wds_add_or_update_ast(soc, peer, nbuf, is_ad4_valid,
-				    sa_is_valid, is_chfrag_start,
-				    msdu_end_info.sa_idx,
-				    msdu_end_info.sa_sw_peer_id);
-}
-#endif
 
 /*
  * dp_rx_ast_set_active() - set the active flag of the astentry

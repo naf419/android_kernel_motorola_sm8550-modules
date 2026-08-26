@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2019-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -34,29 +33,6 @@
 #include <include/wlan_psoc_mlme.h>
 #include <include/wlan_mlme_cmn.h>
 #include <wlan_vdev_mgr_utils_api.h>
-
-void
-tgt_vdev_mgr_reset_response_timer_info(struct wlan_objmgr_psoc *psoc)
-{
-	struct psoc_mlme_obj *psoc_mlme;
-	struct vdev_response_timer *vdev_rsp;
-	int i;
-
-	psoc_mlme = mlme_psoc_get_priv(psoc);
-	if (!psoc_mlme) {
-		mlme_err("PSOC_%d PSOC_MLME is NULL",
-			 wlan_psoc_get_id(psoc));
-		return;
-	}
-
-	for (i = 0; i < WLAN_UMAC_PSOC_MAX_VDEVS; i++) {
-		vdev_rsp = &psoc_mlme->psoc_vdev_rt[i];
-		qdf_atomic_set(&vdev_rsp->rsp_timer_inuse, 0);
-		vdev_rsp->psoc = NULL;
-	}
-}
-
-qdf_export_symbol(tgt_vdev_mgr_reset_response_timer_info);
 
 struct vdev_response_timer *
 tgt_vdev_mgr_get_response_timer_info(struct wlan_objmgr_psoc *psoc,

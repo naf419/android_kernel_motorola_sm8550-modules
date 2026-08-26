@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2019-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -34,12 +33,12 @@
 #include <wlan_cfg80211.h>
 #include <wlan_osif_request_manager.h>
 
-void wlan_cfg80211_translate_key(struct wlan_objmgr_vdev *vdev,
-				 uint8_t key_index,
-				 enum wlan_crypto_key_type key_type,
-				 const u8 *mac_addr,
-				 struct key_params *params,
-				 struct wlan_crypto_key *crypto_key)
+static void wlan_cfg80211_translate_key(struct wlan_objmgr_vdev *vdev,
+					uint8_t key_index,
+					enum wlan_crypto_key_type key_type,
+					const u8 *mac_addr,
+					struct key_params *params,
+					struct wlan_crypto_key *crypto_key)
 {
 	qdf_mem_zero(crypto_key, sizeof(*crypto_key));
 	crypto_key->keylen = params->key_len;
@@ -50,7 +49,6 @@ void wlan_cfg80211_translate_key(struct wlan_objmgr_vdev *vdev,
 	qdf_mem_copy(&crypto_key->keyval[0], params->key, params->key_len);
 	qdf_mem_copy(&crypto_key->keyrsc[0], params->seq, params->seq_len);
 
-	crypto_key->key_type = key_type;
 	crypto_key->cipher_type = osif_nl_to_crypto_cipher_type(params->cipher);
 	if (IS_WEP_CIPHER(crypto_key->cipher_type) && !mac_addr) {
 		/*

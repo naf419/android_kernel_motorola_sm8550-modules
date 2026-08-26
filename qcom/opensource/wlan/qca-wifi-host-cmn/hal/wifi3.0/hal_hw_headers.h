@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -193,7 +193,6 @@
 #define ID_GROUP R0
 #define STATUS_GROUP R0
 #define MISC_GROUP R0
-#define MISC_1_GROUP R0
 #define HP_ADDR_LSB_GROUP R0
 #define HP_ADDR_MSB_GROUP R0
 #define PRODUCER_INT_SETUP_GROUP R0
@@ -245,19 +244,13 @@
 
 #define _SRNG_DST_FLD(_reg_group, _reg_fld) \
 	HAL_REO_ ## _reg_group ## _REO2SW1_RING_ ## _reg_fld
-#define _SRNG_DST_HW_FLD(_reg_group, _reg_fld) \
-	HWIO_REO_ ## _reg_group ## _REO2SW1_RING_ ## _reg_fld
 #define _SRNG_SRC_FLD(_reg_group, _reg_fld) \
 	HWIO_TCL_ ## _reg_group ## _SW2TCL1_RING_ ## _reg_fld
 
 #define _SRNG_FLD(_reg_group, _reg_fld, _dir) \
 	_SRNG_ ## _dir ## _FLD(_reg_group, _reg_fld)
-#define _SRNG_HW_FLD(_reg_group, _reg_fld, _dir) \
-	_SRNG_ ## _dir ## _HW_FLD(_reg_group, _reg_fld)
 
 #define SRNG_DST_FLD(_reg, _f) _SRNG_FLD(_reg ## _GROUP, _reg ## _ ## _f, DST)
-#define SRNG_DST_HW_FLD(_reg, _f) \
-	_SRNG_HW_FLD(_reg ## _GROUP, _reg ## _ ## _f, DST)
 #define SRNG_SRC_FLD(_reg, _f) _SRNG_FLD(_reg ## _GROUP, _reg ## _ ## _f, SRC)
 
 #define SRNG_SRC_R0_START_OFFSET SRNG_SRC_REG_OFFSET(BASE_LSB, R0)
@@ -378,29 +371,29 @@ static inline
 uint32_t hal_get_reo_qdesc_size(hal_soc_handle_t hal_soc_hdl,
 				uint32_t ba_window_size, int tid)
 {
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
+	/* Return descriptor size corresponding to window size of 2 since
+	 * we set ba_window_size to 2 while setting up REO descriptors as
+	 * a WAR to get 2k jump exception aggregates are received without
+	 * a BA session.
+	 */
+	if (ba_window_size <= 1) {
+		if (tid != HAL_NON_QOS_TID)
+			return sizeof(struct rx_reo_queue) +
+				sizeof(struct rx_reo_queue_ext);
+		else
+			return sizeof(struct rx_reo_queue);
+	}
 
-	if (hal_soc->ops->hal_get_reo_qdesc_size)
-		return hal_soc->ops->hal_get_reo_qdesc_size(ba_window_size,
-							    tid);
+	if (ba_window_size <= 105)
+		return sizeof(struct rx_reo_queue) +
+			sizeof(struct rx_reo_queue_ext);
 
-	return sizeof(struct rx_reo_queue);
-}
+	if (ba_window_size <= 210)
+		return sizeof(struct rx_reo_queue) +
+			(2 * sizeof(struct rx_reo_queue_ext));
 
-/**
- * hal_get_rx_max_ba_window - Get RX max BA window size per target
- * @hal_soc: Opaque HAL SOC handle
- * @tid: TID number
- *
- * Return: Max RX BA window size
- */
-static inline
-uint16_t hal_get_rx_max_ba_window(hal_soc_handle_t hal_soc_hdl,
-				  int tid)
-{
-	struct hal_soc *hal_soc = (struct hal_soc *)hal_soc_hdl;
-
-	return hal_soc->ops->hal_get_rx_max_ba_window(tid);
+	return sizeof(struct rx_reo_queue) +
+		(3 * sizeof(struct rx_reo_queue_ext));
 }
 
 /**

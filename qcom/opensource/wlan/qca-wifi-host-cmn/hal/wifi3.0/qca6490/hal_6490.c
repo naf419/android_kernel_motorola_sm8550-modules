@@ -139,25 +139,6 @@ hal_rx_msdu_start_nss_get_6490(uint8_t *buf)
 }
 
 /**
- * hal_rx_msdu_start_get_len_6490(): API to get the MSDU length
- * from rx_msdu_start TLV
- *
- * @ buf: pointer to the start of RX PKT TLV headers
- * Return: (uint32_t)msdu length
- */
-static uint32_t hal_rx_msdu_start_get_len_6490(uint8_t *buf)
-{
-	struct rx_pkt_tlvs *pkt_tlvs = (struct rx_pkt_tlvs *)buf;
-	struct rx_msdu_start *msdu_start =
-				&pkt_tlvs->msdu_start_tlv.rx_msdu_start;
-	uint32_t msdu_len;
-
-	msdu_len = HAL_RX_MSDU_START_MSDU_LEN_GET(msdu_start);
-
-	return msdu_len;
-}
-
-/**
  * hal_rx_mon_hw_desc_get_mpdu_status_6490(): Retrieve MPDU status
  *
  * @ hw_desc_addr: Start address of Rx HW TLVs
@@ -1472,7 +1453,7 @@ bool hal_rx_get_fisa_timeout_6490(uint8_t *buf)
  *
  *@rx_tlv_hdr: start address of rx_pkt_tlvs
  *
- * Return: true if RX_MPDU_START is valid, else false.
+ * Return: true if RX_MPDU_START is valied, else false.
  */
 static uint8_t hal_rx_mpdu_start_tlv_tag_valid_6490(void *rx_tlv_hdr)
 {
@@ -1735,21 +1716,6 @@ static uint8_t hal_get_first_wow_wakeup_packet_6490(uint8_t *buf)
 }
 #endif
 
-/**
- * hal_rx_tlv_l3_type_get_6490(): Function to retrieve l3_type
- *
- * @buf: Network buffer
- *
- * Returns: l3_type
- */
-static uint32_t hal_rx_tlv_l3_type_get_6490(uint8_t *buf)
-{
-	struct rx_pkt_tlvs *pkt_tlvs = hal_rx_get_pkt_tlvs(buf);
-	struct rx_msdu_end *msdu_end = &pkt_tlvs->msdu_end_tlv.rx_msdu_end;
-
-	return HAL_RX_MSDU_END_L3_TYPE_GET(msdu_end);
-}
-
 static void hal_hw_txrx_ops_attach_qca6490(struct hal_soc *hal_soc)
 {
 	/* init and setup */
@@ -1847,14 +1813,12 @@ static void hal_hw_txrx_ops_attach_qca6490(struct hal_soc *hal_soc)
 					hal_rx_get_mpdu_mac_ad4_valid_6490;
 	hal_soc->ops->hal_rx_mpdu_start_sw_peer_id_get =
 		hal_rx_mpdu_start_sw_peer_id_get_6490;
-	hal_soc->ops->hal_rx_tlv_peer_meta_data_get =
+	hal_soc->ops->hal_rx_mpdu_peer_meta_data_get =
 		hal_rx_mpdu_peer_meta_data_get_li;
 	hal_soc->ops->hal_rx_mpdu_get_to_ds = hal_rx_mpdu_get_to_ds_6490;
 	hal_soc->ops->hal_rx_mpdu_get_fr_ds = hal_rx_mpdu_get_fr_ds_6490;
 	hal_soc->ops->hal_rx_get_mpdu_frame_control_valid =
 		hal_rx_get_mpdu_frame_control_valid_6490;
-	hal_soc->ops->hal_rx_get_frame_ctrl_field =
-		hal_rx_get_frame_ctrl_field_li;
 	hal_soc->ops->hal_rx_mpdu_get_addr1 = hal_rx_mpdu_get_addr1_6490;
 	hal_soc->ops->hal_rx_mpdu_get_addr2 = hal_rx_mpdu_get_addr2_6490;
 	hal_soc->ops->hal_rx_mpdu_get_addr3 = hal_rx_mpdu_get_addr3_6490;
@@ -1931,27 +1895,18 @@ static void hal_hw_txrx_ops_attach_qca6490(struct hal_soc *hal_soc)
 					hal_rx_pkt_tlv_offset_get_generic;
 #endif
 	hal_soc->ops->hal_rx_flow_setup_fse = hal_rx_flow_setup_fse_6490;
-	hal_soc->ops->hal_rx_flow_get_tuple_info =
-					hal_rx_flow_get_tuple_info_li;
-	 hal_soc->ops->hal_rx_flow_delete_entry =
-					hal_rx_flow_delete_entry_li;
-	hal_soc->ops->hal_rx_fst_get_fse_size = hal_rx_fst_get_fse_size_li;
 	hal_soc->ops->hal_compute_reo_remap_ix2_ix3 =
 					hal_compute_reo_remap_ix2_ix3_6490;
 	hal_soc->ops->hal_rx_msdu_get_reo_destination_indication =
 		hal_rx_msdu_get_reo_destination_indication_6490;
 	hal_soc->ops->hal_setup_link_idle_list =
 				hal_setup_link_idle_list_generic_li;
+	hal_soc->ops->hal_compute_reo_remap_ix0 =
+					hal_compute_reo_remap_ix0_6490;
 #ifdef WLAN_FEATURE_MARK_FIRST_WAKEUP_PACKET
 	hal_soc->ops->hal_get_first_wow_wakeup_packet =
 		hal_get_first_wow_wakeup_packet_6490;
 #endif
-	hal_soc->ops->hal_compute_reo_remap_ix0 =
-					hal_compute_reo_remap_ix0_6490;
-	hal_soc->ops->hal_rx_tlv_l3_type_get =
-		hal_rx_tlv_l3_type_get_6490;
-	hal_soc->ops->hal_rx_tlv_msdu_len_get =
-				hal_rx_msdu_start_get_len_6490;
 };
 
 struct hal_hw_srng_config hw_srng_table_6490[] = {

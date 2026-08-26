@@ -19,7 +19,7 @@
  *  This file contains twt ucfg APIs
  */
 #include <wlan_twt_ucfg_api.h>
-#include "twt/core/src/wlan_twt_common.h"
+#include "wlan_twt_common.h"
 
 QDF_STATUS ucfg_twt_get_requestor(struct wlan_objmgr_psoc *psoc, bool *val)
 {
@@ -121,10 +121,4 @@ ucfg_twt_get_peer_capabilities(struct wlan_objmgr_psoc *psoc,
 			       uint8_t *peer_cap)
 {
 	return wlan_twt_get_peer_capabilities(psoc, peer_mac, peer_cap);
-}
-
-QDF_STATUS ucfg_twt_get_restricted_twt_supported(struct wlan_objmgr_psoc *psoc,
-						 bool *val)
-{
-	return wlan_twt_tgt_caps_get_restricted_support(psoc, val);
 }

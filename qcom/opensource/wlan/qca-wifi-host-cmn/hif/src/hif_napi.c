@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2015-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -83,9 +83,9 @@ static void hif_init_rx_thread_napi(struct qca_napi_info *napii)
 	struct qdf_net_if *nd = (struct qdf_net_if *)&napii->rx_thread_netdev;
 
 	qdf_net_if_create_dummy_if(nd);
-	qdf_netif_napi_add(&napii->rx_thread_netdev, &napii->rx_thread_napi,
-			   hif_rxthread_napi_poll, 64);
-	qdf_napi_enable(&napii->rx_thread_napi);
+	netif_napi_add_ni(&napii->rx_thread_netdev, &napii->rx_thread_napi,
+		       hif_rxthread_napi_poll, 64);
+	napi_enable(&napii->rx_thread_napi);
 }
 
 /**
@@ -96,7 +96,7 @@ static void hif_init_rx_thread_napi(struct qca_napi_info *napii)
  */
 static void hif_deinit_rx_thread_napi(struct qca_napi_info *napii)
 {
-	qdf_netif_napi_del(&napii->rx_thread_napi);
+	netif_napi_del(&napii->rx_thread_napi);
 }
 #else /* RECEIVE_OFFLOAD */
 static void hif_init_rx_thread_napi(struct qca_napi_info *napii)
@@ -207,8 +207,8 @@ int hif_napi_create(struct hif_opaque_softc   *hif_ctx,
 
 		NAPI_DEBUG("adding napi=%pK to netdev=%pK (poll=%pK, bdgt=%d)",
 			   &(napii->napi), &(napii->netdev), poll, budget);
-		qdf_netif_napi_add(&(napii->netdev), &(napii->napi),
-				   poll, budget);
+		netif_napi_add_ni(&(napii->netdev), &(napii->napi),
+				      poll, budget);
 
 		NAPI_DEBUG("after napi_add");
 		NAPI_DEBUG("napi=0x%pK, netdev=0x%pK",
@@ -366,7 +366,7 @@ int hif_napi_destroy(struct hif_opaque_softc *hif_ctx,
 
 		if (hif->napi_data.state == HIF_NAPI_CONF_UP) {
 			if (force) {
-				qdf_napi_disable(&(napii->napi));
+				napi_disable(&(napii->napi));
 				hif_debug("NAPI entry %d force disabled", id);
 				NAPI_DEBUG("NAPI %d force disabled", id);
 			} else {
@@ -384,7 +384,7 @@ int hif_napi_destroy(struct hif_opaque_softc *hif_ctx,
 				   napii->netdev.napi_list.next);
 
 			qdf_lro_deinit(napii->lro_ctx);
-			qdf_netif_napi_del(&(napii->napi));
+			netif_napi_del(&(napii->napi));
 			hif_deinit_rx_thread_napi(napii);
 
 			napid->ce_map &= ~(0x01 << ce);
@@ -482,10 +482,10 @@ struct qca_napi_info *hif_get_napi(int napi_id, struct qca_napi_data *napid)
  *    + In some cases (roaming peer management is the only case so far), a
  *      a client can trigger a "SERIALIZE" event. Basically, this means that the
  *      users is asking NAPI to go into a truly single execution context state.
- *      So, NAPI indicates to msm-irqbalancer that it wants to be denylisted,
+ *      So, NAPI indicates to msm-irqbalancer that it wants to be blacklisted,
  *      (if called for the first time) and then moves all IRQs (for NAPI
  *      instances) to be collapsed to a single core. If called multiple times,
- *      it will just re-collapse the CPUs. This is because denylist-on() API
+ *      it will just re-collapse the CPUs. This is because blacklist-on() API
  *      is reference-counted, and because the API has already been called.
  *
  *      Such a user, should call "DESERIALIZE" (NORMAL) event, to set NAPI to go
@@ -511,10 +511,10 @@ int hif_napi_event(struct hif_opaque_softc *hif_ctx, enum qca_napi_event event,
 	struct qca_napi_data *napid = &(hif->napi_data);
 	enum qca_napi_tput_state tput_mode = QCA_NAPI_TPUT_UNINITIALIZED;
 	enum {
-		DENYLIST_NOT_PENDING,
-		DENYLIST_ON_PENDING,
-		DENYLIST_OFF_PENDING
-	     } denylist_pending = DENYLIST_NOT_PENDING;
+		BLACKLIST_NOT_PENDING,
+		BLACKLIST_ON_PENDING,
+		BLACKLIST_OFF_PENDING
+	     } blacklist_pending = BLACKLIST_NOT_PENDING;
 
 	NAPI_DEBUG("%s: -->(event=%d, aux=%pK)", __func__, event, data);
 
@@ -582,7 +582,7 @@ int hif_napi_event(struct hif_opaque_softc *hif_ctx, enum qca_napi_event event,
 			/* from TPUT_HI -> TPUT_LO */
 			NAPI_DEBUG("%s: Moving to napi_tput_LO state",
 				   __func__);
-			denylist_pending = DENYLIST_OFF_PENDING;
+			blacklist_pending = BLACKLIST_OFF_PENDING;
 			/*
 			 * Ideally we should "collapse" interrupts here, since
 			 * we are "dispersing" interrupts in the "else" case.
@@ -590,7 +590,7 @@ int hif_napi_event(struct hif_opaque_softc *hif_ctx, enum qca_napi_event event,
 			 * still be on the perf cluster the next time we enter
 			 * high tput mode. However, the irq_balancer is free
 			 * to move our interrupts to power cluster once
-			 * denylisting has been turned off in the "else" case.
+			 * blacklisting has been turned off in the "else" case.
 			 */
 		} else {
 			/* from TPUT_LO -> TPUT->HI */
@@ -600,7 +600,7 @@ int hif_napi_event(struct hif_opaque_softc *hif_ctx, enum qca_napi_event event,
 						  HNC_ANY_CPU,
 						  HNC_ACT_DISPERSE);
 
-			denylist_pending = DENYLIST_ON_PENDING;
+			blacklist_pending = BLACKLIST_ON_PENDING;
 		}
 		napid->napi_mode = tput_mode;
 		break;
@@ -616,13 +616,13 @@ int hif_napi_event(struct hif_opaque_softc *hif_ctx, enum qca_napi_event event,
 					  HNC_ANY_CPU,
 					  HNC_ACT_COLLAPSE);
 		if ((users == 0) && (rc == 0))
-			denylist_pending = DENYLIST_ON_PENDING;
+			blacklist_pending = BLACKLIST_ON_PENDING;
 		break;
 	}
 	case NAPI_EVT_USR_NORMAL: {
 		NAPI_DEBUG("%s: User forced DE-SERIALIZATION", __func__);
 		if (!napid->user_cpu_affin_mask)
-			denylist_pending = DENYLIST_OFF_PENDING;
+			blacklist_pending = BLACKLIST_OFF_PENDING;
 		/*
 		 * Deserialization timeout is handled at hdd layer;
 		 * just mark current mode to uninitialized to ensure
@@ -639,21 +639,21 @@ int hif_napi_event(struct hif_opaque_softc *hif_ctx, enum qca_napi_event event,
 	}; /* switch */
 
 
-	switch (denylist_pending) {
-	case DENYLIST_ON_PENDING:
+	switch (blacklist_pending) {
+	case BLACKLIST_ON_PENDING:
 		/* assume the control of WLAN IRQs */
-		hif_napi_cpu_denylist(napid, DENYLIST_ON);
+		hif_napi_cpu_blacklist(napid, BLACKLIST_ON);
 		break;
-	case DENYLIST_OFF_PENDING:
+	case BLACKLIST_OFF_PENDING:
 		/* yield the control of WLAN IRQs */
-		hif_napi_cpu_denylist(napid, DENYLIST_OFF);
+		hif_napi_cpu_blacklist(napid, BLACKLIST_OFF);
 		break;
 	default: /* nothing to do */
 		break;
-	} /* switch denylist_pending */
+	} /* switch blacklist_pending */
 
 	/* we want to perform the comparison in lock:
-	 * there is a possibility of hif_napi_event get called
+	 * there is a possiblity of hif_napi_event get called
 	 * from two different contexts (driver unload and cpu hotplug
 	 * notification) and napid->state get changed
 	 * in driver unload context and can lead to race condition
@@ -672,7 +672,7 @@ int hif_napi_event(struct hif_opaque_softc *hif_ctx, enum qca_napi_event event,
 					napi = &(napii->napi);
 					NAPI_DEBUG("%s: enabling NAPI %d",
 						   __func__, i);
-					qdf_napi_enable(napi);
+					napi_enable(napi);
 				}
 			}
 		} else {
@@ -683,7 +683,7 @@ int hif_napi_event(struct hif_opaque_softc *hif_ctx, enum qca_napi_event event,
 					napi = &(napii->napi);
 					NAPI_DEBUG("%s: disabling NAPI %d",
 						   __func__, i);
-					qdf_napi_disable(napi);
+					napi_disable(napi);
 					/* in case it is affined, remove it */
 					qdf_dev_set_irq_affinity(napii->irq,
 								 NULL);
@@ -812,9 +812,9 @@ bool hif_napi_correct_cpu(struct qca_napi_info *napi_info)
 	if (napid->flags & QCA_NAPI_FEATURE_CPU_CORRECTION) {
 
 		cpu = qdf_get_cpu();
-		if (unlikely((hif_napi_cpu_denylist(napid,
-						    DENYLIST_QUERY) > 0) &&
-						    cpu != napi_info->cpu)) {
+		if (unlikely((hif_napi_cpu_blacklist(napid,
+						BLACKLIST_QUERY) > 0) &&
+						(cpu != napi_info->cpu))) {
 			right_cpu = false;
 
 			NAPI_DEBUG("interrupt on wrong CPU, correcting");
@@ -1244,7 +1244,7 @@ static void hnc_cpu_online_cb(void *context, uint32_t cpu)
  * @context: the associated HIF context
  * @cpu: the CPU Id of the CPU the event happened on
  *
- * On transition to offline, we act on PREP events, because we may need to move
+ * On transtion to offline, we act on PREP events, because we may need to move
  * the irqs/NAPIs to another CPU before it is actually off-lined.
  *
  * Return: None
@@ -1489,7 +1489,7 @@ static int hncm_migrate_to(struct qca_napi_data *napid,
  * @napid: pointer to NAPI block
  * @act  : RELOCATE | COLLAPSE | DISPERSE
  *
- * Finds the designated destination for the next IRQ.
+ * Finds the designated destionation for the next IRQ.
  * RELOCATE: translated to either COLLAPSE or DISPERSE based
  *           on napid->napi_mode (throughput state)
  * COLLAPSE: All have the same destination: the first online CPU in lilcl
@@ -1543,7 +1543,7 @@ retry_disperse:
 			}
 			i = napid->napi_cpu[i].cluster_nxt;
 		}
-		/* Check if matches with user specified CPU mask */
+		/* Check if matches with user sepecified CPU mask */
 		smallidx = ((1 << smallidx) & napid->user_cpu_affin_mask) ?
 								smallidx : -1;
 
@@ -1635,16 +1635,16 @@ hncm_return:
 
 
 /**
- * hif_napi_dl_irq() - calls irq_modify_status to enable/disable denylisting
+ * hif_napi_bl_irq() - calls irq_modify_status to enable/disable blacklisting
  * @napid: pointer to qca_napi_data structure
- * @dl_flag: denylist flag to enable/disable denylisting
+ * @bl_flag: blacklist flag to enable/disable blacklisting
  *
- * The function enables/disables denylisting for all the copy engine
+ * The function enables/disables blacklisting for all the copy engine
  * interrupts on which NAPI is enabled.
  *
  * Return: None
  */
-static inline void hif_napi_dl_irq(struct qca_napi_data *napid, bool dl_flag)
+static inline void hif_napi_bl_irq(struct qca_napi_data *napid, bool bl_flag)
 {
 	int i;
 	struct qca_napi_info *napii;
@@ -1659,63 +1659,63 @@ static inline void hif_napi_dl_irq(struct qca_napi_data *napid, bool dl_flag)
 		if (!(napii))
 			continue;
 
-		if (dl_flag == true)
+		if (bl_flag == true)
 			qdf_dev_modify_irq_status(napii->irq,
 						  0, QDF_IRQ_NO_BALANCING);
 		else
 			qdf_dev_modify_irq_status(napii->irq,
 						  QDF_IRQ_NO_BALANCING, 0);
-		hif_debug("dl_flag %d CE %d", dl_flag, i);
+		hif_debug("bl_flag %d CE %d", bl_flag, i);
 	}
 }
 
 /**
- * hif_napi_cpu_denylist() - en(dis)ables denylisting for NAPI RX interrupts.
+ * hif_napi_cpu_blacklist() - en(dis)ables blacklisting for NAPI RX interrupts.
  * @napid: pointer to qca_napi_data structure
- * @op: denylist operation to perform
+ * @op: blacklist operation to perform
  *
- * The function enables/disables/queries denylisting for all CE RX
- * interrupts with NAPI enabled. Besides denylisting, it also enables/disables
+ * The function enables/disables/queries blacklisting for all CE RX
+ * interrupts with NAPI enabled. Besides blacklisting, it also enables/disables
  * core_ctl_set_boost.
- * Once denylisting is enabled, the interrupts will not be managed by the IRQ
+ * Once blacklisting is enabled, the interrupts will not be managed by the IRQ
  * balancer.
  *
- * Return: -EINVAL, in case IRQ_DENYLISTING and CORE_CTL_BOOST is not enabled
- *         for DENYLIST_QUERY op - denylist refcount
- *         for DENYLIST_ON op    - return value from core_ctl_set_boost API
- *         for DENYLIST_OFF op   - return value from core_ctl_set_boost API
+ * Return: -EINVAL, in case IRQ_BLACKLISTING and CORE_CTL_BOOST is not enabled
+ *         for BLACKLIST_QUERY op - blacklist refcount
+ *         for BLACKLIST_ON op    - return value from core_ctl_set_boost API
+ *         for BLACKLIST_OFF op   - return value from core_ctl_set_boost API
  */
-int hif_napi_cpu_denylist(struct qca_napi_data *napid,
-			  enum qca_denylist_op op)
+int hif_napi_cpu_blacklist(struct qca_napi_data *napid,
+			   enum qca_blacklist_op op)
 {
 	int rc = 0;
 	static int ref_count; /* = 0 by the compiler */
 	uint8_t flags = napid->flags;
-	bool dl_en = flags & QCA_NAPI_FEATURE_IRQ_BLACKLISTING;
+	bool bl_en = flags & QCA_NAPI_FEATURE_IRQ_BLACKLISTING;
 	bool ccb_en = flags & QCA_NAPI_FEATURE_CORE_CTL_BOOST;
 
 	NAPI_DEBUG("-->%s(%d %d)", __func__, flags, op);
 
-	if (!(dl_en && ccb_en)) {
+	if (!(bl_en && ccb_en)) {
 		rc = -EINVAL;
 		goto out;
 	}
 
 	switch (op) {
-	case DENYLIST_QUERY:
+	case BLACKLIST_QUERY:
 		rc = ref_count;
 		break;
-	case DENYLIST_ON:
+	case BLACKLIST_ON:
 		ref_count++;
 		rc = 0;
 		if (ref_count == 1) {
 			rc = hif_napi_core_ctl_set_boost(true);
 			NAPI_DEBUG("boost_on() returns %d - refcnt=%d",
 				rc, ref_count);
-			hif_napi_dl_irq(napid, true);
+			hif_napi_bl_irq(napid, true);
 		}
 		break;
-	case DENYLIST_OFF:
+	case BLACKLIST_OFF:
 		if (ref_count) {
 			ref_count--;
 			rc = 0;
@@ -1723,12 +1723,12 @@ int hif_napi_cpu_denylist(struct qca_napi_data *napid,
 				rc = hif_napi_core_ctl_set_boost(false);
 				NAPI_DEBUG("boost_off() returns %d - refcnt=%d",
 					   rc, ref_count);
-				hif_napi_dl_irq(napid, false);
+				hif_napi_bl_irq(napid, false);
 			}
 		}
 		break;
 	default:
-		NAPI_DEBUG("Invalid denylist op: %d", op);
+		NAPI_DEBUG("Invalid blacklist op: %d", op);
 		rc = -EINVAL;
 	} /* switch */
 out:
@@ -1744,7 +1744,7 @@ out:
  * hif_napi_serialize(hif, 1) can be called multiple times. It will perform the
  * following steps (see hif_napi_event for code):
  * - put irqs of all NAPI instances on the same CPU
- * - only for the first serialize call: denylist
+ * - only for the first serialize call: blacklist
  *
  * hif_napi_serialize(hif, 0):
  * - start a timer (multiple of BusBandwidthTimer -- default: 100 msec)

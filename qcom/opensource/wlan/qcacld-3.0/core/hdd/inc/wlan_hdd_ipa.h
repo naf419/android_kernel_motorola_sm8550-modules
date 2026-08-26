@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2013-2019 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -43,6 +42,16 @@
 void hdd_ipa_send_nbuf_to_network(qdf_nbuf_t nbuf, qdf_netdev_t dev);
 
 /**
+ * hdd_ipa_set_tx_flow_info() - To set TX flow info if IPA is
+ * enabled
+ *
+ * This routine is called to set TX flow info if IPA is enabled
+ *
+ * Return: None
+ */
+void hdd_ipa_set_tx_flow_info(void);
+
+/**
  * hdd_ipa_set_mcc_mode() - To set mcc mode if IPA is enabled
  * @mcc_mode: mcc mode
  *
@@ -55,6 +64,10 @@ void hdd_ipa_set_mcc_mode(bool mcc_mode);
 #else
 static inline
 void hdd_ipa_send_nbuf_to_network(qdf_nbuf_t skb, qdf_netdev_t dev)
+{
+}
+
+static inline void hdd_ipa_set_tx_flow_info(void)
 {
 }
 

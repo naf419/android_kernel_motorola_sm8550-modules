@@ -159,7 +159,7 @@ wlan_twt_peer_obj_create_handler(struct wlan_objmgr_peer *peer, void *arg)
 	if (!twt_peer_obj)
 		return QDF_STATUS_E_NOMEM;
 
-	twt_lock_create(&twt_peer_obj->twt_peer_lock);
+	qdf_mutex_create(&twt_peer_obj->twt_peer_lock);
 
 	status = wlan_objmgr_peer_component_obj_attach(peer,
 						       WLAN_UMAC_COMP_TWT,
@@ -167,7 +167,7 @@ wlan_twt_peer_obj_create_handler(struct wlan_objmgr_peer *peer, void *arg)
 						       QDF_STATUS_SUCCESS);
 
 	if (QDF_IS_STATUS_ERROR(status)) {
-		twt_lock_destroy(&twt_peer_obj->twt_peer_lock);
+		qdf_mutex_destroy(&twt_peer_obj->twt_peer_lock);
 		qdf_mem_free(twt_peer_obj);
 		twt_err("peer twt object attach failed");
 		return QDF_STATUS_E_FAILURE;
@@ -195,7 +195,7 @@ wlan_twt_peer_obj_destroy_handler(struct wlan_objmgr_peer *peer, void *arg)
 		return QDF_STATUS_E_INVAL;
 	}
 
-	twt_lock_destroy(&twt_peer_obj->twt_peer_lock);
+	qdf_mutex_destroy(&twt_peer_obj->twt_peer_lock);
 
 	status = wlan_objmgr_peer_component_obj_detach(peer, WLAN_UMAC_COMP_TWT,
 						       twt_peer_obj);

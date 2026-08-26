@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021,2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -57,17 +57,6 @@ struct reorder_q_setup {
 	uint8_t ba_window_size_valid;
 	uint16_t ba_window_size;
 };
-
-/**
- * target_if_get_active_mac_phy_number() - Get max MAC-PHY number enabled by
- * target
- * @psoc: psoc
- *
- * Get max active MAC-PHY number in all type of hw modes.
- *
- * return: active number of MAC-PHY pairs
- */
-uint32_t target_if_get_active_mac_phy_number(struct wlan_objmgr_psoc *psoc);
 
 /**
  * target_if_peer_set_default_routing() - set peer default routing
@@ -137,108 +126,6 @@ QDF_STATUS
 target_if_lro_hash_config(struct cdp_ctrl_objmgr_psoc *psoc, uint8_t pdev_id,
 			  struct cdp_lro_hash_config *lro_hash_cfg);
 
-#ifdef WLAN_SUPPORT_PPEDS
-/**
- * target_if_peer_set_ppeds_default_routing() - Set PPE DS routing API
- * @soc: psoc handle pointer
- * @peer_macaddr: Peer MAC address
- * @service_code: Service code
- * @priority_valid: Priority valid field
- * @src_info: Source information
- * @vdev_id: VDEV ID
- * @use_ppe: use ppe field value
- * @ppe_routing_enabled: PPE routing enabled
- *
- * This API is used for setting PPE default routing configuration
- *
- * return: QDF_STATUS_SUCCESS for success or error code
- */
-QDF_STATUS
-target_if_peer_set_ppeds_default_routing(struct cdp_ctrl_objmgr_psoc *soc,
-					 uint8_t *peer_macaddr,
-					 uint16_t service_code,
-					 uint8_t priority_valid,
-					 uint16_t src_info,
-					 uint8_t vdev_id, uint8_t use_ppe,
-					 uint8_t ppe_routing_enabled);
-#endif
-
-#ifdef WDS_CONV_TARGET_IF_OPS_ENABLE
-/**
- * target_if_add_wds_entry() - send wds peer add command to fw
- * @soc: SoC handle
- * @vdev_id: vdev_id
- * @peer_mac: peer mac address
- * @dest_mac: MAC address of ast node
- * @flags: WDS entry type WMI_HOST_WDS_FLAG_STATIC for static entry
- * @type: type from enum cdp_txrx_ast_entry_type
- *
- * This API is used by WDS source port learning function to
- * add a new AST entry in the fw.
- *
- * return: QDF_STATUS_SUCCESS for success or error code
- */
-QDF_STATUS
-target_if_add_wds_entry(struct cdp_ctrl_objmgr_psoc *soc, uint8_t vdev_id,
-			uint8_t *peer_mac, const uint8_t *dest_mac,
-			uint32_t flags, uint8_t type);
-
-/**
- * target_if_del_wds_entry() - send wds peer del command to fw
- * @soc: SoC handle
- * @vdev_id: vdev_id
- * @dest_mac: MAC address of ast node
- * @type: type from enum cdp_txrx_ast_entry_type
- * @delete_in_fw: flag to indicate if entry needs to be deleted in fw
- *
- * This API is used to delete an AST entry from fw
- *
- * Return: None
- */
-void
-target_if_del_wds_entry(struct cdp_ctrl_objmgr_psoc *soc, uint8_t vdev_id,
-			uint8_t *dest_mac, uint8_t type, uint8_t delete_in_fw);
-
-/**
- * target_if_update_wds_entry() - send wds peer update command to fw
- * @soc: SoC handle
- * @vdev_id: vdev_id
- * @dest_mac: MAC address of ast node
- * @peer_mac: peer mac address
- * @flags: WDS entry type WMI_HOST_WDS_FLAG_STATIC for static entry
- *
- * This API is used by update the peer mac address for the ast
- * in the fw.
- *
- * return: QDF_STATUS_SUCCESS for success or error code
- */
-QDF_STATUS
-target_if_update_wds_entry(struct cdp_ctrl_objmgr_psoc *soc, uint8_t vdev_id,
-			   uint8_t *dest_mac, uint8_t *peer_mac,
-			   uint32_t flags);
-#else
-static inline QDF_STATUS
-target_if_add_wds_entry(struct cdp_ctrl_objmgr_psoc *soc, uint8_t vdev_id,
-			uint8_t *peer_mac, const uint8_t *dest_mac,
-			uint32_t flags, uint8_t type)
-{
-	return QDF_STATUS_SUCCESS;
-}
-
-static inline void
-target_if_del_wds_entry(struct cdp_ctrl_objmgr_psoc *soc, uint8_t vdev_id,
-			uint8_t *dest_mac, uint8_t type, uint8_t delete_in_fw)
-{
-}
-
-static inline QDF_STATUS
-target_if_update_wds_entry(struct cdp_ctrl_objmgr_psoc *soc, uint8_t vdev_id,
-			   uint8_t *dest_mac, uint8_t *peer_mac,
-			   uint32_t flags)
-{
-	return QDF_STATUS_SUCCESS;
-}
-#endif /* FEATURE_MCL_REPEATER */
 
 #ifdef WLAN_FEATURE_PEER_TXQ_FLUSH_CONF
 /**

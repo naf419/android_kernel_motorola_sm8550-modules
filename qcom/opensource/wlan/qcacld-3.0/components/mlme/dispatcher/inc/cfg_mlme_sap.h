@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -723,51 +723,6 @@
 					1, \
 					"Enable/Disable fils discovery for SAP")
 
-/*
- * <ini>
- * disable_mcs13_support - Disable mcs13 support.
- * @Min: 0
- * @Max: 1
- * @Default: 0
- *
- * This ini is used to disable mcs13 if SAP works on 80p80MHZ/160MHZ/320MHZ
- * and he_mcs_12_13_support enabled.
- *
- * Related: he_mcs_12_13_support
- *
- * Supported Feature: Concurrency
- *
- * Usage: Internal
- *
- * </ini>
- */
-#define CFG_DISABLE_MCS13_SUPPORT CFG_INI_BOOL( \
-			"disable_mcs13_support", \
-			0, \
-			"disable mcs13 support")
-
-/*
- * <ini>
- * disable_sap_bcn_prot - Disable beacon protection for SAP
- * @Min: 0
- * @Max: 1
- * @Default: 0
- *
- * This ini is used to disable beacon protection in SAP only
- * for non-6 GHz or non-11be cases where BP is not mandatory.
- *
- * Related: None
- *
- * Supported Feature: SAP
- *
- * Usage: External
- *
- * </ini>
- */
-#define CFG_DISABLE_SAP_BCN_PROT CFG_INI_BOOL(\
-				"disable_sap_bcn_prot", \
-				"0", \
-				"Disable beacon protection for SAP")
 #define CFG_SAP_ALL \
 	CFG_SAP_SAE \
 	CFG(CFG_AP_ENABLE_RANDOM_BSSID) \
@@ -801,8 +756,6 @@
 	CFG(CFG_GO_FORCE_11N_FOR_11AC) \
 	CFG(CFG_GO_11AC_OVERRIDE) \
 	CFG(CFG_IS_SAP_BCAST_DEAUTH_ENABLED) \
-	CFG(CFG_6G_SAP_FILS_DISCOVERY_ENABLED) \
-	CFG(CFG_DISABLE_MCS13_SUPPORT) \
-	CFG(CFG_DISABLE_SAP_BCN_PROT)
+	CFG(CFG_6G_SAP_FILS_DISCOVERY_ENABLED)
 
 #endif /* __CFG_MLME_SAP_H */

@@ -119,6 +119,7 @@ int ce_send_fast(struct CE_handle *copyeng, qdf_nbuf_t msdu,
 {
 	struct CE_state *ce_state = (struct CE_state *)copyeng;
 	struct hif_softc *scn = ce_state->scn;
+	struct hif_opaque_softc *hif_hdl = GET_HIF_OPAQUE_HDL(scn);
 	struct CE_ring_state *src_ring = ce_state->src_ring;
 	u_int32_t ctrl_addr = ce_state->ctrl_addr;
 	unsigned int nentries_mask = src_ring->nentries_mask;
@@ -147,7 +148,8 @@ int ce_send_fast(struct CE_handle *copyeng, qdf_nbuf_t msdu,
 	 * Request runtime PM resume if it has already suspended and make
 	 * sure there is no PCIe link access.
 	 */
-	if (hif_rtpm_get(HIF_RTPM_GET_ASYNC, HIF_RTPM_ID_CE) != 0)
+	if (hif_pm_runtime_get(hif_hdl,
+			       RTPM_ID_CE_SEND_FAST, false) != 0)
 		ok_to_send = false;
 
 	if (ok_to_send) {
@@ -189,6 +191,8 @@ int ce_send_fast(struct CE_handle *copyeng, qdf_nbuf_t msdu,
 			CE_SRC_RING_TO_DESC(src_ring_base, write_index);
 		struct CE_src_desc *shadow_src_desc =
 			CE_SRC_RING_TO_DESC(shadow_base, write_index);
+
+		hif_pm_runtime_get_noresume(hif_hdl, RTPM_ID_HTC);
 
 		/*
 		 * First fill out the ring descriptor for the HTC HTT frame
@@ -278,7 +282,7 @@ int ce_send_fast(struct CE_handle *copyeng, qdf_nbuf_t msdu,
 		} else {
 			ce_state->state = CE_PENDING;
 		}
-		hif_rtpm_put(HIF_RTPM_PUT_ASYNC, HIF_RTPM_ID_CE);
+		hif_pm_runtime_put(hif_hdl, RTPM_ID_CE_SEND_FAST);
 	}
 
 	qdf_spin_unlock_bh(&ce_state->ce_index_lock);
@@ -606,7 +610,7 @@ ce_send_nolock_legacy(struct CE_handle *copyeng,
 		}
 
 		/* src_ring->write index hasn't been updated event though
-		 * the register has already been written to.
+		 * the register has allready been written to.
 		 */
 		hif_record_ce_desc_event(scn, CE_state->id, event_type,
 			(union ce_desc *)shadow_src_desc, per_transfer_context,

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -36,7 +36,7 @@
 /**
  * qdf_align() - align to the given size.
  * @a: input that needs to be aligned.
- * @align_size: boundary on which 'a' has to be aligned.
+ * @align_size: boundary on which 'a' has to be alinged.
  *
  * Return: aligned value.
  */
@@ -126,37 +126,6 @@ QDF_STATUS qdf_mem_debug_disabled_config_set(const char *str_value);
 #endif
 
 /**
- * qdf_mem_malloc_atomic_debug() - debug version of QDF memory allocation API
- * @size: Number of bytes of memory to allocate.
- * @func: Function name of the call site
- * @line: Line number of the call site
- * @caller: Address of the caller function
- *
- * This function will dynamicallly allocate the specified number of bytes of
- * memory and add it to the qdf tracking list to check for memory leaks and
- * corruptions
- *
- * Return: A valid memory location on success, or NULL on failure
- */
-void *qdf_mem_malloc_atomic_debug(size_t size, const char *func,
-				  uint32_t line, void *caller);
-
-/**
- * qdf_mem_malloc_atomic_debug_fl() - allocation QDF memory atomically
- * @size: Number of bytes of memory to allocate.
- *
- * This function will dynamicallly allocate the specified number of bytes of
- * memory.
- *
- * Return:
- * Upon successful allocate, returns a non-NULL pointer to the allocated
- * memory.  If this function is unable to allocate the amount of memory
- * specified (for any reason) it returns NULL.
- */
-void *qdf_mem_malloc_atomic_debug_fl(qdf_size_t size, const char *func,
-				     uint32_t line);
-
-/**
  * qdf_mem_malloc_debug() - debug version of QDF memory allocation API
  * @size: Number of bytes of memory to allocate.
  * @func: Function name of the call site
@@ -180,8 +149,7 @@ void *qdf_mem_malloc_debug(size_t size, const char *func, uint32_t line,
 	qdf_mem_malloc_debug(size, func, line, QDF_RET_IP, 0)
 
 #define qdf_mem_malloc_atomic(size) \
-	qdf_mem_malloc_atomic_debug(size, __func__, __LINE__, QDF_RET_IP)
-
+	qdf_mem_malloc_debug(size, __func__, __LINE__, QDF_RET_IP, GFP_ATOMIC)
 /**
  * qdf_mem_free_debug() - debug version of qdf_mem_free
  * @ptr: Pointer to the starting address of the memory to be freed.
@@ -198,7 +166,7 @@ void qdf_mem_free_debug(void *ptr, const char *file, uint32_t line);
 
 void qdf_mem_multi_pages_alloc_debug(qdf_device_t osdev,
 				     struct qdf_mem_multi_page_t *pages,
-				     size_t element_size, uint32_t element_num,
+				     size_t element_size, uint16_t element_num,
 				     qdf_dma_context_t memctxt, bool cacheable,
 				     const char *func, uint32_t line,
 				     void *caller);
@@ -354,7 +322,7 @@ static inline void qdf_mem_check_for_leaks(void) { }
 
 void qdf_mem_multi_pages_alloc(qdf_device_t osdev,
 			       struct qdf_mem_multi_page_t *pages,
-			       size_t element_size, uint32_t element_num,
+			       size_t element_size, uint16_t element_num,
 			       qdf_dma_context_t memctxt, bool cacheable);
 
 void qdf_mem_multi_pages_free(qdf_device_t osdev,
@@ -554,7 +522,7 @@ void qdf_ether_addr_copy(void *dst_addr, const void *src_addr);
  * @buf: pointer to memory to be dma mapped
  * @dir: DMA map direction
  * @nbytes: number of bytes to be mapped.
- * @phy_addr: pointer to receive physical address.
+ * @phy_addr: ponter to recive physical address.
  *
  * Return: success/failure
  */
@@ -646,59 +614,6 @@ static inline void qdf_mempool_free(qdf_device_t osdev, qdf_mempool_t pool,
 				    void *buf)
 {
 	__qdf_mempool_free(osdev, pool, buf);
-}
-
-/**
- * qdf_kmem_cache_create() - OS abstraction for cache creation
- *
- * @cache_name: Cache name
- * @size: Size of the object to be created
- *
- * Return: Cache address on successful creation, else NULL
- */
-static inline qdf_kmem_cache_t
-qdf_kmem_cache_create(const char *cache_name,
-		      qdf_size_t size)
-{
-	return __qdf_kmem_cache_create(cache_name, size);
-}
-
-/**
- * qdf_kmem_cache_destroy() - OS abstraction for cache destructin
- *
- * @cache: Cache pointer
- *
- * Return: void
- */
-static inline void qdf_kmem_cache_destroy(qdf_kmem_cache_t cache)
-{
-	__qdf_kmem_cache_destroy(cache);
-}
-
-/**
- * qdf_kmem_cache_alloc() - Function to allocation object from a cache
- *
- * @cache: Cache address
- *
- * Return: Object from cache
- *
- */
-static inline void *qdf_kmem_cache_alloc(qdf_kmem_cache_t cache)
-{
-	return __qdf_kmem_cache_alloc(cache);
-}
-
-/**
- * qdf_kmem_cache_free() - Function to free cache object
- *
- * @cache: Cache address
- * @object: Object to be returned to cache
- *
- * Return: void
- */
-static inline void qdf_kmem_cache_free(qdf_kmem_cache_t cache, void *node)
-{
-	__qdf_kmem_cache_free(cache, node);
 }
 
 void qdf_mem_dma_sync_single_for_device(qdf_device_t osdev,
@@ -916,7 +831,7 @@ void qdf_update_mem_map_table(qdf_device_t osdev,
  * @dma_addr: DMA/IOVA address
  *
  * Get actual physical address from dma_addr based on SMMU enablement status.
- * IF SMMU Stage 1 translation is enabled, DMA APIs return IO virtual address
+ * IF SMMU Stage 1 tranlation is enabled, DMA APIs return IO virtual address
  * (IOVA) otherwise returns physical address. So get SMMU physical address
  * mapping from IOVA.
  *
@@ -960,7 +875,7 @@ static inline bool qdf_mem_smmu_s1_enabled(qdf_device_t osdev)
 
 /**
  * qdf_mem_dma_get_sgtable() - Returns DMA memory scatter gather table
- * @dev: device instance
+ * @dev: device instace
  * @sgt: scatter gather table pointer
  * @cpu_addr: HLOS virtual address
  * @dma_addr: dma address
@@ -1005,7 +920,7 @@ qdf_dma_get_sgtable_dma_addr(struct sg_table *sgt)
  * @mem_info: Pointer to allocated memory information
  *
  * Get dma address based on SMMU enablement status. If SMMU Stage 1
- * translation is enabled, DMA APIs return IO virtual address otherwise
+ * tranlation is enabled, DMA APIs return IO virtual address otherwise
  * returns physical address.
  *
  * Return: dma address
@@ -1105,25 +1020,6 @@ qdf_mem_set_dma_pa(qdf_device_t osdev,
  * Return: 0 success
  */
 qdf_shared_mem_t *qdf_mem_shared_mem_alloc(qdf_device_t osdev, uint32_t size);
-
-#ifdef DP_UMAC_HW_RESET_SUPPORT
-/**
- * qdf_tx_desc_pool_free_bufs() - Go through elems and call the registered  cb
- * @ctxt: Context to be passed to the cb
- * @pages: Multi page information storage
- * @elem_size: Each element size
- * @elem_count: Total number of elements should be allocated
- * @cacheable: Coherent memory or cacheable memory
- * @cb: Callback to free the elements
- * @elem_list: elem list for delayed free
- *
- * Return: 0 on Succscc, or Error code
- */
-int qdf_tx_desc_pool_free_bufs(void *ctxt, struct qdf_mem_multi_page_t *pages,
-			       uint32_t elem_size, uint32_t elem_count,
-			       uint8_t cacheable, qdf_mem_release_cb cb,
-			       void *elem_list);
-#endif
 
 /**
  * qdf_mem_shared_mem_free() - Free shared memory
@@ -1320,7 +1216,7 @@ void qdf_mem_tx_desc_cnt_update(qdf_atomic_t pending_tx_descs,
 
 #if IS_ENABLED(CONFIG_ARM_SMMU) && defined(ENABLE_SMMU_S1_TRANSLATION)
 /*
- * typedef qdf_iommu_domain_t: Platform independent iommu domain
+ * typedef qdf_iommu_domain_t: Platform indepedent iommu domain
  * abstraction
  */
 typedef __qdf_iommu_domain_t qdf_iommu_domain_t;

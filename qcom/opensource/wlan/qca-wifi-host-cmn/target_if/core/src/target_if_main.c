@@ -53,18 +53,13 @@
 
 #ifdef WIFI_POS_CONVERGED
 #include "target_if_wifi_pos.h"
-#include "target_if_wifi_pos_rx_ops.h"
-#include "target_if_wifi_pos_tx_ops.h"
 #endif
 
 #ifdef FEATURE_WLAN_TDLS
 #include "target_if_tdls.h"
 #endif
-#if defined(QCA_SUPPORT_SON) || defined(WLAN_FEATURE_SON)
+#ifdef QCA_SUPPORT_SON
 #include <target_if_son.h>
-#endif
-#if defined WLAN_FEATURE_11AX
-#include <target_if_spatial_reuse.h>
 #endif
 #ifdef WLAN_OFFCHAN_TXRX_ENABLE
 #include <target_if_offchan_txrx_api.h>
@@ -100,9 +95,6 @@
 #endif
 
 #include <target_if_gpio.h>
-#ifdef IPA_OFFLOAD
-#include <target_if_ipa.h>
-#endif
 
 #ifdef WLAN_MGMT_RX_REO_SUPPORT
 #include <target_if_mgmt_txrx.h>
@@ -111,7 +103,9 @@
 #include "wmi_unified_api.h"
 #include <target_if_twt.h>
 
+#ifdef WLAN_FEATURE_11BE_MLO
 #include <target_if_mlo_mgr.h>
+#endif
 
 #ifdef WLAN_FEATURE_COAP
 #include <target_if_coap.h>
@@ -273,19 +267,18 @@ static void target_if_fd_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
 #endif
 
 #ifdef WIFI_POS_CONVERGED
-static void
-target_if_wifi_pos_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
+static void target_if_wifi_pos_tx_ops_register(
+			struct wlan_lmac_if_tx_ops *tx_ops)
 {
 	target_if_wifi_pos_register_tx_ops(tx_ops);
 }
 #else
-static void
-target_if_wifi_pos_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
+static void target_if_wifi_pos_tx_ops_register(
+			struct wlan_lmac_if_tx_ops *tx_ops)
 {
 }
 #endif
-
-#if defined(QCA_SUPPORT_SON) || defined(WLAN_FEATURE_SON)
+#ifdef QCA_SUPPORT_SON
 static void target_if_son_tx_ops_register(
 			struct wlan_lmac_if_tx_ops *tx_ops)
 {
@@ -298,21 +291,6 @@ static void target_if_son_tx_ops_register(
 {
 	return;
 }
-#endif
-
-#if defined WLAN_FEATURE_SR
-static void target_if_spatial_reuse_tx_ops_register(
-			struct wlan_lmac_if_tx_ops *tx_ops)
-{
-	target_if_spatial_reuse_register_tx_ops(tx_ops);
-}
-
-#else
-static void target_if_spatial_reuse_tx_ops_register(
-			struct wlan_lmac_if_tx_ops *tx_ops)
-{
-}
-
 #endif
 
 #ifdef FEATURE_WLAN_TDLS
@@ -418,20 +396,6 @@ target_if_coex_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
 }
 #endif
 
-#ifdef WLAN_FEATURE_DBAM_CONFIG
-static QDF_STATUS
-target_if_dbam_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
-{
-	return target_if_dbam_register_tx_ops(tx_ops);
-}
-#else
-static inline QDF_STATUS
-target_if_dbam_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
-{
-	return QDF_STATUS_SUCCESS;
-}
-#endif
-
 #ifdef WLAN_FEATURE_COAP
 static QDF_STATUS
 target_if_coap_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
@@ -461,6 +425,9 @@ static void target_if_target_tx_ops_register(
 	target_tx_ops->tgt_is_tgt_type_ar900b =
 		target_is_tgt_type_ar900b;
 
+	target_tx_ops->tgt_is_tgt_type_ipq4019 =
+		target_is_tgt_type_ipq4019;
+
 	target_tx_ops->tgt_is_tgt_type_qca9984 =
 		target_is_tgt_type_qca9984;
 
@@ -475,9 +442,6 @@ static void target_if_target_tx_ops_register(
 
 	target_tx_ops->tgt_is_tgt_type_qcn6122 =
 		target_is_tgt_type_qcn6122;
-
-	target_tx_ops->tgt_is_tgt_type_qcn9160 =
-		target_is_tgt_type_qcn9160;
 
 	target_tx_ops->tgt_is_tgt_type_qcn7605 =
 		target_is_tgt_type_qcn7605;
@@ -571,16 +535,6 @@ target_if_mlo_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
 }
 #endif
 
-#ifdef IPA_OFFLOAD
-static void target_if_ipa_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
-{
-	target_if_ipa_register_tx_ops(tx_ops);
-}
-#else
-static void target_if_ipa_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
-{ }
-#endif
-
 #if defined(WLAN_SUPPORT_TWT) && defined(WLAN_TWT_CONV_SUPPORTED)
 static
 void target_if_twt_tx_ops_register(struct wlan_lmac_if_tx_ops *tx_ops)
@@ -618,8 +572,6 @@ QDF_STATUS target_if_register_umac_tx_ops(struct wlan_lmac_if_tx_ops *tx_ops)
 
 	target_if_son_tx_ops_register(tx_ops);
 
-	target_if_spatial_reuse_tx_ops_register(tx_ops);
-
 	target_if_tdls_tx_ops_register(tx_ops);
 
 	target_if_fd_tx_ops_register(tx_ops);
@@ -648,11 +600,7 @@ QDF_STATUS target_if_register_umac_tx_ops(struct wlan_lmac_if_tx_ops *tx_ops)
 
 	target_if_mlo_tx_ops_register(tx_ops);
 
-	target_if_ipa_tx_ops_register(tx_ops);
-
 	target_if_twt_tx_ops_register(tx_ops);
-
-	target_if_dbam_tx_ops_register(tx_ops);
 
 	target_if_coap_tx_ops_register(tx_ops);
 
@@ -792,7 +740,6 @@ QDF_STATUS target_if_free_psoc_tgt_info(struct wlan_objmgr_psoc *psoc)
 	init_deinit_dbr_ring_cap_free(tgt_psoc_info);
 	init_deinit_spectral_scaling_params_free(tgt_psoc_info);
 	init_deinit_scan_radio_cap_free(tgt_psoc_info);
-	init_deinit_msdu_idx_qtype_map_free(tgt_psoc_info);
 
 	qdf_event_destroy(&tgt_psoc_info->info.event);
 
@@ -809,6 +756,11 @@ QDF_STATUS target_if_free_psoc_tgt_info(struct wlan_objmgr_psoc *psoc)
 bool target_is_tgt_type_ar900b(uint32_t target_type)
 {
 	return target_type == TARGET_TYPE_AR900B;
+}
+
+bool target_is_tgt_type_ipq4019(uint32_t target_type)
+{
+	return target_type == TARGET_TYPE_IPQ4019;
 }
 
 bool target_is_tgt_type_qca9984(uint32_t target_type)
@@ -834,11 +786,6 @@ bool target_is_tgt_type_qcn9000(uint32_t target_type)
 bool target_is_tgt_type_qcn6122(uint32_t target_type)
 {
 	return target_type == TARGET_TYPE_QCN6122;
-}
-
-bool target_is_tgt_type_qcn9160(uint32_t target_type)
-{
-	return target_type == TARGET_TYPE_QCN9160;
 }
 
 bool target_is_tgt_type_qcn7605(uint32_t target_type)
@@ -1088,35 +1035,6 @@ QDF_STATUS target_if_mlo_ready(struct wlan_objmgr_pdev **pdev,
 
 	for (idx = 0; idx < num_pdevs; idx++)
 		target_if_mlo_ready_send(pdev[idx]);
-
-	return QDF_STATUS_SUCCESS;
-}
-
-static QDF_STATUS
-target_if_mlo_teardown_send(struct wlan_objmgr_pdev *pdev,
-			    enum wmi_mlo_teardown_reason reason)
-{
-	wmi_unified_t wmi_handle;
-	struct wmi_mlo_teardown_params params = {0};
-
-	wmi_handle = lmac_get_pdev_wmi_handle(pdev);
-	if (!wmi_handle)
-		return QDF_STATUS_E_INVAL;
-
-	params.pdev_id = wlan_objmgr_pdev_get_pdev_id(pdev);
-	params.reason = reason;
-
-	return wmi_mlo_teardown_cmd_send(wmi_handle, &params);
-}
-
-QDF_STATUS target_if_mlo_teardown_req(struct wlan_objmgr_pdev **pdev,
-				      uint8_t num_pdevs,
-				      enum wmi_mlo_teardown_reason reason)
-{
-	uint8_t idx;
-
-	for (idx = 0; idx < num_pdevs; idx++)
-		target_if_mlo_teardown_send(pdev[idx], reason);
 
 	return QDF_STATUS_SUCCESS;
 }

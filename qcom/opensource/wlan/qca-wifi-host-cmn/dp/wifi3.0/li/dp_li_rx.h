@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -27,20 +26,6 @@
 uint32_t dp_rx_process_li(struct dp_intr *int_ctx,
 			  hal_ring_handle_t hal_ring_hdl, uint8_t reo_ring_num,
 			  uint32_t quota);
-
-/**
- * dp_rx_chain_msdus_li() - Function to chain all msdus of a mpdu
- *			    to pdev invalid peer list
- *
- * @soc: core DP main context
- * @nbuf: Buffer pointer
- * @rx_tlv_hdr: start of rx tlv header
- * @mac_id: mac id
- *
- *  Return: bool: true for last msdu of mpdu
- */
-bool dp_rx_chain_msdus_li(struct dp_soc *soc, qdf_nbuf_t nbuf,
-			  uint8_t *rx_tlv_hdr, uint8_t mac_id);
 
 /**
  * dp_rx_desc_pool_init_li() - Initialize Rx Descriptor pool(s)
@@ -79,27 +64,6 @@ QDF_STATUS dp_wbm_get_rx_desc_from_hal_desc_li(
 					struct dp_soc *soc,
 					void *ring_desc,
 					struct dp_rx_desc **r_rx_desc);
-/**
- * dp_rx_get_reo_qdesc_addr_li(): API to get qdesc address of reo
- * entrance ring desc
- *
- * @hal_soc: Handle to HAL Soc structure
- * @dst_ring_desc: reo dest ring descriptor (used for Lithium DP)
- * @buf: pointer to the start of RX PKT TLV headers
- * @txrx_peer: pointer to txrx_peer
- * @tid: tid value
- *
- * Return: qdesc address in reo destination ring buffer
- */
-static inline
-uint64_t dp_rx_get_reo_qdesc_addr_li(hal_soc_handle_t hal_soc,
-				     uint8_t *dst_ring_desc,
-				     uint8_t *buf,
-				     struct dp_txrx_peer *txrx_peer,
-				     unsigned int tid)
-{
-	return hal_rx_get_qdesc_addr(hal_soc, dst_ring_desc, buf);
-}
 
 /**
  * dp_rx_desc_cookie_2_va_li() - Convert RX Desc cookie ID to VA
@@ -137,10 +101,6 @@ dp_rx_peer_metadata_peer_id_get_li(struct dp_soc *soc, uint32_t peer_metadata)
 	return metadata->peer_id;
 }
 
-bool
-dp_rx_intrabss_handle_nawds_li(struct dp_soc *soc, struct dp_txrx_peer *ta_peer,
-			       qdf_nbuf_t nbuf_copy,
-			       struct cdp_tid_rx_stats *tid_stats);
 #ifdef QCA_DP_RX_NBUF_AND_NBUF_DATA_PREFETCH
 static inline
 void dp_rx_prefetch_nbuf_data(qdf_nbuf_t nbuf, qdf_nbuf_t next)
@@ -241,31 +201,4 @@ void dp_rx_prefetch_hw_sw_nbuf_desc(struct dp_soc *soc,
 {
 }
 #endif
-
-static inline
-QDF_STATUS dp_peer_rx_reorder_queue_setup_li(struct dp_soc *soc,
-					     struct dp_peer *peer,
-					     int tid,
-					     uint32_t ba_window_size)
-{
-	struct dp_rx_tid *rx_tid = &peer->rx_tid[tid];
-
-	if (!rx_tid->hw_qdesc_paddr)
-		return QDF_STATUS_E_INVAL;
-
-	if (soc->cdp_soc.ol_ops->peer_rx_reorder_queue_setup) {
-		if (soc->cdp_soc.ol_ops->peer_rx_reorder_queue_setup(
-		    soc->ctrl_psoc,
-		    peer->vdev->pdev->pdev_id,
-		    peer->vdev->vdev_id,
-		    peer->mac_addr.raw, rx_tid->hw_qdesc_paddr, tid, tid,
-		    1, ba_window_size)) {
-			dp_peer_err("%pK: Failed to send reo queue setup to FW - tid %d\n",
-				    soc, tid);
-			return QDF_STATUS_E_FAILURE;
-		}
-	}
-
-	return QDF_STATUS_SUCCESS;
-}
 #endif

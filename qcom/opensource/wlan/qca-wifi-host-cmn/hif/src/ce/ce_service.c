@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -173,7 +173,7 @@ void hif_display_latest_desc_hist(struct hif_opaque_softc *hif_ctx)
 	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
 	struct ce_desc_hist *ce_hist;
 	struct latest_evt_history *evt;
-	int i;
+	int i, j;
 
 	if (!scn)
 		return;
@@ -184,12 +184,14 @@ void hif_display_latest_desc_hist(struct hif_opaque_softc *hif_ctx)
 		if (!ce_hist->enable[i + HIF_CE_MAX_LATEST_HIST])
 			continue;
 
-		evt = &ce_hist->latest_evt[i];
-		hif_info_high("CE_id:%d cpu_id:%d irq_entry:0x%llx tasklet_entry:0x%llx tasklet_resched:0x%llx tasklet_exit:0x%llx ce_work:0x%llx hp:%x tp:%x",
-			      (i + HIF_CE_MAX_LATEST_HIST), evt->cpu_id,
-			      evt->irq_entry_ts, evt->bh_entry_ts,
-			      evt->bh_resched_ts, evt->bh_exit_ts,
-			      evt->bh_work_ts, evt->ring_hp, evt->ring_tp);
+		for (j = 0; j < HIF_CE_MAX_LATEST_EVTS; j++) {
+			evt = &ce_hist->latest_evts[i][j];
+			hif_info_high("CE_id:%d event_idx:%d cpu_id:%d irq_entry:0x%llx tasklet_entry:0x%llx tasklet_resched:0x%llx tasklet_exit:0x%llx ce_work:0x%llx hp:%x tp:%x",
+				      (i + HIF_CE_MAX_LATEST_HIST), j, evt->cpu_id,
+				      evt->irq_entry_ts, evt->bh_entry_ts,
+				      evt->bh_resched_ts, evt->bh_exit_ts,
+				      evt->bh_work_ts, evt->ring_hp, evt->ring_tp);
+		}
 	}
 }
 
@@ -198,35 +200,51 @@ void hif_record_latest_evt(struct ce_desc_hist *ce_hist,
 			   int ce_id, uint64_t time,
 			   uint32_t hp, uint32_t tp)
 {
-	struct latest_evt_history *latest_evt;
+	struct latest_evt_history *latest_evts;
+	int idx = 0;
 
 	if (ce_id != 2 && ce_id != 3)
 		return;
 
-	latest_evt = &ce_hist->latest_evt[ce_id - HIF_CE_MAX_LATEST_HIST];
+	latest_evts = &ce_hist->latest_evts[ce_id - HIF_CE_MAX_LATEST_HIST][idx];
 
 	switch (type) {
 	case HIF_IRQ_EVENT:
-		latest_evt->irq_entry_ts = time;
-		latest_evt->cpu_id = qdf_get_cpu();
-		break;
+		if (latest_evts[idx].irq_entry_ts >
+		    latest_evts[idx + 1].irq_entry_ts)
+			idx = 1;
+		latest_evts[idx].irq_entry_ts = time;
+		latest_evts[idx].cpu_id = qdf_get_cpu();
+		return;
 	case HIF_CE_TASKLET_ENTRY:
-		latest_evt->bh_entry_ts = time;
-		break;
+		if (latest_evts[idx].bh_entry_ts >
+		    latest_evts[idx + 1].bh_entry_ts)
+			idx = 1;
+		latest_evts[idx].bh_entry_ts = time;
+		return;
 	case HIF_CE_TASKLET_RESCHEDULE:
-		latest_evt->bh_resched_ts = time;
-		break;
+		if (latest_evts[idx].bh_resched_ts >
+		    latest_evts[idx + 1].bh_resched_ts)
+			idx = 1;
+		latest_evts[idx].bh_resched_ts = time;
+		return;
 	case HIF_CE_TASKLET_EXIT:
-		latest_evt->bh_exit_ts = time;
-		break;
+		if (latest_evts[idx].bh_exit_ts >
+		    latest_evts[idx + 1].bh_exit_ts)
+			idx = 1;
+		latest_evts[idx].bh_exit_ts = time;
+		return;
 	case HIF_TX_DESC_COMPLETION:
 	case HIF_CE_DEST_STATUS_RING_REAP:
-		latest_evt->bh_work_ts = time;
-		latest_evt->ring_hp = hp;
-		latest_evt->ring_tp = tp;
-		break;
+		if (latest_evts[idx].bh_work_ts >
+		    latest_evts[idx + 1].bh_work_ts)
+			idx = 1;
+		latest_evts[idx].bh_work_ts = time;
+		latest_evts[idx].ring_hp = hp;
+		latest_evts[idx].ring_tp = tp;
+		return;
 	default:
-		break;
+		return;
 	}
 }
 
@@ -346,8 +364,8 @@ bool hif_ce_service_should_yield(struct hif_softc *scn,
 	bool yield =  hif_max_num_receives_reached(scn, ce_state->receive_count);
 
 	/* Setting receive_count to MAX_NUM_OF_RECEIVES when this count goes
-	 * beyond MAX_NUM_OF_RECEIVES for NAPI backet calculation issue. This
-	 * can happen in fast path handling as processing is happening in
+	 * beyond MAX_NUM_OF_RECEIVES for NAPI backet calulation issue. This
+	 * can happen in fast path handling as processing is happenning in
 	 * batches.
 	 */
 	if (yield)
@@ -376,8 +394,8 @@ bool hif_ce_service_should_yield(struct hif_softc *scn,
 					(scn, ce_state->receive_count);
 
 	/* Setting receive_count to MAX_NUM_OF_RECEIVES when this count goes
-	 * beyond MAX_NUM_OF_RECEIVES for NAPI backet calculation issue. This
-	 * can happen in fast path handling as processing is happening in
+	 * beyond MAX_NUM_OF_RECEIVES for NAPI backet calulation issue. This
+	 * can happen in fast path handling as processing is happenning in
 	 * batches.
 	 */
 	if (rxpkt_thresh_reached)
@@ -905,7 +923,7 @@ ce_completed_send_next(struct CE_handle *copyeng,
  * does receive and reaping of completed descriptor ,
  * This function only handles reaping of Tx complete descriptor.
  * The Function is called from threshold reap  poll routine
- * hif_send_complete_check so should not contain receive functionality
+ * hif_send_complete_check so should not countain receive functionality
  * within it .
  */
 
@@ -1283,7 +1301,7 @@ qdf_export_symbol(ce_per_engine_service);
 /*
  * Handler for per-engine interrupts on ALL active CEs.
  * This is used in cases where the system is sharing a
- * single interrupt for all CEs
+ * single interrput for all CEs
  */
 
 void ce_per_engine_service_any(int irq, struct hif_softc *scn)
@@ -1377,7 +1395,7 @@ void ce_enable_any_copy_compl_intr_nolock(struct hif_softc *scn)
  * ce_send_cb_register(): register completion handler
  * @copyeng: CE_state representing the ce we are adding the behavior to
  * @fn_ptr: callback that the ce should use when processing tx completions
- * @disable_interrupts: if the interrupts should be enabled or not.
+ * @disable_interrupts: if the interupts should be enabled or not.
  *
  * Caller should guarantee that no transactions are in progress before
  * switching the callback function.
@@ -1417,7 +1435,7 @@ qdf_export_symbol(ce_send_cb_register);
  * ce_recv_cb_register(): register completion handler
  * @copyeng: CE_state representing the ce we are adding the behavior to
  * @fn_ptr: callback that the ce should use when processing rx completions
- * @disable_interrupts: if the interrupts should be enabled or not.
+ * @disable_interrupts: if the interupts should be enabled or not.
  *
  * Registers the send context before the fn pointer so that if the cb is valid
  * the context should be valid.
@@ -1539,7 +1557,7 @@ static qdf_dma_addr_t ce_ipa_get_wr_index_addr(struct CE_state *CE_state)
  * Micro controller needs
  *  - Copy engine source descriptor base address
  *  - Copy engine source descriptor size
- *  - PCI BAR address to access copy engine register
+ *  - PCI BAR address to access copy engine regiser
  *
  * Return: None
  */

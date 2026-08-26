@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -26,19 +26,8 @@
 #include "hal_tx.h"
 #include <hal_api_mon.h>
 
-static uint16_t hal_get_rx_max_ba_window_li(int tid)
-{
-	return HAL_RX_BA_WINDOW_256;
-}
-
 static uint32_t hal_get_reo_qdesc_size_li(uint32_t ba_window_size, int tid)
 {
-	/* Hardcode the ba_window_size to HAL_RX_MAX_BA_WINDOW for
-	 * NON_QOS_TID until HW issues are resolved.
-	 */
-	if (tid != HAL_NON_QOS_TID)
-		ba_window_size = hal_get_rx_max_ba_window_li(tid);
-
 	/* Return descriptor size corresponding to window size of 2 since
 	 * we set ba_window_size to 2 while setting up REO descriptors as
 	 * a WAR to get 2k jump exception aggregates are received without
@@ -226,6 +215,24 @@ static uint32_t hal_rx_msdu_start_msdu_len_get_li(uint8_t *buf)
 	msdu_len = HAL_RX_MSDU_START_MSDU_LEN_GET(msdu_start);
 
 	return msdu_len;
+}
+
+/**
+ * hal_rx_get_frame_ctrl_field(): Function to retrieve frame control field
+ *
+ * @nbuf: Network buffer
+ * Returns: rx more fragment bit
+ *
+ */
+static uint16_t hal_rx_get_frame_ctrl_field_li(uint8_t *buf)
+{
+	struct rx_pkt_tlvs *pkt_tlvs = hal_rx_get_pkt_tlvs(buf);
+	struct rx_mpdu_info *rx_mpdu_info = hal_rx_get_mpdu_info(pkt_tlvs);
+	uint16_t frame_ctrl = 0;
+
+	frame_ctrl = HAL_RX_MPDU_GET_FRAME_CONTROL_FIELD(rx_mpdu_info);
+
+	return frame_ctrl;
 }
 
 /**
@@ -814,7 +821,7 @@ hal_rx_tlv_get_freq_li(uint8_t *buf)
 }
 
 /**
- * hal_rx_tlv_sgi_get_li(): API to get the Short Guard
+ * hal_rx_tlv_sgi_get_li(): API to get the Short Gaurd
  * Interval from rx_msdu_start TLV
  *
  * @buf: pointer to the start of RX PKT TLV headers
@@ -995,7 +1002,7 @@ hal_rx_msdu_reo_dst_ind_get_li(hal_soc_handle_t hal_soc_hdl,
 
 	msdu_details = hal_rx_link_desc_msdu0_ptr(msdu_link, hal_soc);
 
-	/* The first msdu in the link should exist */
+	/* The first msdu in the link should exsist */
 	msdu_desc_info = hal_rx_msdu_desc_info_get_ptr(&msdu_details[0],
 						       hal_soc);
 	dst_ind = HAL_RX_MSDU_REO_DST_IND_GET(msdu_desc_info);
@@ -1004,9 +1011,7 @@ hal_rx_msdu_reo_dst_ind_get_li(hal_soc_handle_t hal_soc_hdl,
 
 static inline void
 hal_mpdu_desc_info_set_li(hal_soc_handle_t hal_soc_hdl,
-			  void *ent_desc,
-			  void *mpdu_desc,
-			  uint32_t seq_no)
+			  void *mpdu_desc, uint32_t seq_no)
 {
 	struct rx_mpdu_desc_info *mpdu_desc_info =
 			(struct rx_mpdu_desc_info *)mpdu_desc;
@@ -1063,20 +1068,6 @@ void hal_set_reo_ent_desc_reo_dest_ind_li(uint8_t *desc, uint32_t dst_ind)
 {
 	HAL_RX_FLD_SET(desc, REO_ENTRANCE_RING_5,
 		       REO_DESTINATION_INDICATION, dst_ind);
-}
-
-static inline void
-hal_rx_wbm_rel_buf_paddr_get_li(hal_ring_desc_t rx_desc,
-				struct hal_buf_info *buf_info)
-{
-	struct wbm_release_ring *wbm_rel_ring =
-		 (struct wbm_release_ring *)rx_desc;
-
-	buf_info->paddr =
-	 (HAL_RX_WBM_BUF_ADDR_31_0_GET(wbm_rel_ring) |
-	  ((uint64_t)(HAL_RX_WBM_BUF_ADDR_39_32_GET(wbm_rel_ring)) << 32));
-
-	buf_info->sw_cookie = HAL_RX_WBM_BUF_COOKIE_GET(wbm_rel_ring);
 }
 
 static QDF_STATUS hal_reo_status_update_li(hal_soc_handle_t hal_soc_hdl,
@@ -1165,8 +1156,6 @@ static uint8_t hal_get_idle_link_bm_id_li(uint8_t chip_id)
 void hal_hw_txrx_default_ops_attach_li(struct hal_soc *hal_soc)
 {
 	hal_soc->ops->hal_get_reo_qdesc_size = hal_get_reo_qdesc_size_li;
-	hal_soc->ops->hal_get_rx_max_ba_window =
-					hal_get_rx_max_ba_window_li;
 	hal_soc->ops->hal_set_link_desc_addr = hal_set_link_desc_addr_li;
 	hal_soc->ops->hal_tx_init_data_ring = hal_tx_init_data_ring_li;
 	hal_soc->ops->hal_get_ba_aging_timeout = hal_get_ba_aging_timeout_li;
@@ -1186,6 +1175,8 @@ void hal_hw_txrx_default_ops_attach_li(struct hal_soc *hal_soc)
 	hal_soc->ops->hal_rx_tlv_msdu_done_get = hal_rx_attn_msdu_done_get_li;
 	hal_soc->ops->hal_rx_tlv_msdu_len_get =
 					hal_rx_msdu_start_msdu_len_get_li;
+	hal_soc->ops->hal_rx_get_frame_ctrl_field =
+						hal_rx_get_frame_ctrl_field_li;
 	hal_soc->ops->hal_rx_get_proto_params = hal_rx_get_proto_params_li;
 	hal_soc->ops->hal_rx_get_l3_l4_offsets = hal_rx_get_l3_l4_offsets_li;
 
@@ -1208,8 +1199,6 @@ void hal_hw_txrx_default_ops_attach_li(struct hal_soc *hal_soc)
 	hal_soc->ops->hal_rx_reo_buf_type_get = hal_rx_reo_buf_type_get_li;
 	hal_soc->ops->hal_rx_pkt_hdr_get = hal_rx_pkt_hdr_get_li;
 	hal_soc->ops->hal_rx_wbm_err_src_get = hal_rx_wbm_err_src_get_li;
-	hal_soc->ops->hal_rx_wbm_rel_buf_paddr_get =
-					hal_rx_wbm_rel_buf_paddr_get_li;
 	hal_soc->ops->hal_rx_priv_info_set_in_tlv =
 					hal_rx_priv_info_set_in_tlv_li;
 	hal_soc->ops->hal_rx_priv_info_get_from_tlv =

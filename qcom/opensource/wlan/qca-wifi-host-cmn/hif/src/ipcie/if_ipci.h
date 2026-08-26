@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -67,7 +67,7 @@ struct hif_ipci_stats {
 
 #ifdef FEATURE_HAL_DELAYED_REG_WRITE
 #define EP_VOTE_POLL_TIME_US  50
-#define EP_VOTE_POLL_TIME_CNT 3
+#define EP_VOTE_POLL_TIME_CNT 2
 #ifdef HAL_CONFIG_SLUB_DEBUG_ON
 #define EP_WAKE_RESET_DELAY_TIMEOUT_MS 3
 #else
@@ -90,6 +90,9 @@ struct hif_ipci_softc {
 	qdf_spinlock_t register_access_lock;
 	qdf_spinlock_t irq_lock;
 	bool grp_irqs_disabled;
+#ifdef FEATURE_RUNTIME_PM
+	struct hif_runtime_pm_ctx rpm_ctx;
+#endif
 
 	void (*hif_ipci_get_soc_info)(struct hif_ipci_softc *sc,
 				      struct device *dev);

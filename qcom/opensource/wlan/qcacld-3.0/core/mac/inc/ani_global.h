@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -264,6 +264,9 @@ typedef struct sLimTimers {
 	TX_TIMER gLimAssocFailureTimer;
 	TX_TIMER gLimReassocFailureTimer;
 
+	/* / Wait for Probe after Heartbeat failure timer on STA */
+	TX_TIMER gLimProbeAfterHBTimer;
+
 	/* Authentication related timers */
 	TX_TIMER gLimAuthFailureTimer;
 
@@ -307,6 +310,8 @@ typedef struct sAniSirLim {
 	uint32_t gLimTimersCreated;
 
 	/* ////////////////////////////////////     TIMER RELATED END /////////////////////////////////////////// */
+
+	struct lim_scan_channel_status scan_channel_status;
 
 	uint8_t gLimCurrentBssUapsd;
 
@@ -803,12 +808,9 @@ struct mac_context {
 	uint8_t usr_cfg_disable_rsp_tx;
 	uint8_t is_usr_cfg_pmf_wep;
 	uint8_t usr_cfg_ru_242_tone_tx;
-	bool usr_eht_testbed_cfg;
 #ifdef WLAN_FEATURE_11AX
 	tDot11fIEhe_cap he_cap_2g;
 	tDot11fIEhe_cap he_cap_5g;
-	tDot11fIEhe_cap he_cap_2g_orig;
-	tDot11fIEhe_cap he_cap_5g_orig;
 #endif
 	bool obss_scan_offload;
 	bool bcn_reception_stats;
@@ -820,8 +822,6 @@ struct mac_context {
 #ifdef WLAN_FEATURE_11BE
 	tDot11fIEeht_cap eht_cap_2g;
 	tDot11fIEeht_cap eht_cap_5g;
-	tDot11fIEeht_cap eht_cap_2g_orig;
-	tDot11fIEeht_cap eht_cap_5g_orig;
 #endif
 #ifdef WLAN_FEATURE_CAL_FAILURE_TRIGGER
 	void (*cal_failure_event_cb)(uint8_t cal_type, uint8_t reason);
