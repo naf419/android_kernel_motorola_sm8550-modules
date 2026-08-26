@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2018, 2020-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "cam_sync_util.h"
 #include "cam_req_mgr_workq.h"
+#include "cam_common_util.h"
 
 int cam_sync_util_find_and_set_empty_row(struct sync_device *sync_dev,
 	long *idx)
@@ -35,8 +37,7 @@ int cam_sync_init_row(struct sync_table_row *table,
 
 	memset(row, 0, sizeof(*row));
 
-	if (name)
-		strlcpy(row->name, name, SYNC_DEBUG_NAME_LEN);
+	strlcpy(row->name, name, SYNC_DEBUG_NAME_LEN);
 	INIT_LIST_HEAD(&row->parents_list);
 	INIT_LIST_HEAD(&row->children_list);
 	row->type = type;
@@ -89,8 +90,9 @@ int cam_sync_init_group_object(struct sync_table_row *table,
 		}
 
 		/* check for child's state */
-		if (child_row->state == CAM_SYNC_STATE_SIGNALED_ERROR) {
-			row->state = CAM_SYNC_STATE_SIGNALED_ERROR;
+		if ((child_row->state == CAM_SYNC_STATE_SIGNALED_ERROR) ||
+			(child_row->state == CAM_SYNC_STATE_SIGNALED_CANCEL)) {
+			row->state = child_row->state;
 			spin_unlock_bh(&sync_dev->row_spinlocks[sync_objs[i]]);
 			continue;
 		}
@@ -124,7 +126,8 @@ int cam_sync_init_group_object(struct sync_table_row *table,
 	}
 
 	if (!row->remaining) {
-		if (row->state != CAM_SYNC_STATE_SIGNALED_ERROR)
+		if ((row->state != CAM_SYNC_STATE_SIGNALED_ERROR) &&
+			(row->state != CAM_SYNC_STATE_SIGNALED_CANCEL))
 			row->state = CAM_SYNC_STATE_SIGNALED_SUCCESS;
 		complete_all(&row->signaled);
 	}
@@ -145,7 +148,8 @@ clean_children_info:
 	return rc;
 }
 
-int cam_sync_deinit_object(struct sync_table_row *table, uint32_t idx)
+int cam_sync_deinit_object(struct sync_table_row *table, uint32_t idx,
+	struct cam_sync_check_for_dma_release *check_for_dma_release)
 {
 	struct sync_table_row      *row = table + idx;
 	struct sync_child_info     *child_info, *temp_child;
@@ -166,8 +170,9 @@ int cam_sync_deinit_object(struct sync_table_row *table, uint32_t idx)
 	if (row->state == CAM_SYNC_STATE_INVALID) {
 		spin_unlock_bh(&sync_dev->row_spinlocks[idx]);
 		CAM_ERR(CAM_SYNC,
-			"Error: accessing an uninitialized sync obj: idx = %d",
-			idx);
+			"Error: accessing an uninitialized sync obj: idx = %d name = %s",
+			idx,
+			row->name);
 		return -EINVAL;
 	}
 
@@ -220,7 +225,8 @@ int cam_sync_deinit_object(struct sync_table_row *table, uint32_t idx)
 
 		if (child_row->state == CAM_SYNC_STATE_ACTIVE)
 			CAM_DBG(CAM_SYNC,
-				"Warning: destroying active child sync obj = %d",
+				"Warning: destroying active child sync obj = %s[%d]",
+				child_row->name,
 				child_info->sync_id);
 
 		cam_sync_util_cleanup_parents_list(child_row,
@@ -249,7 +255,8 @@ int cam_sync_deinit_object(struct sync_table_row *table, uint32_t idx)
 
 		if (parent_row->state == CAM_SYNC_STATE_ACTIVE)
 			CAM_DBG(CAM_SYNC,
-				"Warning: destroying active parent sync obj = %d",
+				"Warning: destroying active parent sync obj = %s[%d]",
+				parent_row->name,
 				parent_info->sync_id);
 
 		cam_sync_util_cleanup_children_list(parent_row,
@@ -273,6 +280,22 @@ int cam_sync_deinit_object(struct sync_table_row *table, uint32_t idx)
 		kfree(sync_cb);
 	}
 
+	/* Decrement ref cnt for imported dma fence */
+	if (test_bit(CAM_GENERIC_FENCE_TYPE_DMA_FENCE, &row->ext_fence_mask)) {
+		cam_dma_fence_get_put_ref(false, row->dma_fence_info.dma_fence_row_idx);
+
+		/* Check if same dma fence is being released with the sync obj */
+		if (check_for_dma_release) {
+			if (row->dma_fence_info.dma_fence_fd ==
+				check_for_dma_release->dma_fence_fd) {
+				check_for_dma_release->sync_created_with_dma =
+					row->dma_fence_info.sync_created_with_dma;
+				check_for_dma_release->dma_fence_row_idx =
+					row->dma_fence_info.dma_fence_row_idx;
+			}
+		}
+	}
+
 	memset(row, 0, sizeof(*row));
 	clear_bit(idx, sync_dev->bitmap);
 	INIT_LIST_HEAD(&row->callback_list);
@@ -281,7 +304,6 @@ int cam_sync_deinit_object(struct sync_table_row *table, uint32_t idx)
 	INIT_LIST_HEAD(&row->user_payload_list);
 	spin_unlock_bh(&sync_dev->row_spinlocks[idx]);
 
-	CAM_DBG(CAM_SYNC, "Destroying sync obj:%d successful", idx);
 	return 0;
 }
 
@@ -290,19 +312,20 @@ void cam_sync_util_cb_dispatch(struct work_struct *cb_dispatch_work)
 	struct sync_callback_info *cb_info = container_of(cb_dispatch_work,
 		struct sync_callback_info,
 		cb_dispatch_work);
+	sync_callback sync_data = cb_info->callback_func;
+	void *cb = cb_info->callback_func;
 
-	cam_req_mgr_thread_switch_delay_detect(
-			cb_info->workq_scheduled_ts);
-
-	cb_info->callback_func(cb_info->sync_obj,
-		cb_info->status,
-		cb_info->cb_data);
+	cam_common_util_thread_switch_delay_detect(
+		"cam_sync_workq", "schedule", cb,
+		cb_info->workq_scheduled_ts,
+		CAM_WORKQ_SCHEDULE_TIME_THRESHOLD);
+	sync_data(cb_info->sync_obj, cb_info->status, cb_info->cb_data);
 
 	kfree(cb_info);
 }
 
 void cam_sync_util_dispatch_signaled_cb(int32_t sync_obj,
-	uint32_t status)
+	uint32_t status, uint32_t event_cause)
 {
 	struct sync_callback_info  *sync_cb;
 	struct sync_user_payload   *payload_info;
@@ -313,7 +336,8 @@ void cam_sync_util_dispatch_signaled_cb(int32_t sync_obj,
 	signalable_row = sync_dev->sync_table + sync_obj;
 	if (signalable_row->state == CAM_SYNC_STATE_INVALID) {
 		CAM_DBG(CAM_SYNC,
-			"Accessing invalid sync object:%i", sync_obj);
+			"Accessing invalid sync object:%s[%i]", signalable_row->name,
+			sync_obj);
 		return;
 	}
 
@@ -341,7 +365,8 @@ void cam_sync_util_dispatch_signaled_cb(int32_t sync_obj,
 			sync_obj,
 			status,
 			payload_info->payload_data,
-			CAM_SYNC_PAYLOAD_WORDS * sizeof(__u64));
+			CAM_SYNC_PAYLOAD_WORDS * sizeof(__u64),
+			event_cause);
 
 		list_del_init(&payload_info->list);
 		/*
@@ -363,24 +388,40 @@ void cam_sync_util_send_v4l2_event(uint32_t id,
 	uint32_t sync_obj,
 	int status,
 	void *payload,
-	int len)
+	int len, uint32_t event_cause)
 {
 	struct v4l2_event event;
 	__u64 *payload_data = NULL;
-	struct cam_sync_ev_header *ev_header = NULL;
 
-	event.id = id;
-	event.type = CAM_SYNC_V4L_EVENT;
+	if (sync_dev->version == CAM_SYNC_V4L_EVENT_V2) {
+		struct cam_sync_ev_header_v2 *ev_header = NULL;
 
-	ev_header = CAM_SYNC_GET_HEADER_PTR(event);
-	ev_header->sync_obj = sync_obj;
-	ev_header->status = status;
+		event.id = id;
+		event.type = CAM_SYNC_V4L_EVENT_V2;
 
-	payload_data = CAM_SYNC_GET_PAYLOAD_PTR(event, __u64);
+		ev_header = CAM_SYNC_GET_HEADER_PTR_V2(event);
+		ev_header->sync_obj = sync_obj;
+		ev_header->status = status;
+		ev_header->version = sync_dev->version;
+		ev_header->evt_param[CAM_SYNC_EVENT_REASON_CODE_INDEX] =
+			event_cause;
+		payload_data = CAM_SYNC_GET_PAYLOAD_PTR_V2(event, __u64);
+	} else {
+		struct cam_sync_ev_header *ev_header = NULL;
+
+		event.id = id;
+		event.type = CAM_SYNC_V4L_EVENT;
+
+		ev_header = CAM_SYNC_GET_HEADER_PTR(event);
+		ev_header->sync_obj = sync_obj;
+		ev_header->status = status;
+		payload_data = CAM_SYNC_GET_PAYLOAD_PTR(event, __u64);
+	}
+
 	memcpy(payload_data, payload, len);
-
 	v4l2_event_queue(sync_dev->vdev, &event);
-	CAM_DBG(CAM_SYNC, "send v4l2 event for sync_obj :%d",
+	CAM_DBG(CAM_SYNC, "send v4l2 event version %d for sync_obj :%d",
+		sync_dev->version,
 		sync_obj);
 }
 
@@ -396,6 +437,7 @@ int cam_sync_util_update_parent_state(struct sync_table_row *parent_row,
 		break;
 
 	case CAM_SYNC_STATE_SIGNALED_ERROR:
+	case CAM_SYNC_STATE_SIGNALED_CANCEL:
 		break;
 
 	case CAM_SYNC_STATE_INVALID:

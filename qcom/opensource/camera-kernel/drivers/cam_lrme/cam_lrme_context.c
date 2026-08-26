@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -206,7 +206,9 @@ static struct cam_ctx_ops
 		.irq_ops = NULL,
 	},
 	/* Flushed */
-	{},
+	{
+		.ioctl_ops = {},
+	},
 	/* Activate */
 	{
 		.ioctl_ops = {
@@ -224,7 +226,8 @@ static struct cam_ctx_ops
 int cam_lrme_context_init(struct cam_lrme_context *lrme_ctx,
 	struct cam_context *base_ctx,
 	struct cam_hw_mgr_intf *hw_intf,
-	uint32_t index)
+	uint32_t index
+	int img_iommu_hdl)
 {
 	int rc = 0;
 
@@ -238,7 +241,7 @@ int cam_lrme_context_init(struct cam_lrme_context *lrme_ctx,
 	memset(lrme_ctx, 0, sizeof(*lrme_ctx));
 
 	rc = cam_context_init(base_ctx, lrme_dev_name, CAM_LRME, index,
-		NULL, hw_intf, lrme_ctx->req_base, CAM_CTX_REQ_MAX);
+		NULL, hw_intf, lrme_ctx->req_base, CAM_CTX_REQ_MAX, img_iommu_hdl);
 	if (rc) {
 		CAM_ERR(CAM_LRME, "Failed to init context");
 		return rc;
@@ -247,6 +250,10 @@ int cam_lrme_context_init(struct cam_lrme_context *lrme_ctx,
 	lrme_ctx->index = index;
 	base_ctx->ctx_priv = lrme_ctx;
 	base_ctx->state_machine = cam_lrme_ctx_state_machine;
+
+	base_ctx->max_hw_update_entries = CAM_CTX_CFG_MAX;
+	base_ctx->max_in_map_entries = CAM_CTX_CFG_MAX;
+	base_ctx->max_out_map_entries = CAM_CTX_CFG_MAX;
 
 	return rc;
 }

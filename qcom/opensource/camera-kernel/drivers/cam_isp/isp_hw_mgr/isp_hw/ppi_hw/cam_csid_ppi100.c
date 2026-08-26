@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2019, 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -26,7 +25,7 @@ static const struct of_device_id cam_csid_ppi100_dt_match[] = {
 
 MODULE_DEVICE_TABLE(of, cam_csid_ppi100_dt_match);
 
-static struct platform_driver cam_csid_ppi100_driver = {
+struct platform_driver cam_csid_ppi100_driver = {
 	.probe  = cam_csid_ppi_probe,
 	.remove = cam_csid_ppi_remove,
 	.driver = {

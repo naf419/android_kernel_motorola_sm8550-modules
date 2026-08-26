@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ *
  */
 
 #include <linux/module.h>
@@ -8,6 +10,7 @@
 #include "cam_flash_soc.h"
 #include "cam_flash_core.h"
 #include "cam_common_util.h"
+#include "camera_main.h"
 
 static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 		void *arg, struct cam_flash_private_soc *soc_private)
@@ -33,8 +36,6 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 	case CAM_ACQUIRE_DEV: {
 		struct cam_sensor_acquire_dev flash_acq_dev;
 		struct cam_create_dev_hdl bridge_params;
-
-		CAM_DBG(CAM_FLASH, "CAM_ACQUIRE_DEV");
 
 		if (fctrl->flash_state != CAM_FLASH_STATE_INIT) {
 			CAM_ERR(CAM_FLASH,
@@ -88,10 +89,14 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 			goto release_mutex;
 		}
 		fctrl->flash_state = CAM_FLASH_STATE_ACQUIRE;
+
+		CAM_INFO(CAM_FLASH, "CAM_ACQUIRE_DEV for dev_hdl: 0x%x",
+			fctrl->bridge_intf.device_hdl);
 		break;
 	}
 	case CAM_RELEASE_DEV: {
-		CAM_DBG(CAM_FLASH, "CAM_RELEASE_DEV");
+		CAM_INFO(CAM_FLASH, "CAM_RELEASE_DEV for dev_hdl: 0x%x",
+			fctrl->bridge_intf.device_hdl);
 		if ((fctrl->flash_state == CAM_FLASH_STATE_INIT) ||
 			(fctrl->flash_state == CAM_FLASH_STATE_START)) {
 			CAM_WARN(CAM_FLASH,
@@ -138,9 +143,8 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 	case CAM_QUERY_CAP: {
 		struct cam_flash_query_cap_info flash_cap = {0};
 
-		CAM_DBG(CAM_FLASH, "CAM_QUERY_CAP");
+		CAM_DBG(CAM_FLASH, "CAM_QUERY_CAP_V1");
 		flash_cap.slot_info  = fctrl->soc_info.index;
-		flash_cap.flash_type = soc_private->flash_type;
 		for (i = 0; i < fctrl->flash_num_sources; i++) {
 			flash_cap.max_current_flash[i] =
 				soc_private->flash_max_current[i];
@@ -158,10 +162,42 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 			rc = -EFAULT;
 			goto release_mutex;
 		}
+		fctrl->apply_streamoff = false;
 		break;
 	}
+
+	case CAM_QUERY_CAP_V2: {
+		struct cam_flash_query_cap_info_v2 flash_cap = {0};
+
+		CAM_DBG(CAM_FLASH, "CAM_QUERY_CAP_V2");
+		flash_cap.slot_info  = fctrl->soc_info.index;
+		flash_cap.flash_type = soc_private->flash_type;
+		flash_cap.version = 1;
+		flash_cap.num_valid_params = 0;
+		for (i = 0; i < fctrl->flash_num_sources; i++) {
+			flash_cap.max_current_flash[i] =
+				soc_private->flash_max_current[i];
+			flash_cap.max_duration_flash[i] =
+				soc_private->flash_max_duration[i];
+		}
+
+		for (i = 0; i < fctrl->torch_num_sources; i++)
+			flash_cap.max_current_torch[i] =
+				soc_private->torch_max_current[i];
+
+		if (copy_to_user(u64_to_user_ptr(cmd->handle),
+			&flash_cap, sizeof(struct cam_flash_query_cap_info_v2))) {
+			CAM_ERR(CAM_FLASH, "Failed Copy to User");
+			rc = -EFAULT;
+			goto release_mutex;
+		}
+		break;
+	}
+
+
 	case CAM_START_DEV: {
-		CAM_DBG(CAM_FLASH, "CAM_START_DEV");
+		CAM_INFO(CAM_FLASH, "CAM_START_DEV for dev_hdl: 0x%x",
+			fctrl->bridge_intf.device_hdl);
 		if ((fctrl->flash_state == CAM_FLASH_STATE_INIT) ||
 			(fctrl->flash_state == CAM_FLASH_STATE_START)) {
 			CAM_WARN(CAM_FLASH,
@@ -176,7 +212,8 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 		break;
 	}
 	case CAM_STOP_DEV: {
-		CAM_DBG(CAM_FLASH, "CAM_STOP_DEV ENTER");
+		CAM_INFO(CAM_FLASH, "CAM_STOP_DEV ENTER for dev_hdl: 0x%x",
+			fctrl->bridge_intf.device_hdl);
 		if (fctrl->flash_state != CAM_FLASH_STATE_START) {
 			CAM_WARN(CAM_FLASH,
 				"Cannot apply Stop dev: Prev state is: %d",
@@ -185,9 +222,9 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 			goto release_mutex;
 		}
 
-		cam_flash_off(fctrl);
 		fctrl->func_tbl.flush_req(fctrl, FLUSH_ALL, 0);
 		fctrl->last_flush_req = 0;
+		cam_flash_off(fctrl);
 		fctrl->flash_state = CAM_FLASH_STATE_ACQUIRE;
 		break;
 	}
@@ -195,7 +232,11 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 		CAM_DBG(CAM_FLASH, "CAM_CONFIG_DEV");
 		rc = fctrl->func_tbl.parser(fctrl, arg);
 		if (rc) {
-			CAM_ERR(CAM_FLASH, "Failed Flash Config: rc=%d\n", rc);
+			if (rc == -EBADR)
+				CAM_INFO(CAM_FLASH,
+					"Failed Flash Config: rc=%d\n, it has been flushed", rc);
+			else
+				CAM_ERR(CAM_FLASH, "Failed Flash Config: rc=%d\n", rc);
 			goto release_mutex;
 		}
 		break;
@@ -244,6 +285,37 @@ static const struct of_device_id cam_flash_dt_match[] = {
 	{}
 };
 
+static int cam_flash_subdev_close_internal(struct v4l2_subdev *sd,
+	struct v4l2_subdev_fh *fh)
+{
+	struct cam_flash_ctrl *fctrl =
+		v4l2_get_subdevdata(sd);
+
+	if (!fctrl) {
+		CAM_ERR(CAM_FLASH, "Flash ctrl ptr is NULL");
+		return -EINVAL;
+	}
+
+	mutex_lock(&fctrl->flash_mutex);
+	cam_flash_shutdown(fctrl);
+	mutex_unlock(&fctrl->flash_mutex);
+
+	return 0;
+}
+
+static int cam_flash_subdev_close(struct v4l2_subdev *sd,
+	struct v4l2_subdev_fh *fh)
+{
+	bool crm_active = cam_req_mgr_is_open();
+
+	if (crm_active) {
+		CAM_DBG(CAM_FLASH, "CRM is ACTIVE, close should be from CRM");
+		return 0;
+	}
+
+	return cam_flash_subdev_close_internal(sd, fh);
+}
+
 static long cam_flash_subdev_ioctl(struct v4l2_subdev *sd,
 	unsigned int cmd, void *arg)
 {
@@ -260,11 +332,27 @@ static long cam_flash_subdev_ioctl(struct v4l2_subdev *sd,
 	case VIDIOC_CAM_CONTROL: {
 		rc = cam_flash_driver_cmd(fctrl, arg,
 			soc_private);
+		if (rc) {
+			if (rc == -EBADR)
+				CAM_INFO(CAM_FLASH,
+					"Failed in driver cmd: %d, it has been flushed", rc);
+			else
+				CAM_ERR(CAM_FLASH,
+					"Failed in driver cmd: %d", rc);
+		}
 		break;
 	}
+	case CAM_SD_SHUTDOWN:
+		if (!cam_req_mgr_is_shutdown()) {
+			CAM_ERR(CAM_CORE, "SD shouldn't come from user space");
+			return 0;
+		}
+
+		rc = cam_flash_subdev_close_internal(sd, NULL);
+		break;
 	default:
 		CAM_ERR(CAM_FLASH, "Invalid ioctl cmd type");
-		rc = -EINVAL;
+		rc = -ENOIOCTLCMD;
 		break;
 	}
 
@@ -297,7 +385,8 @@ static long cam_flash_subdev_do_ioctl(struct v4l2_subdev *sd,
 	default:
 		CAM_ERR(CAM_FLASH, "Invalid compat ioctl cmd_type:%d",
 			cmd);
-		rc = -EINVAL;
+		rc = -ENOIOCTLCMD;
+		break;
 	}
 
 	if (!rc) {
@@ -313,64 +402,6 @@ static long cam_flash_subdev_do_ioctl(struct v4l2_subdev *sd,
 	return rc;
 }
 #endif
-
-static int cam_flash_platform_remove(struct platform_device *pdev)
-{
-	struct cam_flash_ctrl *fctrl;
-
-	fctrl = platform_get_drvdata(pdev);
-	if (!fctrl) {
-		CAM_ERR(CAM_FLASH, "Flash device is NULL");
-		return 0;
-	}
-
-	CAM_INFO(CAM_FLASH, "Platform remove invoked");
-	mutex_lock(&fctrl->flash_mutex);
-	cam_flash_shutdown(fctrl);
-	mutex_unlock(&fctrl->flash_mutex);
-	cam_unregister_subdev(&(fctrl->v4l2_dev_str));
-	platform_set_drvdata(pdev, NULL);
-	v4l2_set_subdevdata(&fctrl->v4l2_dev_str.sd, NULL);
-	kfree(fctrl);
-
-	return 0;
-}
-
-static int32_t cam_flash_i2c_driver_remove(struct i2c_client *client)
-{
-	int32_t rc = 0;
-	struct cam_flash_ctrl *fctrl = i2c_get_clientdata(client);
-	/* Handle I2C Devices */
-	if (!fctrl) {
-		CAM_ERR(CAM_FLASH, "Flash device is NULL");
-		return -EINVAL;
-	}
-
-	CAM_INFO(CAM_FLASH, "i2c driver remove invoked");
-	/*Free Allocated Mem */
-	kfree(fctrl->i2c_data.per_frame);
-	fctrl->i2c_data.per_frame = NULL;
-	kfree(fctrl);
-	return rc;
-}
-
-static int cam_flash_subdev_close(struct v4l2_subdev *sd,
-	struct v4l2_subdev_fh *fh)
-{
-	struct cam_flash_ctrl *fctrl =
-		v4l2_get_subdevdata(sd);
-
-	if (!fctrl) {
-		CAM_ERR(CAM_FLASH, "Flash ctrl ptr is NULL");
-		return -EINVAL;
-	}
-
-	mutex_lock(&fctrl->flash_mutex);
-	cam_flash_shutdown(fctrl);
-	mutex_unlock(&fctrl->flash_mutex);
-
-	return 0;
-}
 
 static struct v4l2_subdev_core_ops cam_flash_subdev_core_ops = {
 	.ioctl = cam_flash_subdev_ioctl,
@@ -401,6 +432,7 @@ static int cam_flash_init_subdev(struct cam_flash_ctrl *fctrl)
 		V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS;
 	fctrl->v4l2_dev_str.ent_function = CAM_FLASH_DEVICE_TYPE;
 	fctrl->v4l2_dev_str.token = fctrl;
+	fctrl->v4l2_dev_str.close_seq_prior = CAM_SD_CLOSE_MEDIUM_PRIORITY;
 
 	rc = cam_register_subdev(&(fctrl->v4l2_dev_str));
 	if (rc)
@@ -409,28 +441,35 @@ static int cam_flash_init_subdev(struct cam_flash_ctrl *fctrl)
 	return rc;
 }
 
-static int32_t cam_flash_platform_probe(struct platform_device *pdev)
+static int cam_flash_component_bind(struct device *dev,
+	struct device *master_dev, void *data)
 {
 	int32_t rc = 0, i = 0;
-	struct cam_flash_ctrl *fctrl     = NULL;
-	struct device_node *of_parent    = NULL;
+	struct cam_flash_ctrl *fctrl = NULL;
+	struct device_node *of_parent = NULL;
+	bool i3c_i2c_target;
+	struct platform_device *pdev = to_platform_device(dev);
 	struct cam_hw_soc_info *soc_info = NULL;
 
-	CAM_DBG(CAM_FLASH, "Enter");
+	CAM_DBG(CAM_FLASH, "Binding flash component");
 	if (!pdev->dev.of_node) {
 		CAM_ERR(CAM_FLASH, "of_node NULL");
 		return -EINVAL;
 	}
+
+	i3c_i2c_target = of_property_read_bool(pdev->dev.of_node, "i3c-i2c-target");
+	if (i3c_i2c_target)
+		return 0;
 
 	fctrl = kzalloc(sizeof(struct cam_flash_ctrl), GFP_KERNEL);
 	if (!fctrl)
 		return -ENOMEM;
 
 	fctrl->pdev = pdev;
+	fctrl->of_node = pdev->dev.of_node;
 	fctrl->soc_info.pdev = pdev;
 	fctrl->soc_info.dev = &pdev->dev;
 	fctrl->soc_info.dev_name = pdev->name;
-	fctrl->of_node = pdev->dev.of_node;
 
 	platform_set_drvdata(pdev, fctrl);
 
@@ -473,21 +512,21 @@ static int32_t cam_flash_platform_probe(struct platform_device *pdev)
 
 		soc_info = &fctrl->soc_info;
 		if (!soc_info->gpio_data) {
-			CAM_DBG(CAM_FLASH, "No GPIO found");
-		} else {
-			if (!soc_info->gpio_data->cam_gpio_common_tbl_size) {
-				CAM_ERR(CAM_FLASH, "Invalid gpio table size");
-				rc = -EINVAL;
-				goto free_cci_resource;
-			}
+			CAM_INFO(CAM_FLASH, "No GPIO found");
+			rc = 0;
+			return rc;
+		}
 
-			rc = cam_sensor_util_init_gpio_pin_tbl(soc_info,
+		if (!soc_info->gpio_data->cam_gpio_common_tbl_size) {
+			CAM_INFO(CAM_FLASH, "No GPIO found");
+			return -EINVAL;
+		}
+
+		rc = cam_sensor_util_init_gpio_pin_tbl(soc_info,
 				&fctrl->power_info.gpio_num_info);
-			if ((rc < 0) || (!fctrl->power_info.gpio_num_info)) {
-				CAM_ERR(CAM_FLASH, "No/Error Flash GPIOs");
-				rc = -EINVAL;
-				goto free_cci_resource;
-			}
+		if ((rc < 0) || (!fctrl->power_info.gpio_num_info)) {
+			CAM_ERR(CAM_FLASH, "No/Error Flash GPIOs");
+			return -EINVAL;
 		}
 
 		fctrl->i2c_data.per_frame =
@@ -510,6 +549,21 @@ static int32_t cam_flash_platform_probe(struct platform_device *pdev)
 		fctrl->func_tbl.apply_setting = cam_flash_i2c_apply_setting;
 		fctrl->func_tbl.power_ops = cam_flash_i2c_power_ops;
 		fctrl->func_tbl.flush_req = cam_flash_i2c_flush_request;
+
+			/* Initialize regulators to default parameters */
+		for (i = 0; i < soc_info->num_rgltr; i++) {
+			soc_info->rgltr[i] = devm_regulator_get(soc_info->dev,
+				soc_info->rgltr_name[i]);
+			if (IS_ERR_OR_NULL(soc_info->rgltr[i])) {
+				rc = PTR_ERR(soc_info->rgltr[i]);
+				rc  = rc ? rc : -EINVAL;
+				CAM_ERR(CAM_FLASH, "Get failed for regulator %s %d",
+					soc_info->rgltr_name[i], rc);
+				goto free_cci_resource;
+			}
+			CAM_DBG(CAM_FLASH, "Get for regulator %s",
+				soc_info->rgltr_name[i]);
+		}
 	} else {
 		/* PMIC Flash */
 		fctrl->func_tbl.parser = cam_flash_pmic_pkt_parser;
@@ -537,7 +591,7 @@ static int32_t cam_flash_platform_probe(struct platform_device *pdev)
 	mutex_init(&(fctrl->flash_mutex));
 
 	fctrl->flash_state = CAM_FLASH_STATE_INIT;
-	CAM_DBG(CAM_FLASH, "Probe success");
+	CAM_DBG(CAM_FLASH, "Component bound successfully");
 	return rc;
 
 free_cci_resource:
@@ -554,49 +608,83 @@ free_resource:
 	return rc;
 }
 
-static int32_t cam_flash_i2c_driver_probe(struct i2c_client *client,
-	const struct i2c_device_id *id)
+static void cam_flash_component_unbind(struct device *dev,
+	struct device *master_dev, void *data)
+{
+	struct cam_flash_ctrl *fctrl;
+	bool i3c_i2c_target;
+	struct platform_device *pdev = to_platform_device(dev);
+
+	i3c_i2c_target = of_property_read_bool(pdev->dev.of_node, "i3c-i2c-target");
+	if (i3c_i2c_target)
+		return;
+
+	fctrl = platform_get_drvdata(pdev);
+	if (!fctrl) {
+		CAM_ERR(CAM_FLASH, "Flash device is NULL");
+		return;
+	}
+
+	mutex_lock(&fctrl->flash_mutex);
+	cam_flash_shutdown(fctrl);
+	mutex_unlock(&fctrl->flash_mutex);
+	cam_unregister_subdev(&(fctrl->v4l2_dev_str));
+	cam_flash_put_source_node_data(fctrl);
+	platform_set_drvdata(pdev, NULL);
+	v4l2_set_subdevdata(&fctrl->v4l2_dev_str.sd, NULL);
+	kfree(fctrl);
+	CAM_INFO(CAM_FLASH, "Flash Sensor component unbind");
+}
+
+const static struct component_ops cam_flash_component_ops = {
+	.bind = cam_flash_component_bind,
+	.unbind = cam_flash_component_unbind,
+};
+
+static int cam_flash_platform_remove(struct platform_device *pdev)
+{
+	component_del(&pdev->dev, &cam_flash_component_ops);
+	return 0;
+}
+
+static int32_t cam_flash_platform_probe(struct platform_device *pdev)
+{
+	int rc = 0;
+
+	CAM_DBG(CAM_FLASH, "Adding Flash Sensor component");
+	rc = component_add(&pdev->dev, &cam_flash_component_ops);
+	if (rc)
+		CAM_ERR(CAM_FLASH, "failed to add component rc: %d", rc);
+
+	return rc;
+}
+
+static int cam_flash_i2c_component_bind(struct device *dev,
+	struct device *master_dev, void *data)
 {
 	int32_t rc = 0, i = 0;
-	struct cam_flash_ctrl *fctrl;
+	struct i2c_client      *client = NULL;
+	struct cam_flash_ctrl  *fctrl = NULL;
 	struct cam_hw_soc_info *soc_info = NULL;
 
+	client = container_of(dev, struct i2c_client, dev);
 	if (client == NULL) {
-		CAM_ERR(CAM_FLASH, "Invalid Args client: %pK", client);
+		CAM_ERR(CAM_FLASH, "Invalid Args client: %pK",
+			client);
 		return -EINVAL;
-	}
-
-	if (id == NULL) {
-		CAM_DBG(CAM_FLASH, "device id is Null");
-	}
-
-	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
-		CAM_ERR(CAM_FLASH, "%s :: i2c_check_functionality failed",
-			 client->name);
-		return -EFAULT;
 	}
 
 	/* Create sensor control structure */
 	fctrl = kzalloc(sizeof(*fctrl), GFP_KERNEL);
-	if (!fctrl) {
-		CAM_ERR(CAM_FLASH, "Failed to allocate memory for fctrl");
+	if (!fctrl)
 		return -ENOMEM;
-	}
 
-	i2c_set_clientdata(client, fctrl);
-
+	client->dev.driver_data = fctrl;
 	fctrl->io_master_info.client = client;
 	fctrl->of_node = client->dev.of_node;
 	fctrl->soc_info.dev = &client->dev;
 	fctrl->soc_info.dev_name = client->name;
 	fctrl->io_master_info.master_type = I2C_MASTER;
-
-	rc = cam_flash_init_default_params(fctrl);
-	if (rc) {
-		CAM_ERR(CAM_FLASH,
-			"failed: cam_flash_init_default_params rc %d", rc);
-		goto free_ctrl;
-	}
 
 	rc = cam_flash_get_dt_data(fctrl, &fctrl->soc_info);
 	if (rc) {
@@ -604,12 +692,36 @@ static int32_t cam_flash_i2c_driver_probe(struct i2c_client *client,
 		goto free_ctrl;
 	}
 
+	rc = cam_flash_init_default_params(fctrl);
+	if (rc) {
+		CAM_ERR(CAM_FLASH,
+				"failed: cam_flash_init_default_params rc %d",
+				rc);
+		goto free_ctrl;
+	}
+
 	soc_info = &fctrl->soc_info;
+
+	/* Initalize regulators to default parameters */
+	for (i = 0; i < soc_info->num_rgltr; i++) {
+		soc_info->rgltr[i] = devm_regulator_get(soc_info->dev,
+			soc_info->rgltr_name[i]);
+		if (IS_ERR_OR_NULL(soc_info->rgltr[i])) {
+			rc = PTR_ERR(soc_info->rgltr[i]);
+			rc  = rc ? rc : -EINVAL;
+			CAM_ERR(CAM_FLASH, "get failed for regulator %s %d",
+				soc_info->rgltr_name[i], rc);
+			goto free_ctrl;
+		}
+		CAM_DBG(CAM_FLASH, "get for regulator %s",
+			soc_info->rgltr_name[i]);
+	}
+
 	if (!soc_info->gpio_data) {
 		CAM_DBG(CAM_FLASH, "No GPIO found");
 	} else {
 		if (!soc_info->gpio_data->cam_gpio_common_tbl_size) {
-			CAM_ERR(CAM_FLASH, "Invalid gpio table size");
+			CAM_DBG(CAM_FLASH, "No GPIO found");
 			rc = -EINVAL;
 			goto free_ctrl;
 		}
@@ -667,9 +779,73 @@ free_ctrl:
 	return rc;
 }
 
+static void cam_flash_i2c_component_unbind(struct device *dev,
+	struct device *master_dev, void *data)
+{
+	struct i2c_client     *client = NULL;
+	struct cam_flash_ctrl *fctrl = NULL;
+
+	client = container_of(dev, struct i2c_client, dev);
+	if (!client) {
+		CAM_ERR(CAM_FLASH,
+			"Failed to get i2c client");
+		return;
+	}
+
+	fctrl = i2c_get_clientdata(client);
+	/* Handle I2C Devices */
+	if (!fctrl) {
+		CAM_ERR(CAM_FLASH, "Flash device is NULL");
+		return;
+	}
+
+	CAM_INFO(CAM_FLASH, "i2c driver remove invoked");
+	/*Free Allocated Mem */
+	kfree(fctrl->i2c_data.per_frame);
+	fctrl->i2c_data.per_frame = NULL;
+	kfree(fctrl);
+}
+
+const static struct component_ops cam_flash_i2c_component_ops = {
+	.bind = cam_flash_i2c_component_bind,
+	.unbind = cam_flash_i2c_component_unbind,
+};
+
+static int32_t cam_flash_i2c_driver_probe(struct i2c_client *client,
+	const struct i2c_device_id *id)
+{
+	int rc = 0;
+
+	if (client == NULL || id == NULL) {
+		CAM_ERR(CAM_FLASH, "Invalid Args client: %pK id: %pK",
+			client, id);
+		return -EINVAL;
+	}
+
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
+		CAM_ERR(CAM_FLASH, "%s :: i2c_check_functionality failed",
+			client->name);
+		return -EFAULT;
+	}
+
+	CAM_DBG(CAM_FLASH, "Adding sensor flash component");
+	rc = component_add(&client->dev, &cam_flash_i2c_component_ops);
+	if (rc)
+		CAM_ERR(CAM_FLASH, "failed to add component rc: %d", rc);
+
+	return rc;
+}
+
+static int32_t cam_flash_i2c_driver_remove(struct i2c_client *client)
+{
+	component_del(&client->dev, &cam_flash_i2c_component_ops);
+
+	return 0;
+}
+
 MODULE_DEVICE_TABLE(of, cam_flash_dt_match);
 
-static struct platform_driver cam_flash_platform_driver = {
+struct platform_driver cam_flash_platform_driver = {
 	.probe = cam_flash_platform_probe,
 	.remove = cam_flash_platform_remove,
 	.driver = {
@@ -680,18 +856,26 @@ static struct platform_driver cam_flash_platform_driver = {
 	},
 };
 
+static const struct of_device_id cam_flash_i2c_dt_match[] = {
+	{.compatible = "qcom,cam-i2c-flash", .data = NULL},
+	{}
+};
+MODULE_DEVICE_TABLE(of, cam_flash_i2c_dt_match);
+
 static const struct i2c_device_id i2c_id[] = {
 	{FLASH_DRIVER_I2C, (kernel_ulong_t)NULL},
 	{ }
 };
 
-static struct i2c_driver cam_flash_i2c_driver = {
+struct i2c_driver cam_flash_i2c_driver = {
 	.id_table = i2c_id,
 	.probe  = cam_flash_i2c_driver_probe,
 	.remove = cam_flash_i2c_driver_remove,
 	.driver = {
+		.owner = THIS_MODULE,
 		.name = FLASH_DRIVER_I2C,
-		.of_match_table = cam_flash_dt_match,
+		.of_match_table = cam_flash_i2c_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
@@ -700,8 +884,10 @@ int32_t cam_flash_init_module(void)
 	int32_t rc = 0;
 
 	rc = platform_driver_register(&cam_flash_platform_driver);
-	if (rc < 0)
+	if (rc < 0) {
 		CAM_ERR(CAM_FLASH, "platform probe failed rc: %d", rc);
+		return rc;
+	}
 
 	rc = i2c_add_driver(&cam_flash_i2c_driver);
 	if (rc < 0)

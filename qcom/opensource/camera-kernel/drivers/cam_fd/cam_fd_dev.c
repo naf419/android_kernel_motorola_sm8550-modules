@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/device.h>
@@ -14,6 +15,7 @@
 #include "cam_fd_context.h"
 #include "cam_fd_hw_mgr.h"
 #include "cam_fd_hw_mgr_intf.h"
+#include "camera_main.h"
 
 #define CAM_FD_DEV_NAME "cam-fd"
 
@@ -61,7 +63,7 @@ static int cam_fd_dev_open(struct v4l2_subdev *sd,
 	return 0;
 }
 
-static int cam_fd_dev_close(struct v4l2_subdev *sd,
+static int cam_fd_dev_close_internal(struct v4l2_subdev *sd,
 	struct v4l2_subdev_fh *fh)
 {
 	struct cam_fd_dev *fd_dev = &g_fd_dev;
@@ -73,6 +75,11 @@ static int cam_fd_dev_close(struct v4l2_subdev *sd,
 	}
 
 	mutex_lock(&fd_dev->lock);
+	if (fd_dev->open_cnt == 0) {
+		CAM_WARN(CAM_FD, "device already closed");
+		mutex_unlock(&fd_dev->lock);
+		return 0;
+	}
 	fd_dev->open_cnt--;
 	CAM_DBG(CAM_FD, "FD Subdev open count %d", fd_dev->open_cnt);
 	mutex_unlock(&fd_dev->lock);
@@ -87,19 +94,35 @@ static int cam_fd_dev_close(struct v4l2_subdev *sd,
 	return 0;
 }
 
+static int cam_fd_dev_close(struct v4l2_subdev *sd,
+	struct v4l2_subdev_fh *fh)
+{
+	bool crm_active = cam_req_mgr_is_open();
+
+	if (crm_active) {
+		CAM_DBG(CAM_FD, "CRM is ACTIVE, close should be from CRM");
+		return 0;
+	}
+
+	return cam_fd_dev_close_internal(sd, fh);
+}
+
 static const struct v4l2_subdev_internal_ops cam_fd_subdev_internal_ops = {
 	.open = cam_fd_dev_open,
 	.close = cam_fd_dev_close,
 };
 
-static int cam_fd_dev_probe(struct platform_device *pdev)
+static int cam_fd_dev_component_bind(struct device *dev,
+	struct device *master_dev, void *data)
 {
 	int rc;
 	int i;
 	struct cam_hw_mgr_intf hw_mgr_intf;
 	struct cam_node *node;
+	struct platform_device *pdev = to_platform_device(dev);
 
 	g_fd_dev.sd.internal_ops = &cam_fd_subdev_internal_ops;
+	g_fd_dev.sd.close_seq_prior = CAM_SD_CLOSE_MEDIUM_PRIORITY;
 
 	/* Initialize the v4l2 subdevice first. (create cam_node) */
 	rc = cam_subdev_probe(&g_fd_dev.sd, pdev, CAM_FD_DEV_NAME,
@@ -119,7 +142,7 @@ static int cam_fd_dev_probe(struct platform_device *pdev)
 
 	for (i = 0; i < CAM_CTX_MAX; i++) {
 		rc = cam_fd_context_init(&g_fd_dev.fd_ctx[i],
-			&g_fd_dev.base_ctx[i], &node->hw_mgr_intf, i);
+			&g_fd_dev.base_ctx[i], &node->hw_mgr_intf, i, -1);
 		if (rc) {
 			CAM_ERR(CAM_FD, "FD context init failed i=%d, rc=%d",
 				i, rc);
@@ -134,10 +157,10 @@ static int cam_fd_dev_probe(struct platform_device *pdev)
 		goto deinit_ctx;
 	}
 
+	node->sd_handler = cam_fd_dev_close_internal;
 	mutex_init(&g_fd_dev.lock);
 	g_fd_dev.probe_done = true;
-
-	CAM_DBG(CAM_FD, "Camera FD probe complete");
+	CAM_DBG(CAM_FD, "Component bound successfully");
 
 	return 0;
 
@@ -153,9 +176,11 @@ unregister_subdev:
 	return rc;
 }
 
-static int cam_fd_dev_remove(struct platform_device *pdev)
+static void cam_fd_dev_component_unbind(struct device *dev,
+	struct device *master_dev, void *data)
 {
 	int i, rc;
+	struct platform_device *pdev = to_platform_device(dev);
 
 	for (i = 0; i < CAM_CTX_MAX; i++) {
 		rc = cam_fd_context_deinit(&g_fd_dev.fd_ctx[i]);
@@ -174,8 +199,29 @@ static int cam_fd_dev_remove(struct platform_device *pdev)
 
 	mutex_destroy(&g_fd_dev.lock);
 	g_fd_dev.probe_done = false;
+}
+
+const static struct component_ops cam_fd_dev_component_ops = {
+	.bind = cam_fd_dev_component_bind,
+	.unbind = cam_fd_dev_component_unbind,
+};
+
+static int cam_fd_dev_probe(struct platform_device *pdev)
+{
+	int rc = 0;
+
+	CAM_DBG(CAM_FD, "Adding FD dev component");
+	rc = component_add(&pdev->dev, &cam_fd_dev_component_ops);
+	if (rc)
+		CAM_ERR(CAM_FD, "failed to add component rc: %d", rc);
 
 	return rc;
+}
+
+static int cam_fd_dev_remove(struct platform_device *pdev)
+{
+	component_del(&pdev->dev, &cam_fd_dev_component_ops);
+	return 0;
 }
 
 static const struct of_device_id cam_fd_dt_match[] = {
@@ -185,7 +231,7 @@ static const struct of_device_id cam_fd_dt_match[] = {
 	{}
 };
 
-static struct platform_driver cam_fd_driver = {
+struct platform_driver cam_fd_driver = {
 	.probe = cam_fd_dev_probe,
 	.remove = cam_fd_dev_remove,
 	.driver = {
