@@ -31,11 +31,7 @@
  * Used to indicate the Linux Kernel contains support for single netdevice multi
  * link support.
  */
-#if (defined(__ANDROID_COMMON_KERNEL__) && \
-	(LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)) && \
-	(defined  IEEE80211_MLD_MAX_NUM_LINKS))
 #define CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT 1
-#endif
 
 /*
  * CFG80211_TX_CONTROL_PORT_LINK_SUPPORT

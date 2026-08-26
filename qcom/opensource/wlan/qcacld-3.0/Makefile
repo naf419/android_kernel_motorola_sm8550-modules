@@ -12,23 +12,28 @@ KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
 M ?= $(shell pwd)
 
 ifeq ($(WLAN_ROOT),)
-# WLAN_ROOT must contain an absolute path (i.e. not a relative path)
-KBUILD_OPTIONS := WLAN_ROOT=$(shell cd $(KERNEL_SRC); readlink -e $(M))
+WLAN_CHIPSET := qca_cld3
 
-# MODNAME should be qca_cld3_wlan for helium based platform
-ifeq (qca_cld3, $(WLAN_CHIPSET))
-KBUILD_OPTIONS += MODNAME?=$(WLAN_CHIPSET)_wlan
-else
-KBUILD_OPTIONS += MODNAME?=wlan
+KBUILD_OPTIONS += \
+    WLAN_ROOT=$(KERNEL_SRC)/$(M) \
+    CONFIG_QCA_CLD_WLAN=m \
+    CONFIG_CNSS_OUT_OF_TREE=y \
+    CONFIG_CNSS2=m \
+    CONFIG_ICNSS2=m \
+    CONFIG_CNSS2_QMI=y \
+    CONFIG_ICNSS2_QMI=y \
+    CONFIG_CNSS_QMI_SVC=m \
+    CONFIG_CNSS_PLAT_IPC_QMI_SVC=m \
+    CONFIG_CNSS_GENL=m \
+    CONFIG_WCNSS_MEM_PRE_ALLOC=m \
+    CONFIG_CNSS_UTILS=m \
+    CONFIG_CNSS_HW_SECURE_DISABLE=y \
+    BOARD_PLATFORM=$(TARGET_BOARD_PLATFORM) \
+    MODNAME=$(WLAN_CHIPSET)_wlan \
+    WLAN_CTRL_NAME=wlan
 endif
 
-#By default build for CLD
-WLAN_SELECT := CONFIG_QCA_CLD_WLAN=m
-KBUILD_OPTIONS += CONFIG_QCA_WIFI_ISOC=0
-KBUILD_OPTIONS += CONFIG_QCA_WIFI_2_0=1
-KBUILD_OPTIONS += $(WLAN_SELECT)
-KBUILD_OPTIONS += $(KBUILD_EXTRA) # Extra config if any
-endif
+KBUILD_OPTIONS += KBUILD_EXTRA_SYMBOLS=$(OUT_DIR)/../sm8550-modules/qcom/opensource/wlan/platform/Module.symvers
 
 all:
 	$(MAKE) -C $(KERNEL_SRC) M=$(M) modules $(KBUILD_OPTIONS)

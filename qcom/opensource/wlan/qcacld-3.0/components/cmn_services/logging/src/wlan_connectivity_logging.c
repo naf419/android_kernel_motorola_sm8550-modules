@@ -229,6 +229,30 @@ wlan_add_sae_log_record_to_available_slot(struct mlme_legacy_priv *mlme_priv,
 
 	return QDF_STATUS_SUCCESS;
 }
+
+void wlan_clear_sae_auth_logs_cache(uint8_t vdev_id)
+{
+        struct wlan_objmgr_vdev *vdev;
+        struct mlme_legacy_priv *mlme_priv;
+
+        vdev = wlan_objmgr_get_vdev_by_id_from_psoc(global_cl.psoc, vdev_id,
+                                                    WLAN_MLME_OBJMGR_ID);
+        if (!vdev) {
+                logging_err_rl("Invalid vdev:%d", vdev_id);
+                return;
+        }
+
+        mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
+        if (!mlme_priv) {
+                wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
+                logging_err_rl("vdev legacy private object is NULL");
+                return;
+        }
+
+        qdf_mem_zero(mlme_priv->auth_log, sizeof(mlme_priv->auth_log));
+        wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
+}
+
 #else
 static inline QDF_STATUS
 wlan_add_sae_log_record_to_available_slot(struct mlme_legacy_priv *mlme_priv,
@@ -251,29 +275,6 @@ wlan_add_sae_auth_log_record(struct wlan_objmgr_vdev *vdev,
 	}
 
 	return wlan_add_sae_log_record_to_available_slot(mlme_priv, rec);
-}
-
-void wlan_clear_sae_auth_logs_cache(uint8_t vdev_id)
-{
-	struct wlan_objmgr_vdev *vdev;
-	struct mlme_legacy_priv *mlme_priv;
-
-	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(global_cl.psoc, vdev_id,
-						    WLAN_MLME_OBJMGR_ID);
-	if (!vdev) {
-		logging_err_rl("Invalid vdev:%d", vdev_id);
-		return;
-	}
-
-	mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
-	if (!mlme_priv) {
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
-		logging_err_rl("vdev legacy private object is NULL");
-		return;
-	}
-
-	qdf_mem_zero(mlme_priv->auth_log, sizeof(mlme_priv->auth_log));
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
 }
 
 static void
