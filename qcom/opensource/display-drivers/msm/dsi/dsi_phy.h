@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _DSI_PHY_H_
@@ -69,7 +70,6 @@ enum phy_ulps_return_type {
  * @power_state:       True if PHY is powered on.
  * @dsi_phy_state:     PHY state information.
  * @mode:              Current mode.
- * @data_lanes:        Number of data lanes used.
  * @dst_format:        Destination format.
  * @pll:	       Pointer to PLL resource.
  * @allow_phy_power_off: True if PHY is allowed to power off when idle
@@ -95,7 +95,6 @@ struct msm_dsi_phy {
 	enum phy_engine_state dsi_phy_state;
 	bool power_state;
 	struct dsi_mode_info mode;
-	enum dsi_data_lanes data_lanes;
 	enum dsi_pixel_format dst_format;
 
 	struct dsi_pll_resource *pll;
@@ -265,6 +264,16 @@ int dsi_phy_set_clamp_state(struct msm_dsi_phy *phy, bool enable);
  */
 int dsi_phy_set_clk_freq(struct msm_dsi_phy *phy,
 		struct link_clk_freq *clk_freq);
+
+/**
+ * dsi_phy_set_drive_strength_params() - drive strength parameters for the panel
+ * @phy:          DSI PHY handle
+ * @drive_strength:         DSI PHY Drive Strength
+ *
+ * Return: error code.
+ */
+int dsi_phy_set_drive_strength_params(struct msm_dsi_phy *phy,
+				 u32 drive_strength);
 
 /**
  * dsi_phy_set_timing_params() - timing parameters for the panel

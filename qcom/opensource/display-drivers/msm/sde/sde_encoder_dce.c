@@ -418,6 +418,7 @@ static int _dce_dsc_setup_helper(struct sde_encoder_virt *sde_enc,
 	int dsc_pic_width;
 	int dsc_common_mode = 0;
 	int i, rc = 0;
+	bool widebus_en;
 
 	sde_kms = sde_encoder_get_kms(&sde_enc->base);
 
@@ -486,7 +487,9 @@ static int _dce_dsc_setup_helper(struct sde_encoder_virt *sde_enc,
 	else if ((dsc_common_mode & DSC_MODE_MULTIPLEX) || (dsc->half_panel_pu))
 		dsc->num_active_ss_per_enc = dsc->config.slice_count >> 1;
 
-	sde_dsc_populate_dsc_private_params(dsc, intf_ip_w);
+	widebus_en = sde_encoder_is_widebus_enabled(enc_master->parent);
+
+	sde_dsc_populate_dsc_private_params(dsc, intf_ip_w, widebus_en);
 
 	_dce_dsc_initial_line_calc(dsc, enc_ip_w, dsc_common_mode);
 
@@ -931,26 +934,6 @@ void sde_encoder_dce_set_bpp(struct msm_mode_info mode_info,
 
 	SDE_DEBUG("sde_crtc src_bpp = %d, target_bpp = %d\n",
 			sde_crtc->src_bpp, sde_crtc->target_bpp);
-}
-
-bool sde_encoder_has_dsc_hw_rev_2(struct sde_encoder_virt *sde_enc)
-{
-	enum msm_display_compression_type comp_type;
-	int i;
-
-	if (!sde_enc)
-		return false;
-
-	comp_type = sde_enc->mode_info.comp_info.comp_type;
-
-	if (comp_type != MSM_DISPLAY_COMPRESSION_DSC)
-		return false;
-
-	for (i = 0; i < MAX_CHANNELS_PER_ENC; i++)
-		if (sde_enc->hw_dsc[i])
-			return test_bit(SDE_DSC_HW_REV_1_2, &sde_enc->hw_dsc[i]->caps->features);
-
-	return false;
 }
 
 void sde_encoder_dce_disable(struct sde_encoder_virt *sde_enc)

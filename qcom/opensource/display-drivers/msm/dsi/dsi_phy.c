@@ -32,14 +32,6 @@ struct dsi_phy_list_item {
 static LIST_HEAD(dsi_phy_list);
 static DEFINE_MUTEX(dsi_phy_list_lock);
 
-static const struct dsi_ver_spec_info dsi_phy_v2_0 = {
-	.version = DSI_PHY_VERSION_2_0,
-	.lane_cfg_count = 4,
-	.strength_cfg_count = 2,
-	.regulator_cfg_count = 1,
-	.timing_cfg_count = 8,
-};
-
 static const struct dsi_ver_spec_info dsi_phy_v3_0 = {
 	.version = DSI_PHY_VERSION_3_0,
 	.lane_cfg_count = 4,
@@ -97,8 +89,6 @@ static const struct dsi_ver_spec_info dsi_phy_v5_2 = {
 };
 
 static const struct of_device_id msm_dsi_phy_of_match[] = {
-	{ .compatible = "qcom,dsi-phy-v2.0",
-	  .data = &dsi_phy_v2_0,},
 	{ .compatible = "qcom,dsi-phy-v3.0",
 	  .data = &dsi_phy_v3_0,},
 	{ .compatible = "qcom,dsi-phy-v4.0",
@@ -158,18 +148,6 @@ static int dsi_phy_regmap_init(struct platform_device *pdev,
 
 	ptr = msm_ioremap(pdev, "dyn_refresh_base", phy->name);
 	phy->hw.dyn_pll_base = ptr;
-
-	switch (phy->ver_info->version) {
-	case DSI_PHY_VERSION_2_0:
-		ptr = msm_ioremap(pdev, "phy_clamp_base", phy->name);
-		if (IS_ERR(ptr))
-			phy->hw.phy_clamp_base = NULL;
-		else
-			phy->hw.phy_clamp_base = ptr;
-		break;
-	default:
-		break;
-	}
 
 	DSI_PHY_DBG(phy, "map dsi_phy registers to %pK\n", phy->hw.base);
 
@@ -333,7 +311,7 @@ static int dsi_phy_settings_init(struct platform_device *pdev,
 	rc = dsi_phy_parse_dt_per_lane_cfgs(pdev, lane,
 					    "qcom,platform-lane-config");
 	if (rc) {
-		DSI_PHY_ERR(phy, "failed to parse lane cfgs, rc=%d\n", rc);
+		DSI_PHY_ERR(phy, "failed to parse platform lane config, rc=%d\n", rc);
 		goto err;
 	}
 
@@ -341,7 +319,7 @@ static int dsi_phy_settings_init(struct platform_device *pdev,
 	rc = dsi_phy_parse_dt_per_lane_cfgs(pdev, strength,
 					    "qcom,platform-strength-ctrl");
 	if (rc) {
-		DSI_PHY_ERR(phy, "failed to parse lane cfgs, rc=%d\n", rc);
+		DSI_PHY_ERR(phy, "failed to parse platform strength ctrl, rc=%d\n", rc);
 		goto err;
 	}
 
@@ -350,7 +328,7 @@ static int dsi_phy_settings_init(struct platform_device *pdev,
 		rc = dsi_phy_parse_dt_per_lane_cfgs(pdev, regs,
 					    "qcom,platform-regulator-settings");
 		if (rc) {
-			DSI_PHY_ERR(phy, "failed to parse lane cfgs, rc=%d\n",
+			DSI_PHY_ERR(phy, "failed to parse platform regulator settings, rc=%d\n",
 					rc);
 			goto err;
 		}
@@ -361,9 +339,6 @@ static int dsi_phy_settings_init(struct platform_device *pdev,
 
 	phy->allow_phy_power_off = of_property_read_bool(pdev->dev.of_node,
 			"qcom,panel-allow-phy-poweroff");
-
-	phy->hw.clamp_enable = of_property_read_bool(pdev->dev.of_node,
-			"qcom,phy-clamp-enable");
 
 	of_property_read_u32(pdev->dev.of_node,
 			"qcom,dsi-phy-regulator-min-datarate-bps",
@@ -821,7 +796,7 @@ static inline int dsi_phy_get_data_lanes_count(struct msm_dsi_phy *phy)
 	int num_of_lanes = 0;
 	enum dsi_data_lanes dlanes;
 
-	dlanes = phy->data_lanes;
+	dlanes = phy->cfg.data_lanes;
 
 	/**
 	  * For split link use case effective data lines need to be used
@@ -1046,8 +1021,8 @@ int dsi_phy_enable(struct msm_dsi_phy *phy,
 
 	memcpy(&phy->mode, &config->video_timing, sizeof(phy->mode));
 	memcpy(&phy->cfg.lane_map, &config->lane_map, sizeof(config->lane_map));
-	phy->data_lanes = config->common_config.data_lanes;
 	phy->dst_format = config->common_config.dst_format;
+	phy->cfg.data_lanes = config->common_config.data_lanes;
 	phy->cfg.pll_source = pll_source;
 	phy->cfg.bit_clk_rate_hz = config->bit_clk_rate_hz;
 
@@ -1192,11 +1167,8 @@ int dsi_phy_idle_ctrl(struct msm_dsi_phy *phy, bool enable)
 	} else {
 		phy->dsi_phy_state = DSI_PHY_ENGINE_OFF;
 
-		if (phy->hw.ops.disable)
-			phy->hw.ops.disable(&phy->hw, &phy->cfg);
-
 		if (phy->hw.ops.phy_idle_off)
-			phy->hw.ops.phy_idle_off(&phy->hw);
+			phy->hw.ops.phy_idle_off(&phy->hw, &phy->cfg);
 	}
 	mutex_unlock(&phy->phy_lock);
 
@@ -1238,6 +1210,32 @@ int dsi_phy_set_clk_freq(struct msm_dsi_phy *phy,
 }
 
 /**
+ * dsi_phy_set_drive_strength_params - drive strength parameters for the panel
+ * @phy:          DSI PHY handle
+ * @drive strength:       array holding timing params.
+ *
+ * Return: error code.
+ */
+int dsi_phy_set_drive_strength_params(struct msm_dsi_phy *phy,
+			      u32 drive_strength)
+{
+	int rc = 0;
+
+	if (!phy || !drive_strength) {
+		DSI_PHY_ERR(phy, "Invalid params\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&phy->phy_lock);
+
+
+	phy->cfg.phy_drive_strength = drive_strength;
+
+	mutex_unlock(&phy->phy_lock);
+	return rc;
+}
+
+/**
  * dsi_phy_set_timing_params() - timing parameters for the panel
  * @phy:          DSI PHY handle
  * @timing:       array holding timing params.
@@ -1270,7 +1268,6 @@ int dsi_phy_set_timing_params(struct msm_dsi_phy *phy,
 
 	if (phy->hw.ops.commit_phy_timing && commit)
 		phy->hw.ops.commit_phy_timing(&phy->hw, &phy->cfg.timing);
-
 	mutex_unlock(&phy->phy_lock);
 	return rc;
 }

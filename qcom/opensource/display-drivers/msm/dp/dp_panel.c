@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2022, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -79,19 +79,19 @@ struct dp_panel_private {
 };
 
 static const struct dp_panel_info fail_safe = {
-	.h_active = 640,
-	.v_active = 480,
-	.h_back_porch = 48,
-	.h_front_porch = 16,
-	.h_sync_width = 96,
+	.h_active = 1920,
+	.v_active = 1080,
+	.h_back_porch = 148,
+	.h_front_porch = 88,
+	.h_sync_width = 44,
 	.h_active_low = 0,
-	.v_back_porch = 33,
-	.v_front_porch = 10,
-	.v_sync_width = 2,
+	.v_back_porch = 36,
+	.v_front_porch = 4,
+	.v_sync_width = 5,
 	.v_active_low = 0,
 	.h_skew = 0,
 	.refresh_rate = 60,
-	.pixel_clk_khz = 25200,
+	.pixel_clk_khz = 148500,
 	.bpp = 24,
 };
 
@@ -388,7 +388,7 @@ static void dp_panel_update_tu_timings(struct dp_tu_calc_input *in,
 	tu->orig_lwidth          = in->hactive;
 	tu->hbp_relative_to_pclk_fp = drm_fixp_from_fraction(in->hporch, 1);
 	tu->orig_hbp             = in->hporch;
-	tu->rb2                  = (in->hporch <= 80) ? 1 : 0;
+	tu->rb2                  = (in->hporch < 160) ? 1 : 0;
 
 	if (tu->pixelEnc == 420) {
 		temp1_fp = drm_fixp_from_fraction(2, 1);
@@ -418,6 +418,8 @@ static void dp_panel_update_tu_timings(struct dp_tu_calc_input *in,
 
 	if (!in->dsc_en)
 		goto fec_check;
+
+	tu->bpp = 24; // hardcode to 24 if DSC is enabled.
 
 	temp1_fp = drm_fixp_from_fraction(in->compress_ratio, 100);
 	temp2_fp = drm_fixp_from_fraction(in->bpp, 1);
@@ -1573,7 +1575,7 @@ static int dp_panel_dsc_prepare_basic_params(
 	comp_info->comp_type = MSM_DISPLAY_COMPRESSION_DSC;
 	comp_info->tgt_bpp = DSC_TGT_BPP;
 	comp_info->src_bpp = dp_mode->timing.bpp;
-	comp_info->comp_ratio = dp_mode->timing.bpp / DSC_TGT_BPP;
+	comp_info->comp_ratio = mult_frac(100, dp_mode->timing.bpp, DSC_TGT_BPP);
 	comp_info->enabled = true;
 
 	return 0;
@@ -1614,7 +1616,7 @@ static int dp_panel_read_dpcd(struct dp_panel *dp_panel, bool multi_func)
 
 	/* check for EXTENDED_RECEIVER_CAPABILITY_FIELD_PRESENT */
 	if (temp & BIT(7)) {
-		DP_DEBUG("using EXTENDED_RECEIVER_CAPABILITY_FIELD\n");
+		DP_INFO("using EXTENDED_RECEIVER_CAPABILITY_FIELD\n");
 		offset = DPRX_EXTENDED_DPCD_FIELD;
 	}
 
@@ -1636,7 +1638,7 @@ static int dp_panel_read_dpcd(struct dp_panel *dp_panel, bool multi_func)
 	rlen = drm_dp_dpcd_read(panel->aux->drm_aux,
 		DPRX_FEATURE_ENUMERATION_LIST, &rx_feature, 1);
 	if (rlen != 1) {
-		DP_DEBUG("failed to read DPRX_FEATURE_ENUMERATION_LIST\n");
+		DP_INFO("failed to read DPRX_FEATURE_ENUMERATION_LIST\n");
 		rx_feature = 0;
 	} else {
 		panel->vsc_supported = !!(rx_feature &
@@ -1646,7 +1648,7 @@ static int dp_panel_read_dpcd(struct dp_panel *dp_panel, bool multi_func)
 		panel->vscext_chaining_supported = !!(rx_feature &
 				VSC_EXT_VESA_SDP_CHAINING_SUPPORTED);
 
-		DP_DEBUG("vsc=%d, vscext=%d, vscext_chaining=%d\n",
+		DP_INFO("vsc=%d, vscext=%d, vscext_chaining=%d\n",
 				panel->vsc_supported, panel->vscext_supported,
 				panel->vscext_chaining_supported);
 	}
@@ -1661,14 +1663,14 @@ static int dp_panel_read_dpcd(struct dp_panel *dp_panel, bool multi_func)
 	link_info->num_lanes = dpcd[DP_MAX_LANE_COUNT] & DP_MAX_LANE_COUNT_MASK;
 
 	if (is_link_rate_valid(panel->dp_panel.link_bw_code)) {
-		DP_DEBUG("debug link bandwidth code: 0x%x\n",
+		DP_INFO("debug link bandwidth code: 0x%x\n",
 				panel->dp_panel.link_bw_code);
 		link_info->rate = drm_dp_bw_code_to_link_rate(
 				panel->dp_panel.link_bw_code);
 	}
 
 	if (is_lane_count_valid(panel->dp_panel.lane_count)) {
-		DP_DEBUG("debug lane count: %d\n", panel->dp_panel.lane_count);
+		DP_INFO("debug lane count: %d\n", panel->dp_panel.lane_count);
 		link_info->num_lanes = panel->dp_panel.lane_count;
 	}
 
@@ -1676,7 +1678,7 @@ static int dp_panel_read_dpcd(struct dp_panel *dp_panel, bool multi_func)
 		link_info->num_lanes = min_t(unsigned int,
 			link_info->num_lanes, 2);
 
-	DP_DEBUG("version:%d.%d, rate:%d, lanes:%d\n", panel->major,
+	DP_INFO("version:%d.%d, rate:%d, lanes:%d\n", panel->major,
 		panel->minor, link_info->rate, link_info->num_lanes);
 
 	if (drm_dp_enhanced_frame_cap(dpcd))
@@ -1718,7 +1720,7 @@ static int dp_panel_set_default_link_params(struct dp_panel *dp_panel)
 	link_info = &dp_panel->link_info;
 	link_info->rate = default_bw_code;
 	link_info->num_lanes = default_num_lanes;
-	DP_DEBUG("link_rate=%d num_lanes=%d\n",
+	DP_INFO("link_rate=%d num_lanes=%d\n",
 		link_info->rate, link_info->num_lanes);
 
 	return 0;
@@ -1952,7 +1954,7 @@ static u32 dp_panel_get_supported_bpp(struct dp_panel *dp_panel,
 	if (bpp < min_supported_bpp)
 		DP_ERR("bpp %d is below minimum supported bpp %d\n", bpp,
 				min_supported_bpp);
-	if (dp_panel->dsc_en && bpp != 24 && bpp != 30 && bpp != 36)
+	if (dsc_en && bpp != 24 && bpp != 30 && bpp != 36)
 		DP_ERR("bpp %d is not supported when dsc is enabled\n", bpp);
 
 	return bpp;
@@ -2372,6 +2374,9 @@ static int dp_panel_deinit_panel_info(struct dp_panel *dp_panel, u32 flags)
 	dhdr_vsif_sdp = &panel->catalog->dhdr_vsif_sdp;
 	shdr_if_sdp = &panel->catalog->shdr_if_sdp;
 	vsc_colorimetry = &panel->catalog->vsc_colorimetry;
+
+	/*clearing LINK INFO capabilities during disconnect*/
+	dp_panel->link_info.capabilities = 0;
 
 	if (dp_panel->edid_ctrl->edid)
 		sde_free_edid((void **)&dp_panel->edid_ctrl);
@@ -2992,7 +2997,7 @@ static void dp_panel_convert_to_dp_mode(struct dp_panel *dp_panel,
 	comp_info->src_bpp = default_bpp;
 	comp_info->tgt_bpp = default_bpp;
 	comp_info->comp_type = MSM_DISPLAY_COMPRESSION_NONE;
-	comp_info->comp_ratio = 1;
+	comp_info->comp_ratio = MSM_DISPLAY_COMPRESSION_RATIO_NONE;
 	comp_info->enabled = false;
 
 	/* As YUV was not supported now, so set the default format to RGB */
@@ -3013,7 +3018,7 @@ static void dp_panel_convert_to_dp_mode(struct dp_panel *dp_panel,
 	dp_mode->timing.bpp = dp_panel_get_mode_bpp(dp_panel,
 			dp_mode->timing.bpp, dp_mode->timing.pixel_clk_khz, dsc_en);
 
-	if (dp_panel->dsc_en && dsc_en) {
+	if (dsc_en) {
 		if (dp_panel_dsc_prepare_basic_params(comp_info,
 					dp_mode, dp_panel)) {
 			DP_DEBUG("prepare DSC basic params failed\n");
@@ -3027,7 +3032,7 @@ static void dp_panel_convert_to_dp_mode(struct dp_panel *dp_panel,
 		}
 
 		rc = sde_dsc_populate_dsc_private_params(&comp_info->dsc_info,
-				dp_mode->timing.h_active);
+				dp_mode->timing.h_active, dp_mode->timing.widebus_en);
 		if (rc) {
 			DP_DEBUG("failed populating other dsc params\n");
 			return;

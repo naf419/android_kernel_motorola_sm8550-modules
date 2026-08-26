@@ -15,6 +15,7 @@
 #include "msm_prop.h"
 #include "sde_kms.h"
 #include "sde_fence.h"
+#include "sde_motUtil.h"
 
 #define SDE_CONNECTOR_NAME_SIZE	16
 #define SDE_CONNECTOR_DHDR_MEMPOOL_MAX_SIZE	SZ_32
@@ -294,6 +295,32 @@ struct sde_connector_ops {
 			   u32 cmd_buf_len, u8 *recv_buf, u32 recv_buf_len);
 
 	/**
+	 * motUtil_transfer - Convert motUtil data and Transfer command
+	 * 			to the connected display panel
+	 * @display: Pointer to private display handle
+	 * @cmd_buf: Command buffer
+	 * @cmd_buf_len: Command buffer length in bytes
+	 * @motUtil_data: motUtil data information
+	 * Returns: Zero for success, negetive for failure
+	 */
+	int (*motUtil_transfer)(void *display, const char *cmd_buf,
+			u32 cmd_buf_len, struct motUtil *motUtil_data);
+
+	/**
+	 * force_esd_disable - force to disable check_status
+	 * @display: Pointer to private display handle
+	 * Returns: true for forcing ESD disable
+	 */
+	bool (*force_esd_disable)(void *display);
+
+	/**
+	 * set_param - set display's feature param setting
+	 * @display: Pointer to private display handle
+	 * Returns: Zero for success, negative for failure
+	 */
+	int (*set_param)(void *display, struct msm_param_info *param_info);
+
+	/**
 	 * config_hdr - configure HDR
 	 * @connector: Pointer to drm connector structure
 	 * @display: Pointer to private display handle
@@ -531,7 +558,6 @@ struct sde_misr_sign {
  * @expected_panel_mode: expected panel mode by usespace
  * @panel_dead: Flag to indicate if panel has gone bad
  * @esd_status_check: Flag to indicate if ESD thread is scheduled or not
- * @twm_en: Flag to indicate if TWM mode is enabled or not.
  * @bl_scale_dirty: Flag to indicate PP BL scale value(s) is changed
  * @bl_scale: BL scale value for ABA feature
  * @bl_scale_sv: BL scale value for sunlight visibility feature
@@ -543,6 +569,7 @@ struct sde_misr_sign {
  * @hdr_min_luminance: desired min luminance obtained from HDR block
  * @hdr_supported: does the sink support HDR content
  * @color_enc_fmt: Colorimetry encoding formats of sink
+ * @lm_mask: preferred LM mask for connector
  * @allow_bl_update: Flag to indicate if BL update is allowed currently or not
  * @dimming_bl_notify_enabled: Flag to indicate if dimming bl notify is enabled or not
  * @qsync_mode: Cached Qsync mode, 0=disabled, 1=continuous mode
@@ -579,7 +606,6 @@ struct sde_connector {
 	int dpms_mode;
 	int lp_mode;
 	int last_panel_power_mode;
-	struct device *sysfs_dev;
 
 	struct msm_property_info property_info;
 	struct msm_property_data property_data[CONNECTOR_PROP_COUNT];
@@ -601,7 +627,6 @@ struct sde_connector {
 	u32 esd_status_interval;
 	bool panel_dead;
 	bool esd_status_check;
-	bool twm_en;
 	enum panel_op_mode expected_panel_mode;
 
 	bool bl_scale_dirty;
@@ -619,6 +644,7 @@ struct sde_connector {
 	bool hdr_supported;
 
 	u32 color_enc_fmt;
+	u32 lm_mask;
 
 	u8 hdr_plus_app_ver;
 	u32 qsync_mode;
@@ -919,16 +945,6 @@ int sde_connector_set_property_for_commit(struct drm_connector *connector,
 		uint32_t property_idx, uint64_t value);
 
 /**
- * sde_connector_post_init - update connector object with post
- * initialization.
- * It can update the debugfs, sysfs, entries
- * @dev: Pointer to drm device struct
- * @conn: Pointer to drm connector
- * Returns: Zero on success
- */
-int sde_connector_post_init(struct drm_device *dev, struct drm_connector *conn);
-
-/**
  * sde_connector_init - create drm connector object for a given display
  * @dev: Pointer to drm device struct
  * @encoder: Pointer to associated encoder
@@ -1226,6 +1242,45 @@ static inline int sde_connector_state_get_compression_info(
 	memcpy(comp_info, &sde_conn_state->mode_info.comp_info,
 		sizeof(struct msm_compression_info));
 	return 0;
+}
+
+static inline bool sde_connector_is_quadpipe_3d_merge_enabled(
+		struct drm_connector_state *conn_state)
+{
+	enum sde_rm_topology_name topology;
+
+	if (!conn_state)
+		return false;
+
+	topology = sde_connector_get_property(conn_state, CONNECTOR_PROP_TOPOLOGY_NAME);
+	if ((topology == SDE_RM_TOPOLOGY_QUADPIPE_3DMERGE)
+			|| (topology == SDE_RM_TOPOLOGY_QUADPIPE_3DMERGE_DSC))
+		return true;
+
+	return false;
+}
+
+static inline bool sde_connector_is_dualpipe_3d_merge_enabled(
+		struct drm_connector_state *conn_state)
+{
+	enum sde_rm_topology_name topology;
+
+	if (!conn_state)
+		return false;
+
+	topology = sde_connector_get_property(conn_state, CONNECTOR_PROP_TOPOLOGY_NAME);
+	if ((topology == SDE_RM_TOPOLOGY_DUALPIPE_3DMERGE)
+			|| (topology == SDE_RM_TOPOLOGY_DUALPIPE_3DMERGE_DSC)
+			|| (topology == SDE_RM_TOPOLOGY_DUALPIPE_3DMERGE_VDC))
+		return true;
+
+	return false;
+}
+
+static inline bool sde_connector_is_3d_merge_enabled(struct drm_connector_state *conn_state)
+{
+	return sde_connector_is_dualpipe_3d_merge_enabled(conn_state)
+		|| sde_connector_is_quadpipe_3d_merge_enabled(conn_state);
 }
 
 /**
