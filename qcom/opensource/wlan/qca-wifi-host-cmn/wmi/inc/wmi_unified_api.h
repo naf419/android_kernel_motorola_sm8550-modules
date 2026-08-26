@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021,2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -123,6 +123,10 @@
 #include "wmi_unified_11be_setup_api.h"
 #endif
 
+#ifdef WLAN_FEATURE_DBAM_CONFIG
+#include "wlan_coex_public_structs.h"
+#endif
+
 typedef qdf_nbuf_t wmi_buf_t;
 #define wmi_buf_data(_buf) qdf_nbuf_data(_buf)
 
@@ -152,7 +156,6 @@ enum wmi_target_type {
  * @WMI_RX_UMAC_CTX: execution context provided by umac layer
  * @WMI_RX_SERIALIZER_CTX: Execution context is serialized thread context
  * @WMI_RX_DIAG_WORK_CTX: work queue execution context for FW diag events
- *
  */
 enum wmi_rx_exec_ctx {
 	WMI_RX_WORK_CTX,
@@ -292,7 +295,7 @@ wmi_buf_t wmi_buf_alloc_fl(wmi_unified_t wmi_handle, uint32_t len,
 /**
  * generic function frees WMI net buffer
  *
- *  @param net_buf : Pointer ot net_buf to be freed
+ *  @param net_buf : Pointer to net_buf to be freed
  */
 void wmi_buf_free(wmi_buf_t net_buf);
 
@@ -355,6 +358,19 @@ static inline int wmi_process_qmi_fw_event(void *wmi_cb_ctx, void *buf, int len)
 }
 #endif
 
+#ifdef WLAN_SUPPORT_GAP_LL_PS_MODE
+/**
+ * wmi_unified_green_ap_ll_ps_send() - Send unified WMI command to
+ * enable/disable green ap low latency power save mode
+ * @wmi_handle: handle to WMI.
+ * @green_ap_ll_ps_params: low latency power save mode parameter
+ *
+ * Return: None
+ */
+QDF_STATUS wmi_unified_green_ap_ll_ps_send(wmi_unified_t wmi_handle,
+					   struct green_ap_ll_ps_cmd_param *green_ap_ll_ps_params);
+#endif
+
 /**
  * wmi_unified_cmd_send_pm_chk() - send unified WMI command with PM check,
  * if target is in suspended state, WMI command will be sent over QMI.
@@ -405,7 +421,7 @@ wmi_unified_register_event_handler(wmi_unified_t wmi_handle,
 
 /**
  * wmi_unified_unregister_event() - WMI event handler unregister function
- * for converged componets
+ * for converged components
  * @wmi_handle:    handle to WMI.
  * @event_id:      WMI event ID
  *
@@ -473,6 +489,27 @@ wmi_diag_connect_pdev_htc_service(struct wmi_unified *wmi_handle,
 static inline QDF_STATUS
 wmi_diag_connect_pdev_htc_service(struct wmi_unified *wmi_handle,
 				  HTC_HANDLE htc_handle)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
+#if defined(WLAN_DIAG_AND_DBR_OVER_SEPARATE_CE)
+/**
+ * wmi_dbr_connect_pdev_htc_service()
+ * WMI DBR API to get connect to HTC service
+ * @wmi_handle: handle to WMI.
+ * @htc_handle: handle to HTC.
+ *
+ * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAULT for failure
+ */
+QDF_STATUS
+wmi_dbr_connect_pdev_htc_service(struct wmi_unified *wmi_handle,
+				 HTC_HANDLE htc_handle);
+#else
+static inline QDF_STATUS
+wmi_dbr_connect_pdev_htc_service(struct wmi_unified *wmi_handle,
+				 HTC_HANDLE htc_handle)
 {
 	return QDF_STATUS_SUCCESS;
 }
@@ -665,6 +702,34 @@ static inline bool wmi_get_runtime_pm_inprogress(wmi_unified_t wmi_handle)
 	return false;
 }
 #endif
+
+/**
+ * wmi_set_wow_enable_ack_failed() - set wow enable ack failed status
+ *     if wow enable ack failed, which means host and fw have some problem
+ *     to exchange wmi cmd. set indication here and block wmi cmds.
+ *     the cmds can be sent again after wmi re-init in subsystem recovery.
+ * @wmi_handle: wmi context
+ *
+ * return: none
+ */
+void wmi_set_wow_enable_ack_failed(wmi_unified_t wmi_handle);
+
+/**
+ * wmi_clear_wow_enable_ack_failed() - clear wow enable ack failed status
+ *     explicitly clear this status when wmi close of SSR
+ * @wmi_handle: wmi context
+ *
+ * return: none
+ */
+void wmi_clear_wow_enable_ack_failed(wmi_unified_t wmi_handle);
+
+/**
+ * wmi_has_wow_enable_ack_failed() - get wow enable ack failed status
+ * @wmi_handle: wmi context
+ *
+ * Return: true if wow enable ack already failed. other false
+ */
+bool wmi_has_wow_enable_ack_failed(wmi_unified_t wmi_handle);
 
 void *wmi_unified_get_soc_handle(struct wmi_unified *wmi_handle);
 
@@ -867,6 +932,38 @@ QDF_STATUS
 wmi_unified_vdev_set_param_send(wmi_unified_t wmi_handle,
 				struct vdev_set_params *param);
 
+/**
+ * wmi_unified_multiple_vdev_param_send() - sends multiple vdev set params
+ * @wmi_handle: handle to WMI.
+ * @params: pointer to hold set_multiple_pdev_vdev_param info.
+ *
+ * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
+ */
+QDF_STATUS
+wmi_unified_multiple_vdev_param_send(wmi_unified_t wmi_handle,
+				     struct set_multiple_pdev_vdev_param *params);
+
+/**
+ * wmi_unified_set_mac_addr_rx_filter() - set mac addr rx filter cmd
+ * @wmi_handle: wmi handle
+ * @param: Pointer to set mac filter struct
+ *
+ * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
+ */
+QDF_STATUS
+wmi_unified_set_mac_addr_rx_filter(wmi_unified_t wmi_handle,
+				   struct set_rx_mac_filter *param);
+/**
+ * wmi_unified_multiple_pdev_param_send() - sends multiple pdev set params
+ * @wmi_handle: handle to WMI.
+ * @params: pointer to hold set_multiple_pdev_vdev_param info
+ *
+ * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
+ */
+QDF_STATUS
+wmi_unified_multiple_pdev_param_send(wmi_unified_t wmi_handle,
+				     struct set_multiple_pdev_vdev_param *params);
+
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 /**
  * wmi_unified_roam_set_param_send() - WMI roam set parameter function
@@ -913,14 +1010,14 @@ QDF_STATUS wmi_unified_sifs_trigger_send(wmi_unified_t wmi_handle,
  * wmi_unified_peer_delete_send() - send PEER delete command to fw
  * @wmi_handle: wmi handle
  * @peer_addr: peer mac addr
- * @vdev_id: vdev id
+ * @param: pointer to hold peer delete parameters
  *
  * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
  */
 QDF_STATUS
 wmi_unified_peer_delete_send(wmi_unified_t wmi_handle,
 			     uint8_t peer_addr[QDF_MAC_ADDR_SIZE],
-			     uint8_t vdev_id);
+			     struct peer_delete_cmd_params *param);
 
 /**
  * wmi_unified_peer_flush_tids_send() - flush peer tids packets in fw
@@ -1178,7 +1275,7 @@ QDF_STATUS wmi_unified_sta_ps_cmd_send(wmi_unified_t wmi_handle,
  * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
  */
 QDF_STATUS wmi_unified_ap_ps_cmd_send(wmi_unified_t wmi_handle,
-				      uint8_t macaddr[QDF_MAC_ADDR_SIZE],
+				      uint8_t *macaddr,
 				      struct ap_ps_params *param);
 
 /**
@@ -1296,7 +1393,7 @@ QDF_STATUS wmi_unified_set_sta_ps_mode(wmi_unified_t wmi_handle,
 /**
  * wmi_unified_set_sta_uapsd_auto_trig_cmd() - set uapsd auto trigger command
  * @wmi_handle: wmi handle
- * @param: uapsd cmd parameter strcture
+ * @param: uapsd cmd parameter structure
  *
  * This function sets the trigger
  * uapsd params such as service interval, delay interval
@@ -1436,6 +1533,17 @@ wmi_unified_setup_install_key_cmd(wmi_unified_t wmi_handle,
 QDF_STATUS
 wmi_unified_get_pn_send_cmd(wmi_unified_t wmi_hdl,
 			    struct peer_request_pn_param *pn_params);
+
+/**
+ * wmi_unified_get_rxpn_send_cmd() - send command to fw get Rx PN for peer
+ * @wmi_handle: wmi handle
+ * @pn_params: PN parameters
+ *
+ * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
+ */
+QDF_STATUS
+wmi_unified_get_rxpn_send_cmd(wmi_unified_t wmi_hdl,
+			      struct peer_request_rxpn_param *pn_params);
 
 /**
  * wmi_unified_p2p_go_set_beacon_ie_cmd() - set beacon IE for p2p go
@@ -1882,7 +1990,7 @@ QDF_STATUS wmi_unified_send_apf_read_work_memory_cmd(wmi_unified_t wmi,
 				struct wmi_apf_read_memory_params *read_params);
 
 /**
- * wmi_extract_apf_read_memory_resp_event() - exctract read mem resp event
+ * wmi_extract_apf_read_memory_resp_event() - extract read mem resp event
  * @wmi: wmi handle
  * @evt_buf: Pointer to the event buffer
  * @resp: pointer to memory to extract event parameters into
@@ -1982,6 +2090,32 @@ wmi_unified_send_coex_ver_cfg_cmd(wmi_unified_t wmi_handle,
 QDF_STATUS
 wmi_unified_send_coex_config_cmd(wmi_unified_t wmi_handle,
 				 struct coex_config_params *param);
+#ifdef WLAN_FEATURE_DBAM_CONFIG
+/**
+ * wmi_unified_send_dbam_config_cmd() - send dbam config command
+ * @wmi_handle: wmi handle
+ * @mode: dbam config mode param
+ *
+ * Send WMI_COEX_DBAM_CMD param to fw.
+ *
+ * Return: QDF_STATUS_SUCCESS on success, QDF_STATUS_E_** on error
+ */
+QDF_STATUS
+wmi_unified_send_dbam_config_cmd(wmi_unified_t wmi_handle,
+				 struct coex_dbam_config_params *param);
+
+/**
+ * wmi_extract_dbam_config_response() - extract dbam config resp sent by FW
+ * @wmi_handle: wmi handle
+ * @evt_buf: pointer to event buffer
+ * @resp: struct containing dbam config response sent by FW
+ *
+ * Return: QDF_STATUS_SUCCESS on success, QDF_STATUS_E_** on error
+ */
+QDF_STATUS
+wmi_extract_dbam_config_response(wmi_unified_t wmi_handle, void *evt_buf,
+				 struct coex_dbam_config_resp *resp);
+#endif
 
 /**
  *  wmi_unified_pdev_fips_cmd_send() - WMI pdev fips cmd function
@@ -2323,6 +2457,46 @@ QDF_STATUS wmi_extract_pdev_spectral_session_detector_info(
 		wmi_unified_t wmi_handle, void *event,
 		struct spectral_session_det_info *det_info,
 		uint8_t det_info_idx);
+
+/**
+ * wmi_extract_spectral_caps_fixed_param() - Extract fixed params from Spectral
+ * capabilities WMI event
+ * @wmi_handle: handle to WMI.
+ * @event: Event buffer
+ * @param: Spectral capabilities event parameters data structure to be filled
+ * by this API
+ *
+ * Return: QDF_STATUS of operation
+ */
+QDF_STATUS wmi_extract_spectral_caps_fixed_param(
+		wmi_unified_t wmi_handle, void *event,
+		struct spectral_capabilities_event_params *param);
+
+/**
+ * wmi_extract_spectral_scan_bw_caps() - Extract bandwidth caps from
+ * Spectral capabilities WMI event
+ * @wmi_handle: handle to WMI.
+ * @event: Event buffer
+ * @bw_caps: Data structure to be populated by this API after extraction
+ *
+ * Return: QDF_STATUS of operation
+ */
+QDF_STATUS wmi_extract_spectral_scan_bw_caps(
+		wmi_unified_t wmi_handle, void *event,
+		struct spectral_scan_bw_capabilities *bw_caps);
+
+/**
+ * wmi_extract_spectral_fft_size_caps() - Extract FFT size caps from
+ * Spectral capabilities WMI event
+ * @wmi_handle: handle to WMI.
+ * @event: Event buffer
+ * @fft_size_caps: Data structure to be populated by this API after extraction
+ *
+ * Return: QDF_STATUS of operation
+ */
+QDF_STATUS wmi_extract_spectral_fft_size_caps(
+		wmi_unified_t wmi_handle, void *event,
+		struct spectral_fft_size_capabilities *fft_size_caps);
 #endif /* WLAN_CONV_SPECTRAL_ENABLE */
 
 #if defined(WLAN_SUPPORT_FILS) || defined(CONFIG_BAND_6GHZ)
@@ -2396,6 +2570,7 @@ QDF_STATUS wmi_unified_vdev_set_qdepth_thresh_cmd_send(
 		wmi_unified_t wmi_handle,
 		struct set_qdepth_thresh_params *param);
 
+#ifdef WLAN_REG_PARTIAL_OFFLOAD
 /**
  *  wmi_unified_pdev_set_regdomain_params_cmd_send() - WMI set regdomain
  *  function
@@ -2407,6 +2582,7 @@ QDF_STATUS wmi_unified_vdev_set_qdepth_thresh_cmd_send(
 QDF_STATUS wmi_unified_pdev_set_regdomain_cmd_send(
 			wmi_unified_t wmi_handle,
 			struct pdev_set_regdomain_params *param);
+#endif
 
 /**
  *  wmi_unified_set_beacon_filter_cmd_send() - WMI set beacon filter function
@@ -2810,6 +2986,17 @@ QDF_STATUS wmi_unified_extract_pn(wmi_unified_t wmi_hdl, void *evt_buf,
 			  struct wmi_host_get_pn_event *param);
 
 /**
+ * wmi_unified_extract_rxpn() - extract Rx PN event data
+ * @wmi_handle: wmi handle
+ * @evt_buf: pointer to event buffer
+ * @param: pointer to get Rx PN event param
+ *
+ * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
+ */
+QDF_STATUS wmi_unified_extract_rxpn(wmi_unified_t wmi_hdl, void *evt_buf,
+				    struct wmi_host_get_rxpn_event *param);
+
+/**
  * wmi_unified_send_periodic_chan_stats_config_cmd() - send periodic chan
  * stats cmd to fw
  * @wmi_handle: wmi handle
@@ -2864,6 +3051,18 @@ QDF_STATUS
 wmi_extract_mgmt_rx_params(wmi_unified_t wmi_handle, void *evt_buf,
 			   struct mgmt_rx_event_params *hdr, uint8_t **bufp);
 
+/**
+ * wmi_extract_mgmt_rx_ext_params() - extract extended rx params from event
+ * @wmi_handle: wmi handle
+ * @evt_buf: pointer to event buffer
+ * @params: Pointer to hold ext params
+ *
+ * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
+ */
+QDF_STATUS
+wmi_extract_mgmt_rx_ext_params(wmi_unified_t wmi_handle, void *evt_buf,
+			       struct mgmt_rx_event_ext_params *params);
+
 #ifdef WLAN_MGMT_RX_REO_SUPPORT
 /**
  * wmi_extract_mgmt_rx_fw_consumed() - extract MGMT Rx FW consumed event
@@ -2904,6 +3103,30 @@ QDF_STATUS wmi_unified_mgmt_rx_reo_filter_config_cmd(
 					uint8_t pdev_id,
 					struct mgmt_rx_reo_filter *filter);
 #endif
+
+/**
+ * wmi_extract_frame_pn_params() - extract PN params from event
+ * @wmi_handle: wmi handle
+ * @evt_buf: pointer to event buffer
+ * @pn_params: Pointer to Frame PN params
+ *
+ * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
+ */
+QDF_STATUS
+wmi_extract_frame_pn_params(wmi_unified_t wmi_handle, void *evt_buf,
+			    struct frame_pn_params *pn_params);
+
+/**
+ * wmi_extract_is_conn_ap_frame() - extract is_conn_ap_frame param from event
+ * @wmi_handle: wmi handle
+ * @evt_buf: pointer to event buffer
+ * @is_conn_ap: is_conn_ap param
+ *
+ * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
+ */
+QDF_STATUS
+wmi_extract_is_conn_ap_frame(wmi_unified_t wmi_handle, void *evt_buf,
+			     struct frm_conn_ap *is_conn_ap);
 
 /**
  * wmi_extract_vdev_roam_param() - extract vdev roam param from event
@@ -3604,6 +3827,36 @@ QDF_STATUS wmi_extract_scan_radio_cap_service_ready_ext2(
 			struct wlan_psoc_host_scan_radio_caps *param);
 
 /**
+ * wmi_extract_msdu_idx_qtype_map_service_ready_ext2: Extract HTT MSDU index
+ *                                                    to qtype map received
+ *                                                    through extended service
+ *                                                    ready2 event
+ * @wmi_handle: WMI handle
+ * @evt_buf: Event buffer
+ * @idx: HTT MSDU index in array
+ * @msdu_qtype: MSDU Qtype pointer
+ *
+ * Return: QDF status of operation
+ */
+QDF_STATUS wmi_extract_msdu_idx_qtype_map_service_ready_ext2(
+			wmi_unified_t wmi_handle,
+			uint8_t *evt_buf, uint8_t idx,
+			uint8_t *msdu_qtype);
+
+/**
+ * wmi_extract_sw_cal_ver_ext2: Extract sw cal version received through
+ *                              extended service ready2 event
+ * @wmi_handle: WMI handle
+ * @event: Event buffer
+ * @cal: Pointer to sw cal ver struct
+ *
+ * Return: QDF status of operation
+ */
+QDF_STATUS wmi_extract_sw_cal_ver_ext2(wmi_unified_t wmi_handle,
+				       uint8_t *event,
+				       struct wmi_host_sw_cal_ver *cal);
+
+/**
  * wmi_extract_spectral_scaling_params_service_ready_ext: Extract Spectral
  *                                             scaling params received through
  *                                             extended service ready event
@@ -3864,6 +4117,21 @@ QDF_STATUS wmi_unified_extract_obss_detection_info(
 QDF_STATUS wmi_extract_green_ap_egap_status_info(
 	wmi_unified_t wmi_hdl, uint8_t *evt_buf,
 	struct wlan_green_ap_egap_status_info *egap_status_info_params);
+#endif
+
+#ifdef WLAN_SUPPORT_GAP_LL_PS_MODE
+/**
+ * wmi_unified_extract_green_ap_ll_ps_param() - API to extract Green AP low
+ * latency power save event parameter
+ * @wmi_handle: wmi handle
+ * @evt_buf: pointer to the event buffer
+ * @green_ap_ll_ps_event_param: Event parameter
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS wmi_unified_extract_green_ap_ll_ps_param(
+	wmi_unified_t wmi_hdl, uint8_t *evt_buf,
+	struct wlan_green_ap_ll_ps_event_param *green_ap_ll_ps_event_param);
 #endif
 
 /**
@@ -4185,7 +4453,7 @@ QDF_STATUS wmi_unified_extract_measreq_chan_info(
  *  color change enable to FW.
  * @wmi_handle: wmi handle
  * @vdev_id: vdev ID
- * @enable: enable or disable color change handeling within firmware
+ * @enable: enable or disable color change handling within firmware
  *
  * Send WMI_BSS_COLOR_CHANGE_ENABLE_CMDID parameters to fw,
  * thereby firmware updates bss color when AP announces bss color change.
@@ -4285,6 +4553,55 @@ QDF_STATUS
 wmi_extract_oem_response_param(wmi_unified_t wmi_hdl, void *resp_buf,
 			       struct wmi_oem_response_param *oem_resp_param);
 #endif /* WIFI_POS_CONVERGED */
+
+#if defined(WIFI_POS_CONVERGED) && defined(WLAN_FEATURE_RTT_11AZ_SUPPORT)
+/**
+ * wmi_extract_pasn_peer_create_req() - Extract peer create request event
+ * @wmi_hdl: WMI handle
+ * @evt_buf: Event buffer
+ * @dst: Destination buffer
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+wmi_extract_pasn_peer_create_req(wmi_unified_t wmi, void *evt_buf,
+				 struct wifi_pos_pasn_peer_data *dst);
+
+/**
+ * wmi_extract_pasn_peer_delete_req() - Extract PASN peer delete request
+ * @wmi: WMI handle
+ * @evt_buf: Event buffer
+ * @dst: Destination buffer pointer
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+wmi_extract_pasn_peer_delete_req(wmi_unified_t wmi, void *evt_buf,
+				 struct wifi_pos_pasn_peer_data *dst);
+
+/**
+ * wmi_send_rtt_pasn_auth_status_cmd  - Send PASN authentication status of all
+ * the PASN peers.
+ * @wmi: WMI handle
+ * @data: Auth status data
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+wmi_send_rtt_pasn_auth_status_cmd(wmi_unified_t wmi,
+				  struct wlan_pasn_auth_status *data);
+
+/**
+ * wmi_send_rtt_pasn_deauth_cmd  - Send RTT pasn deauthentication command
+ * @wmi: WMI handle
+ * @peer_mac: peer mac address
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+wmi_send_rtt_pasn_deauth_cmd(wmi_unified_t wmi, struct qdf_mac_addr *peer_mac);
+#endif
+
 /**
  * wmi_critical_events_in_flight() - get the number of critical events in flight
  *
@@ -4442,6 +4759,19 @@ QDF_STATUS wmi_unified_send_cp_stats_cmd(wmi_unified_t wmi_handle,
 
 
 /**
+ * wmi_unified_send_halphy_stats_cmd() - Send halphy stats command
+ * @wmi_handle: wmi handle
+ * @buf_ptr: buf_ptr received from wifistats
+ * @buf_len: length of buffer received from wifistats
+ *
+ * This function sends halphy stats cmd to get halphy stats.
+ *
+ * Return QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
+ */
+QDF_STATUS wmi_unified_send_halphy_stats_cmd(wmi_unified_t wmi_handle,
+					     void *buf_ptr, uint32_t buf_len);
+
+/**
  * wmi_unified_extract_cp_stats_more_pending() - extract more flag
  * @wmi_handle: wmi handle
  * @evt_buf: event buffer
@@ -4454,6 +4784,36 @@ QDF_STATUS wmi_unified_send_cp_stats_cmd(wmi_unified_t wmi_handle,
 QDF_STATUS
 wmi_unified_extract_cp_stats_more_pending(wmi_unified_t wmi_handle,
 					  void *evt_buf, uint32_t *more_flag);
+
+/**
+ * wmi_unified_extract_halphy_stats_end_of_event() - extract end_of_event flag
+ * @wmi_handle: wmi handle
+ * @evt_buf: event buffer
+ * @end_of_event_flag: end_of_event flag
+ *
+ * This function extracts the end_of_event_flag from fixed param
+ *
+ * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
+ */
+QDF_STATUS
+wmi_unified_extract_halphy_stats_end_of_event(wmi_unified_t wmi_handle,
+					      void *evt_buf,
+					      uint32_t *end_of_event_flag);
+
+/**
+ * wmi_unified_extract_halphy_stats_event_count() - extract event_count flag
+ * @wmi_handle: wmi handle
+ * @evt_buf: event buffer
+ * @event_count_flag: event count flag
+ *
+ * This function extracts the event_count_flag from fixed param
+ *
+ * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
+ */
+QDF_STATUS
+wmi_unified_extract_halphy_stats_event_count(wmi_unified_t wmi_handle,
+					     void *evt_buf,
+					     uint32_t *event_count_flag);
 
 /**
  * wmi_unified_send_vdev_tsf_tstamp_action_cmd() - send vdev tsf action command
@@ -4630,4 +4990,116 @@ QDF_STATUS wmi_extract_quiet_offload_event(
 				struct wmi_unified *wmi_handle, void *evt_buf,
 				struct vdev_sta_quiet_event *quiet_event);
 #endif
+
+#ifdef WLAN_SUPPORT_PPEDS
+/**
+ * wmi_unified_peer_ppe_ds_param_send - Set the PPEDS configs
+ * @wmi_handle: WMI handle
+ * @param: Peer PPE DS param
+ *
+ * Return: QDF_STATUS_SUCCESS for success or error code.
+ */
+QDF_STATUS
+wmi_unified_peer_ppe_ds_param_send(wmi_unified_t wmi_handle,
+				   struct peer_ppe_ds_param *param);
+#endif /* WLAN_SUPPORT_PPEDS */
+
+/**
+ * wmi_extract_pktlog_decode_info_event() - Extract pktlog decode info
+ * @wmi_handle: WMI handle
+ * @evt_buf: event buffer
+ * @pdev_id: pdev_id
+ * @software_image: software image version
+ * @chip_info: chip info
+ * @pktlog_json_version: pktlog json version
+ *
+ * Return: QDF_STATUS_SUCCESS for success or error code
+ */
+QDF_STATUS
+wmi_extract_pktlog_decode_info_event(wmi_unified_t wmi_handle,
+				     void *evt_buf,
+				     uint8_t *pdev_id,
+				     uint8_t *software_image,
+				     uint8_t *chip_info,
+				     uint32_t *pktlog_json_version);
+
+/**
+ * wmi_unified_pn_mgmt_rxfilter_send_cmd() - Send PN mgmt RxFilter command to FW
+ * @wmi_handle: WMI handle
+ * @params: RxFilter params
+ *
+ * Return: QDF_STATUS_SUCCESS for success or error code
+ */
+QDF_STATUS wmi_unified_pn_mgmt_rxfilter_send_cmd(
+		struct wmi_unified *wmi_handle,
+		struct vdev_pn_mgmt_rxfilter_params *params);
+
+/**
+ * wmi_extract_pdev_telemetry_stats_tlv - extract pdev telemetry stats
+ * @wmi_handle: wmi handle
+ * @evt_buf: pointer to event buffer
+ * @pdev stats: Pointer to hold pdev telemetry stats
+ *
+ * Return: QDF_STATUS_SUCCESS for success or error code
+ */
+QDF_STATUS wmi_extract_pdev_telemetry_stats(
+		wmi_unified_t wmi_handle, void *evt_buf,
+		struct wmi_host_pdev_telemetry_stats *pdev_stats);
+
+#ifdef FEATURE_SET
+/**
+ * wmi_feature_set_cmd_send - Send feature set command to fw
+ * @wmi_handle: wmi handle
+ * @feature_set: pointer feature set info which needs to be send to fw
+ *
+ * Return: QDF_STATUS_SUCCESS for success or error code
+ */
+QDF_STATUS wmi_feature_set_cmd_send(
+			wmi_unified_t wmi_handle,
+			struct target_feature_set *feature_set);
+#endif
+
+#ifdef HEALTH_MON_SUPPORT
+/**
+ * wmi_extract_health_mon_event - extract health monitor params
+ * @wmi_handle: wmi handle
+ * @ev: pointer to event buffer
+ * @params: health monitor params
+ *
+ * Return: QDF_STATUS_SUCCESS for success or error code
+ */
+
+QDF_STATUS wmi_extract_health_mon_event(
+		wmi_unified_t wmi_handle,
+		void *ev,
+		struct wmi_health_mon_params *param);
+#endif /* HEALTH_MON_SUPPORT */
+
+/**
+ * wmi_unified__update_edca_pifs_param() - update EDCA/PIFS params
+ * @wmi_handle: wmi handle
+ * @edca_pifs_param: pointer to edca_pifs_vparam struct
+ *
+ * This function updates EDCA/PIFS parameters to the target
+ *
+ * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
+ */
+QDF_STATUS
+wmi_unified_update_edca_pifs_param(
+			wmi_unified_t wmi_handle,
+			struct edca_pifs_vparam *edca_pifs_param);
+
+/**
+ * wmi_extract_sap_coex_cap_service_ready_ext2() - extract sap coex capability
+ * @wmi_handle: wmi handle
+ * @evt_buf: pointer to event buffer
+ * @cap: It's set to 1 if fixed chan SAP is supported by firmware even when the
+ *       channel is unsafe due to coex.
+ *
+ * Return: QDF_STATUS_SUCCESS on success, QDF_STATUS_E_** on error
+ */
+QDF_STATUS wmi_extract_sap_coex_cap_service_ready_ext2(
+			wmi_unified_t wmi_handle,
+			uint8_t *evt_buf,
+			struct wmi_host_coex_fix_chan_cap *cap);
 #endif /* _WMI_UNIFIED_API_H_ */

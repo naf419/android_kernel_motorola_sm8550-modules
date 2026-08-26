@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -44,6 +44,7 @@
 #include <cdp_txrx_ocb.h>
 #include "ol_txrx.h"
 #include "wlan_hdd_object_manager.h"
+#include "wlan_dp_ucfg_api.h"
 
 /* Structure definitions for WLAN_SET_DOT11P_CHANNEL_SCHED */
 #define AIFSN_MIN		(2)
@@ -99,7 +100,8 @@ static int dot11p_validate_qos_params(struct ocb_wmm_param qos_params[])
 
 /**
  * dot11p_validate_channel() - validates a DSRC channel
- * @center_freq: the channel's center frequency
+ * @wiphy: pointer to the wiphy
+ * @channel_freq: the channel's center frequency
  * @bandwidth: the channel's bandwidth
  * @tx_power: transmit power
  * @reg_power: (output) the max tx power from the regulatory domain
@@ -178,6 +180,7 @@ static int dot11p_validate_channel(struct wiphy *wiphy,
 
 /**
  * hdd_ocb_validate_config() - Validates the config data
+ * @adapter: Pointer to HDD Adapter
  * @config: configuration to be validated
  *
  * Return: 0 on success.
@@ -220,8 +223,8 @@ static int hdd_ocb_register_sta(struct hdd_adapter *adapter)
 	QDF_STATUS qdf_status = QDF_STATUS_E_FAILURE;
 	struct ol_txrx_desc_type sta_desc = {0};
 	struct hdd_station_ctx *sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
-	struct ol_txrx_ops txrx_ops;
 	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
+	struct wlan_objmgr_vdev *vdev;
 
 	qdf_status = cdp_peer_register_ocb_peer(soc,
 				adapter->mac_addr.bytes);
@@ -233,14 +236,16 @@ static int hdd_ocb_register_sta(struct hdd_adapter *adapter)
 	WLAN_ADDR_COPY(sta_desc.peer_addr.bytes, adapter->mac_addr.bytes);
 	sta_desc.is_qos_enabled = 1;
 
-	/* Register the vdev transmit and receive functions */
-	qdf_mem_zero(&txrx_ops, sizeof(txrx_ops));
-	txrx_ops.rx.rx = hdd_rx_packet_cbk;
+	vdev = hdd_objmgr_get_vdev_by_user(adapter, WLAN_DP_ID);
+	if (!vdev)
+		return -EINVAL;
 
-	cdp_vdev_register(soc, adapter->vdev_id, (ol_osif_vdev_handle)adapter,
-			  &txrx_ops);
-	txrx_ops.rx.stats_rx = hdd_tx_rx_collect_connectivity_stats_info;
-	adapter->tx_fn = txrx_ops.tx.tx;
+	qdf_status = ucfg_dp_ocb_register_txrx_ops(vdev);
+	hdd_objmgr_put_vdev_by_user(vdev, WLAN_DP_ID);
+	if (!QDF_IS_STATUS_SUCCESS(qdf_status)) {
+		hdd_err("Failed to register tx/rx ops. Status= %d", qdf_status);
+		return -EINVAL;
+	}
 
 	qdf_status = cdp_peer_register(soc, OL_TXRX_PDEV_ID, &sta_desc);
 	if (!QDF_IS_STATUS_SUCCESS(qdf_status)) {
@@ -438,7 +443,7 @@ end:
  * __iw_set_dot11p_channel_sched() - Handler for WLAN_SET_DOT11P_CHANNEL_SCHED
  *				     ioctl
  * @dev: Pointer to net_device structure
- * @iw_request_info: IW Request Info
+ * @info: IW Request Info
  * @wrqu: IW Request Userspace Data Pointer
  * @extra: IW Request Kernel Data Pointer
  *
@@ -577,7 +582,7 @@ fail:
 /**
  * iw_set_dot11p_channel_sched() - IOCTL interface for setting channel schedule
  * @dev: Pointer to net_device structure
- * @iw_request_info: IW Request Info
+ * @info: IW Request Info
  * @wrqu: IW Request Userspace Data Pointer
  * @extra: IW Request Kernel Data Pointer
  *
@@ -704,7 +709,8 @@ const struct nla_policy qca_wlan_vendor_dcc_update_ndl[
  * struct wlan_hdd_ocb_config_channel
  * @chan_freq: frequency of the channel
  * @bandwidth: bandwidth of the channel, either 10 or 20 MHz
- * @mac_address: MAC address assigned to this channel
+ * @flags: channel flags
+ * @reserved: reserved padding, set to 0
  * @qos_params: QoS parameters
  * @max_pwr: maximum transmit power of the channel (1/2 dBm)
  * @min_pwr: minimum transmit power of the channel (1/2 dBm)

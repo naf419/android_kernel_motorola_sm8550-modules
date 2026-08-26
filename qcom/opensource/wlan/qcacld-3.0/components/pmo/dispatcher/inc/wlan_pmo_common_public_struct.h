@@ -20,7 +20,7 @@
  * DOC: Declare various struct, macros which are common for
  * various pmo related features.
  *
- * Note: This file shall not contain public API's prototype/declartions.
+ * Note: This file shall not contain public API's prototype/declarations.
  *
  */
 
@@ -177,13 +177,13 @@ enum powersave_mode {
  * @PMO_SUSPEND_NONE: Does not support suspend
  * @PMO_SUSPEND_LEGENCY: Legency PDEV suspend mode
  * @PMO_SUSPEND_WOW: WoW suspend mode
- * @PMO_FULL_POWER_DOWN: Full power down while suspend
+ * @PMO_SUSPEND_SHUTDOWN: Shutdown suspend mode. Shutdown while suspend
  */
 enum pmo_suspend_mode {
 	PMO_SUSPEND_NONE = 0,
 	PMO_SUSPEND_LEGENCY,
 	PMO_SUSPEND_WOW,
-	PMO_FULL_POWER_DOWN
+	PMO_SUSPEND_SHUTDOWN
 };
 
 #define PMO_TARGET_SUSPEND_TIMEOUT   (4000)
@@ -382,13 +382,6 @@ struct pmo_icmp_offload {
  * @disconnect_sap_tdls_in_wow: sap/p2p_go disconnect or teardown tdls link
  * @is_icmp_offload_enable: true if icmp offload is supported
  *	for psoc else false
- * @enable_ssr_on_page_fault: Enable ssr on pagefault
- * @max_pagefault_wakeups_for_ssr: Maximum number of pagefaults after which host
- * needs to trigger SSR
- * @interval_for_pagefault_wakeup_counts: Time in ms in which max pagefault
- * wakeups needs to be monitored.
- * @ssr_frequency_on_pagefault: Time in ms in which SSR needs to be triggered
- * on max pagefault
  */
 struct pmo_psoc_cfg {
 	bool ptrn_match_enable_all_vdev;
@@ -469,10 +462,6 @@ struct pmo_psoc_cfg {
 #ifdef WLAN_FEATURE_ICMP_OFFLOAD
 	bool is_icmp_offload_enable;
 #endif
-	bool enable_ssr_on_page_fault;
-	uint8_t max_pagefault_wakeups_for_ssr;
-	uint32_t interval_for_pagefault_wakeup_counts;
-	uint32_t ssr_frequency_on_pagefault;
 };
 
 /**

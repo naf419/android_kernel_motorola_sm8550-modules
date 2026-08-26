@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -30,7 +30,6 @@
 #include "wlan_hdd_connectivity_logging.h"
 #include <osif_cm_req.h>
 #include <wlan_logging_sock_svc.h>
-#include <wlan_hdd_periodic_sta_stats.h>
 #include <wlan_hdd_green_ap.h>
 #include <wlan_hdd_p2p.h>
 #include <wlan_p2p_ucfg_api.h>
@@ -42,16 +41,21 @@
 #include "wlan_vdev_mgr_ucfg_api.h"
 #include "wlan_hdd_bootup_marker.h"
 #include "sme_qos_internal.h"
-#include "wlan_blm_ucfg_api.h"
+#include "wlan_dlm_ucfg_api.h"
 #include "wlan_hdd_scan.h"
 #include "wlan_osif_priv.h"
 #include <enet.h>
 #include <wlan_mlme_twt_ucfg_api.h>
 #include "wlan_roam_debug.h"
 #include <wlan_hdd_regulatory.h>
+#include "wlan_hdd_hostapd.h"
 #include <wlan_twt_ucfg_ext_api.h>
 #include <osif_twt_internal.h>
-#include "wlan_hdd_hostapd.h"
+#include "wlan_osif_features.h"
+#include "wlan_osif_request_manager.h"
+#include <wlan_dp_ucfg_api.h>
+#include "wlan_psoc_mlme_ucfg_api.h"
+#include "wlan_action_oui_ucfg_api.h"
 
 bool hdd_cm_is_vdev_associated(struct hdd_adapter *adapter)
 {
@@ -151,29 +155,6 @@ bool hdd_cm_is_disconnected(struct hdd_adapter *adapter)
 	return is_vdev_disconnected;
 }
 
-bool hdd_cm_is_disconnecting(struct hdd_adapter *adapter)
-{
-	struct wlan_objmgr_vdev *vdev;
-	bool is_vdev_disconnecting;
-	enum QDF_OPMODE opmode;
-
-	vdev = hdd_objmgr_get_vdev_by_user(adapter, WLAN_OSIF_CM_ID);
-
-	if (!vdev)
-		return false;
-
-	opmode = wlan_vdev_mlme_get_opmode(vdev);
-	if (opmode != QDF_STA_MODE && opmode != QDF_P2P_CLIENT_MODE) {
-		hdd_objmgr_put_vdev_by_user(vdev, WLAN_OSIF_CM_ID);
-		return false;
-	}
-	is_vdev_disconnecting = ucfg_cm_is_vdev_disconnecting(vdev);
-
-	hdd_objmgr_put_vdev_by_user(vdev, WLAN_OSIF_CM_ID);
-
-	return is_vdev_disconnecting;
-}
-
 bool hdd_cm_is_vdev_roaming(struct hdd_adapter *adapter)
 {
 	struct wlan_objmgr_vdev *vdev;
@@ -260,13 +241,12 @@ void hdd_cm_handle_assoc_event(struct wlan_objmgr_vdev *vdev, uint8_t *peer_mac)
 	if (ret)
 		hdd_err("Peer object " QDF_MAC_ADDR_FMT " fail to set associated state",
 			QDF_MAC_ADDR_REF(peer_mac));
-	hdd_add_latency_critical_client(
-			adapter,
+	ucfg_dp_add_latency_critical_client(vdev,
 			hdd_convert_cfgdot11mode_to_80211mode(
 				sta_ctx->conn_info.dot11mode));
 
-	hdd_bus_bw_compute_prev_txrx_stats(adapter);
-	hdd_bus_bw_compute_timer_start(hdd_ctx);
+	ucfg_dp_bus_bw_compute_prev_txrx_stats(vdev);
+	ucfg_dp_bus_bw_compute_timer_start(hdd_ctx->psoc);
 
 	if (ucfg_pkt_capture_get_pktcap_mode(hdd_ctx->psoc))
 		ucfg_pkt_capture_record_channel(adapter->vdev);
@@ -364,6 +344,117 @@ static void hdd_update_scan_ie_for_connect(struct hdd_adapter *adapter,
 	}
 }
 
+#if ((LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)) || \
+	defined(CFG80211_11BE_BASIC)) && \
+	defined(WLAN_FEATURE_11BE)
+/**
+ * hdd_update_action_oui_for_connect() - Update Action OUI for 802.11be AP
+ * @hdd_ctx: hdd context
+ * @req: connect request parameter
+ *
+ * If user sets flag ASSOC_REQ_DISABLE_EHT in connect request, driver
+ * will send action oui "ffffff 00 01" to host mlme and also firmware
+ * for action id ACTION_OUI_11BE_OUI_ALLOW, so that all the AP will
+ * be not matched with this OUI and 802.11be mode will not be allowed,
+ * possibly downgrade to 11ax will happen.
+ * If user doesn't set ASSOC_REQ_DISABLE_EHT, driver/firmware will
+ * recover to default INI setting.
+ *
+ * Returns: void
+ */
+static void
+hdd_update_action_oui_for_connect(struct hdd_context *hdd_ctx,
+				  struct cfg80211_connect_params *req)
+{
+	QDF_STATUS status;
+	uint8_t *str;
+	bool usr_disable_eht;
+
+	if (!ucfg_action_oui_enabled(hdd_ctx->psoc))
+		return;
+
+	usr_disable_eht = ucfg_mlme_get_usr_disable_sta_eht(hdd_ctx->psoc);
+	if (req->flags & ASSOC_REQ_DISABLE_EHT ||
+	    !(req->flags & CONNECT_REQ_MLO_SUPPORT)) {
+		if (usr_disable_eht) {
+			hdd_debug("user eht is disabled already");
+			return;
+		}
+		status = ucfg_action_oui_cleanup(
+				hdd_ctx->psoc, ACTION_OUI_11BE_OUI_ALLOW);
+		if (!QDF_IS_STATUS_SUCCESS(status)) {
+			hdd_err("Failed to cleanup oui id %d",
+				ACTION_OUI_11BE_OUI_ALLOW);
+			return;
+		}
+		status = ucfg_action_oui_parse(hdd_ctx->psoc,
+					       ACTION_OUI_INVALID,
+					       ACTION_OUI_11BE_OUI_ALLOW);
+		if (!QDF_IS_STATUS_SUCCESS(status)) {
+			hdd_err("Failed to parse action_oui str for id %d",
+				ACTION_OUI_11BE_OUI_ALLOW);
+			return;
+		}
+	} else {
+		if (!usr_disable_eht) {
+			hdd_debug("user eht is enabled already");
+			return;
+		}
+		status = ucfg_action_oui_cleanup(hdd_ctx->psoc,
+						 ACTION_OUI_11BE_OUI_ALLOW);
+		if (!QDF_IS_STATUS_SUCCESS(status)) {
+			hdd_err("Failed to cleanup oui id %d",
+				ACTION_OUI_11BE_OUI_ALLOW);
+			return;
+		}
+		str = ucfg_action_oui_get_config(hdd_ctx->psoc,
+						 ACTION_OUI_11BE_OUI_ALLOW);
+		if (!qdf_str_len(str))
+			goto send_oui;
+
+		status = ucfg_action_oui_parse(hdd_ctx->psoc,
+					       str, ACTION_OUI_11BE_OUI_ALLOW);
+		if (!QDF_IS_STATUS_SUCCESS(status)) {
+			hdd_err("Failed to parse action_oui str for id %d",
+				ACTION_OUI_11BE_OUI_ALLOW);
+			return;
+		}
+	}
+
+send_oui:
+	status = ucfg_action_oui_send_by_id(hdd_ctx->psoc,
+					    ACTION_OUI_11BE_OUI_ALLOW);
+	if (!QDF_IS_STATUS_SUCCESS(status)) {
+		hdd_err("Failed to send oui id %d", ACTION_OUI_11BE_OUI_ALLOW);
+		return;
+	}
+	ucfg_mlme_set_usr_disable_sta_eht(hdd_ctx->psoc, !usr_disable_eht);
+}
+#else
+static void
+hdd_update_action_oui_for_connect(struct hdd_context *hdd_ctx,
+				  struct cfg80211_connect_params *req)
+{
+}
+#endif
+
+#ifdef WLAN_FEATURE_11BE
+static inline bool
+hdd_config_is_dot11mode_11be_only(struct hdd_config *config)
+{
+	if (config->dot11Mode == eHDD_DOT11_MODE_11be_ONLY)
+		return true;
+	else
+		return false;
+}
+#else
+static inline bool
+hdd_config_is_dot11mode_11be_only(struct hdd_config *config)
+{
+	return false;
+}
+#endif
+
 /**
  * hdd_get_dot11mode_filter() - Get dot11 mode filter
  * @hdd_ctx: HDD context
@@ -384,6 +475,8 @@ hdd_get_dot11mode_filter(struct hdd_context *hdd_ctx)
 		return ALLOW_11AC_ONLY;
 	else if (config->dot11Mode == eHDD_DOT11_MODE_11ax_ONLY)
 		return ALLOW_11AX_ONLY;
+	else if (hdd_config_is_dot11mode_11be_only(config))
+		return ALLOW_11BE_ONLY;
 	else
 		return ALLOW_ALL;
 }
@@ -452,6 +545,8 @@ bool wlan_hdd_cm_handle_sap_sta_dfs_conc(struct hdd_context *hdd_ctx,
 	struct hdd_hostapd_state *hostapd_state;
 	QDF_STATUS status;
 	qdf_freq_t ch_freq = 0;
+	enum phy_ch_width ch_bw;
+	enum channel_state ch_state;
 	struct scan_filter *scan_filter;
 	qdf_list_t *list = NULL;
 	qdf_list_node_t *cur_lst = NULL;
@@ -495,11 +590,15 @@ bool wlan_hdd_cm_handle_sap_sta_dfs_conc(struct hdd_context *hdd_ctx,
 		qdf_mem_copy(scan_filter->bssid_list[0].bytes, req->bssid,
 			     QDF_MAC_ADDR_SIZE);
 	}
-	scan_filter->num_of_ssid = 1;
-	scan_filter->ssid_list[0].length =
-				QDF_MIN(req->ssid_len, QDF_MAC_ADDR_SIZE);
-	qdf_mem_copy(scan_filter->ssid_list[0].ssid, req->ssid,
-		     scan_filter->ssid_list[0].length);
+	if (req->ssid_len > WLAN_SSID_MAX_LEN) {
+		scan_filter->num_of_ssid = 0;
+		hdd_err("req ssid len invalid %zu", req->ssid_len);
+	} else {
+		scan_filter->num_of_ssid = 1;
+		scan_filter->ssid_list[0].length = req->ssid_len;
+		qdf_mem_copy(scan_filter->ssid_list[0].ssid, req->ssid,
+			     scan_filter->ssid_list[0].length);
+	}
 	scan_filter->ignore_auth_enc_type = true;
 	list = ucfg_scan_get_result(hdd_ctx->pdev, scan_filter);
 	qdf_mem_free(scan_filter);
@@ -533,10 +632,29 @@ def_chan:
 	 * better move SAP to STA's channel to make scc, so we have room
 	 * for 3port MCC scenario.
 	 */
+	ch_bw = hdd_ap_ctx->sap_config.ch_width_orig;
 	if (!ch_freq || wlan_reg_is_dfs_for_freq(hdd_ctx->pdev, ch_freq) ||
-	    !policy_mgr_is_safe_channel(hdd_ctx->psoc, ch_freq))
+	    !policy_mgr_is_safe_channel(hdd_ctx->psoc, ch_freq)) {
 		ch_freq = policy_mgr_get_nondfs_preferred_channel(
 			hdd_ctx->psoc, PM_SAP_MODE, true);
+		if (WLAN_REG_IS_5GHZ_CH_FREQ(ch_freq) &&
+		    ch_bw > CH_WIDTH_20MHZ) {
+			ch_state =
+				wlan_reg_get_5g_bonded_channel_state_for_freq(
+					hdd_ctx->pdev, ch_freq, ch_bw);
+			while (ch_bw > CH_WIDTH_20MHZ &&
+			       ch_state != CHANNEL_STATE_ENABLE) {
+				ch_bw =
+				wlan_reg_get_next_lower_bandwidth(ch_bw);
+				ch_state =
+				wlan_reg_get_5g_bonded_channel_state_for_freq(
+					hdd_ctx->pdev, ch_freq, ch_bw);
+			}
+			hdd_debug("bw change from %d to %d",
+				  hdd_ap_ctx->sap_config.ch_width_orig,
+				  ch_bw);
+		}
+	}
 
 	hostapd_state = WLAN_HDD_GET_HOSTAP_STATE_PTR(ap_adapter);
 	qdf_event_reset(&hostapd_state->qdf_event);
@@ -545,7 +663,7 @@ def_chan:
 
 	status = wlansap_set_channel_change_with_csa(
 			WLAN_HDD_GET_SAP_CTX_PTR(ap_adapter), ch_freq,
-			hdd_ap_ctx->sap_config.ch_width_orig, false);
+			ch_bw, false);
 
 	if (QDF_STATUS_SUCCESS != status) {
 		hdd_err("Set channel with CSA IE failed, can't allow STA");
@@ -581,6 +699,7 @@ int wlan_hdd_cm_connect(struct wiphy *wiphy,
 	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(ndev);
 	struct hdd_context *hdd_ctx;
 	struct hdd_station_ctx *hdd_sta_ctx;
+	qdf_freq_t ch_freq = 0;
 
 	hdd_enter();
 
@@ -619,8 +738,17 @@ int wlan_hdd_cm_connect(struct wiphy *wiphy,
 		return -EINVAL;
 	}
 
+	if (req->channel && req->channel->center_freq)
+		ch_freq = req->channel->center_freq;
+
+	if (ch_freq && wlan_reg_is_6ghz_chan_freq(ch_freq) &&
+	    !wlan_reg_is_6ghz_band_set(hdd_ctx->pdev)) {
+		hdd_err("6 GHz band disabled");
+		return -EINVAL;
+	}
+
 	qdf_mem_zero(&params, sizeof(params));
-	ucfg_blm_dump_black_list_ap(hdd_ctx->pdev);
+	ucfg_dlm_dump_deny_list_ap(hdd_ctx->pdev);
 	vdev = hdd_objmgr_get_vdev_by_user(adapter, WLAN_OSIF_CM_ID);
 	if (!vdev)
 		return -EINVAL;
@@ -645,8 +773,18 @@ int wlan_hdd_cm_connect(struct wiphy *wiphy,
 	params.dot11mode_filter = hdd_get_dot11mode_filter(hdd_ctx);
 
 	hdd_update_scan_ie_for_connect(adapter, &params);
+	hdd_update_action_oui_for_connect(hdd_ctx, req);
 
 	wlan_hdd_connectivity_event_connecting(hdd_ctx, req, adapter->vdev_id);
+
+	if (!hdd_cm_is_vdev_associated(adapter)) {
+		/*
+		 * Clear user/wpa_supplicant disabled_roaming flag for new
+		 * connection
+		 */
+		ucfg_clear_user_disabled_roaming(hdd_ctx->psoc,
+						 adapter->vdev_id);
+	}
 	status = osif_cm_connect(ndev, vdev, req, &params);
 
 	if (status || ucfg_cm_is_vdev_roaming(vdev)) {
@@ -704,6 +842,7 @@ hdd_cm_connect_failure_pre_user_update(struct wlan_objmgr_vdev *vdev,
 	hdd_init_scan_reject_params(hdd_ctx);
 	hdd_cm_save_connect_status(adapter, rsp->status_code);
 	hdd_conn_remove_connect_info(hdd_sta_ctx);
+	ucfg_dp_remove_conn_info(vdev);
 	hdd_cm_update_rssi_snr_by_bssid(adapter);
 	hdd_cm_rec_connect_info(adapter, rsp);
 	hdd_debug("Invoking packetdump deregistration API");
@@ -742,7 +881,7 @@ hdd_cm_connect_failure_post_user_update(struct wlan_objmgr_vdev *vdev,
 	wlan_hdd_netif_queue_control(adapter,
 				     WLAN_STOP_ALL_NETIF_QUEUE_N_CARRIER,
 				     WLAN_CONTROL_PATH);
-	hdd_periodic_sta_stats_start(adapter);
+	ucfg_dp_periodic_sta_stats_start(vdev);
 	wlan_twt_concurrency_update(hdd_ctx);
 }
 
@@ -950,9 +1089,12 @@ static void hdd_wmm_cm_connect(struct wlan_objmgr_vdev *vdev,
 	adapter->hdd_wmm_status.qap = qap;
 	adapter->hdd_wmm_status.qos_connection = qos_connection;
 
+	if (acm_mask)
+		QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
+				   (uint8_t *)acm_mask_bit,  WLAN_MAX_AC);
+
 	for (ac = 0; ac < WLAN_MAX_AC; ac++) {
 		if (qap && qos_connection && (acm_mask & acm_mask_bit[ac])) {
-			hdd_debug("ac %d on", ac);
 
 			/* admission is required */
 			adapter->hdd_wmm_status.ac_status[ac].
@@ -980,7 +1122,6 @@ static void hdd_wmm_cm_connect(struct wlan_objmgr_vdev *vdev,
 					is_access_allowed = false;
 			}
 		} else {
-			hdd_debug("ac %d off", ac);
 			/* admission is not required so access is allowed */
 			adapter->hdd_wmm_status.ac_status[ac].
 			is_access_required = false;
@@ -1000,7 +1141,9 @@ static void hdd_cm_save_connect_info(struct hdd_adapter *adapter,
 	uint8_t *ie_field;
 	uint32_t ie_len, status;
 	tDot11fBeaconIEs *bcn_ie;
+	struct s_ext_cap *p_ext_cap = NULL;
 	mac_handle_t mac_handle = hdd_adapter_get_mac_handle(adapter);
+	uint32_t phymode;
 
 	sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
 	bcn_ie = qdf_mem_malloc(sizeof(*bcn_ie));
@@ -1008,6 +1151,18 @@ static void hdd_cm_save_connect_info(struct hdd_adapter *adapter,
 		return;
 
 	qdf_copy_macaddr(&sta_ctx->conn_info.bssid, &rsp->bssid);
+	vdev = hdd_objmgr_get_vdev_by_user(adapter, WLAN_DP_ID);
+	if (vdev) {
+		ucfg_dp_conn_info_set_bssid(vdev, &rsp->bssid);
+		hdd_objmgr_put_vdev_by_user(vdev, WLAN_DP_ID);
+	}
+
+	phymode = wlan_reg_get_max_phymode(adapter->hdd_ctx->pdev,
+					   REG_PHYMODE_MAX,
+					   rsp->freq);
+
+	sta_ctx->reg_phymode = csr_convert_from_reg_phy_mode(phymode);
+
 	sta_ctx->conn_info.assoc_status_code = rsp->status_code;
 
 	crypto_params = wlan_crypto_vdev_get_crypto_params(adapter->vdev);
@@ -1067,10 +1222,10 @@ static void hdd_cm_save_connect_info(struct hdd_adapter *adapter,
 		return;
 	}
 	if (bcn_ie->ExtCap.present) {
-		struct s_ext_cap *p_ext_cap = (struct s_ext_cap *)
-						bcn_ie->ExtCap.bytes;
+		p_ext_cap = (struct s_ext_cap *)bcn_ie->ExtCap.bytes;
 		sta_ctx->conn_info.proxy_arp_service =
 						p_ext_cap->proxy_arp_service;
+
 	}
 
 	vdev = hdd_objmgr_get_vdev_by_user(adapter, WLAN_OSIF_CM_ID);
@@ -1080,6 +1235,11 @@ static void hdd_cm_save_connect_info(struct hdd_adapter *adapter,
 					     &sta_ctx->conn_info.rate_flags);
 		hdd_wmm_cm_connect(vdev, adapter, bcn_ie,
 				   sta_ctx->conn_info.auth_type);
+
+		if (p_ext_cap)
+			ucfg_dp_conn_info_set_arp_service(vdev,
+					p_ext_cap->proxy_arp_service);
+
 		hdd_objmgr_put_vdev_by_user(vdev, WLAN_OSIF_CM_ID);
 	}
 	qdf_mem_free(bcn_ie);
@@ -1121,25 +1281,60 @@ static bool hdd_cm_is_roam_auth_required(struct hdd_station_ctx *sta_ctx,
 #endif
 
 #if defined(WLAN_FEATURE_11BE_MLO) && defined(CFG80211_11BE_BASIC)
-static
 struct hdd_adapter *hdd_get_assoc_link_adapter(struct hdd_adapter *ml_adapter)
 {
 	int i;
+	bool eht_capab;
+	struct hdd_adapter *link_adapter;
+	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(ml_adapter);
+
+	ucfg_psoc_mlme_get_11be_capab(hdd_ctx->psoc, &eht_capab);
+	if (!eht_capab || hdd_adapter_is_sl_ml_adapter(ml_adapter))
+		return ml_adapter;
 
 	for (i = 0; i < WLAN_MAX_MLD; i++) {
-		if (hdd_adapter_is_associated_with_ml_adapter(
-		    ml_adapter->mlo_adapter_info.link_adapter[i])) {
-			return ml_adapter->mlo_adapter_info.link_adapter[i];
+		link_adapter = ml_adapter->mlo_adapter_info.link_adapter[i];
+		if (link_adapter) {
+			if (hdd_adapter_is_associated_with_ml_adapter(
+								link_adapter))
+				return link_adapter;
 		}
 	}
+
 	return NULL;
 }
 
-#else
-static
-struct hdd_adapter *hdd_get_assoc_link_adapter(struct hdd_adapter *ml_adapter)
+static void hdd_set_immediate_power_save(struct hdd_adapter *adapter,
+					 bool is_immediate_powersave)
 {
-	return NULL;
+	struct hdd_adapter *link_adapter;
+	struct hdd_mlo_adapter_info *mlo_adapter_info;
+	struct hdd_station_ctx *sta_ctx;
+	int i;
+
+	mlo_adapter_info = &adapter->mlo_adapter_info;
+	if (mlo_adapter_info->is_ml_adapter) {
+		for (i = 0; i < WLAN_MAX_MLD; i++) {
+			link_adapter = mlo_adapter_info->link_adapter[i];
+			if (!link_adapter)
+				continue;
+			sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(link_adapter);
+			sta_ctx->ap_supports_immediate_power_save =
+							is_immediate_powersave;
+		}
+	}
+	sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
+	sta_ctx->ap_supports_immediate_power_save = is_immediate_powersave;
+}
+
+#else
+static void hdd_set_immediate_power_save(struct hdd_adapter *adapter,
+					 bool is_immediate_powersave)
+{
+	struct hdd_station_ctx *sta_ctx;
+
+	sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
+	sta_ctx->ap_supports_immediate_power_save = is_immediate_powersave;
 }
 #endif
 
@@ -1160,9 +1355,9 @@ hdd_cm_connect_success_pre_user_update(struct wlan_objmgr_vdev *vdev,
 	bool is_roam = rsp->is_reassoc;
 	ol_txrx_soc_handle soc = cds_get_context(QDF_MODULE_ID_SOC);
 	uint8_t uapsd_mask = 0;
-	uint32_t phymode;
 	uint32_t time_buffer_size;
-	struct hdd_adapter *assoc_link_adapter;
+	struct hdd_adapter *assoc_link_adapter = NULL;
+	bool is_immediate_power_save;
 
 	hdd_ctx = cds_get_context(QDF_MODULE_ID_HDD);
 	if (!hdd_ctx) {
@@ -1199,12 +1394,8 @@ hdd_cm_connect_success_pre_user_update(struct wlan_objmgr_vdev *vdev,
 		if (assoc_link_adapter)
 			hdd_cm_save_connect_info(assoc_link_adapter, rsp);
 	}
-	phymode = wlan_reg_get_max_phymode(hdd_ctx->pdev, REG_PHYMODE_MAX,
-					   rsp->freq);
-	sta_ctx->reg_phymode = csr_convert_from_reg_phy_mode(phymode);
-
 	if (hdd_add_beacon_filter(adapter) != 0)
-		hdd_err("add beacon fileter failed");
+		hdd_err("add beacon filter failed");
 
 	adapter->wapi_info.is_wapi_sta = hdd_cm_is_wapi_sta(
 						sta_ctx->conn_info.auth_type);
@@ -1220,9 +1411,10 @@ hdd_cm_connect_success_pre_user_update(struct wlan_objmgr_vdev *vdev,
 		ie_field  = (uint8_t *)(rsp->connect_ies.bcn_probe_rsp.ptr +
 				sizeof(struct wlan_frame_hdr) +
 				offsetof(struct wlan_bcn_frame, ie));
-		sta_ctx->ap_supports_immediate_power_save =
+		is_immediate_power_save =
 				wlan_hdd_is_ap_supports_immediate_power_save(
-				     ie_field, ie_len);
+					ie_field, ie_len);
+		hdd_set_immediate_power_save(adapter, is_immediate_power_save);
 		hdd_debug("ap_supports_immediate_power_save flag [%d]",
 			  sta_ctx->ap_supports_immediate_power_save);
 	}
@@ -1235,7 +1427,7 @@ hdd_cm_connect_success_pre_user_update(struct wlan_objmgr_vdev *vdev,
 	 * hdd_send_ft_assoc_response,
 	 */
 
-	hdd_ipa_set_tx_flow_info();
+	wlan_hdd_set_tx_flow_info();
 	hdd_place_marker(adapter, "ASSOCIATION COMPLETE", NULL);
 
 	if (policy_mgr_is_mcc_in_24G(hdd_ctx->psoc)) {
@@ -1282,6 +1474,7 @@ hdd_cm_connect_success_pre_user_update(struct wlan_objmgr_vdev *vdev,
 	hdd_wmm_assoc(adapter, false, uapsd_mask);
 
 	if (!rsp->is_wps_connection &&
+	    !rsp->is_osen_connection &&
 	    (sta_ctx->conn_info.auth_type == eCSR_AUTH_TYPE_NONE ||
 	     sta_ctx->conn_info.auth_type == eCSR_AUTH_TYPE_OPEN_SYSTEM ||
 	     sta_ctx->conn_info.auth_type == eCSR_AUTH_TYPE_SHARED_KEY ||
@@ -1295,12 +1488,15 @@ hdd_cm_connect_success_pre_user_update(struct wlan_objmgr_vdev *vdev,
 	if (is_roam_offload || !is_roam) {
 		/* For FW_ROAM/LFR3 OR connect */
 		/* for LFR 3 get authenticated info from resp */
-		if (is_roam)
+		if (is_roam) {
 			is_auth_required =
 				hdd_cm_is_roam_auth_required(sta_ctx, rsp);
-		if (is_auth_required)
-			wlan_acquire_peer_key_wakelock(hdd_ctx->pdev,
-						       rsp->bssid.bytes);
+			if (is_auth_required)
+				wlan_acquire_peer_key_wakelock(hdd_ctx->pdev,
+							      rsp->bssid.bytes);
+		}
+		hdd_debug("is_roam_offload %d, is_roam %d, is_auth_required %d",
+			  is_roam_offload, is_roam, is_auth_required);
 		hdd_roam_register_sta(adapter, &rsp->bssid, is_auth_required);
 	} else {
 		/* for host roam/LFR2 */
@@ -1342,8 +1538,19 @@ hdd_cm_connect_success_pre_user_update(struct wlan_objmgr_vdev *vdev,
 		QDF_PROTO_TYPE_MGMT, QDF_PROTO_MGMT_ASSOC));
 
 	if (is_roam)
-		hdd_nud_indicate_roam(adapter);
+		ucfg_dp_nud_indicate_roam(vdev);
 	 /* hdd_objmgr_set_peer_mlme_auth_state */
+
+	if (assoc_link_adapter) {
+		if (assoc_link_adapter->keep_alive_interval)
+			hdd_vdev_send_sta_keep_alive_interval(
+				adapter, hdd_ctx,
+				assoc_link_adapter->keep_alive_interval);
+	} else if (adapter->keep_alive_interval) {
+		hdd_vdev_send_sta_keep_alive_interval(
+						adapter, hdd_ctx,
+						adapter->keep_alive_interval);
+	}
 }
 
 static void
@@ -1384,7 +1591,7 @@ hdd_cm_connect_success_post_user_update(struct wlan_objmgr_vdev *vdev,
 				      &rsp->bssid,
 				      TWT_ALL_SESSIONS_DIALOG_ID);
 	}
-	hdd_periodic_sta_stats_start(adapter);
+	ucfg_dp_periodic_sta_stats_start(vdev);
 	wlan_twt_concurrency_update(hdd_ctx);
 }
 
@@ -1413,6 +1620,117 @@ QDF_STATUS hdd_cm_connect_complete(struct wlan_objmgr_vdev *vdev,
 		hdd_cm_connect_failure(vdev, rsp, type);
 	else
 		hdd_cm_connect_success(vdev, rsp, type);
+
+	return QDF_STATUS_SUCCESS;
+}
+
+QDF_STATUS hdd_cm_send_vdev_keys(struct wlan_objmgr_vdev *vdev,
+				 u8 key_index, bool pairwise,
+				 enum wlan_crypto_cipher_type cipher_type)
+{
+	return wlan_hdd_send_key_vdev(vdev, key_index, pairwise, cipher_type);
+}
+
+#ifdef WLAN_VENDOR_HANDOFF_CONTROL
+#define WLAN_WAIT_TIME_HANDOFF_PARAMS 1000
+QDF_STATUS hdd_cm_get_handoff_param(struct wlan_objmgr_psoc *psoc,
+				    struct hdd_adapter *adapter,
+				    uint8_t vdev_id, uint32_t param_id)
+{
+	QDF_STATUS status;
+	int retval;
+	void *vendor_handoff_context;
+	struct osif_request *request;
+	static const struct osif_request_params params = {
+		.priv_size = 0,
+		.timeout_ms = WLAN_WAIT_TIME_HANDOFF_PARAMS,
+	};
+
+	request = osif_request_alloc(&params);
+	if (!request) {
+		hdd_err("Request allocation failure");
+		status = QDF_STATUS_E_NOMEM;
+		goto error;
+	}
+
+	vendor_handoff_context = osif_request_cookie(request);
+
+	hdd_debug("sending vendor handoff param request for :0x%x", param_id);
+	status = ucfg_cm_roam_send_vendor_handoff_param_req(psoc, vdev_id,
+							param_id,
+							vendor_handoff_context);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_err("Unable to get vendor handoff param");
+		goto error;
+	}
+
+	retval = osif_request_wait_for_response(request);
+	if (retval) {
+		hdd_err("Target response timed out");
+		status = qdf_status_from_os_return(retval);
+	}
+error:
+	if (request)
+		osif_request_put(request);
+
+	return status;
+}
+
+QDF_STATUS
+hdd_cm_get_vendor_handoff_params(struct wlan_objmgr_psoc *psoc,
+				 void *vendor_handoff_context)
+{
+	struct osif_request *request;
+
+	hdd_debug("Received vendor handoff event from FW");
+
+	request = osif_request_get(vendor_handoff_context);
+	if (!request) {
+		hdd_err("Invalid request");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	osif_request_complete(request);
+	osif_request_put(request);
+
+	hdd_exit();
+
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
+QDF_STATUS
+hdd_cm_get_scan_ie_params(struct wlan_objmgr_vdev *vdev,
+			  struct element_info *scan_ie,
+			  enum dot11_mode_filter *dot11mode_filter)
+{
+	struct hdd_context *hdd_ctx = cds_get_context(QDF_MODULE_ID_HDD);
+	struct hdd_adapter *adapter;
+
+	if (!hdd_ctx) {
+		hdd_err("hdd_ctx is NULL");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	adapter = hdd_get_adapter_by_vdev(hdd_ctx, wlan_vdev_get_id(vdev));
+	if (!adapter) {
+		hdd_err("adapter is NULL for vdev %d", wlan_vdev_get_id(vdev));
+		return QDF_STATUS_E_INVAL;
+	}
+
+	if (adapter->device_mode == QDF_P2P_CLIENT_MODE) {
+		scan_ie->ptr =
+			&adapter->scan_info.scan_add_ie.addIEdata[0];
+		scan_ie->len = adapter->scan_info.scan_add_ie.length;
+	} else if (adapter->scan_info.default_scan_ies) {
+		scan_ie->ptr = adapter->scan_info.default_scan_ies;
+		scan_ie->len = adapter->scan_info.default_scan_ies_len;
+	} else if (adapter->scan_info.scan_add_ie.length) {
+		scan_ie->ptr = adapter->scan_info.scan_add_ie.addIEdata;
+		scan_ie->len = adapter->scan_info.scan_add_ie.length;
+	}
+
+	*dot11mode_filter = hdd_get_dot11mode_filter(hdd_ctx);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -1560,7 +1878,13 @@ static void hdd_update_hlp_info(struct net_device *dev,
 	 */
 	skb->ip_summed = CHECKSUM_UNNECESSARY;
 
-	status = hdd_rx_packet_cbk(adapter, skb);
+	/*
+	 * adapter->vdev is directly dereferenced because in per packet
+	 * path usage of hdd_get_vdev_by_user is costly operation as it
+	 * involves lock access. And it is guaranteed during TX/RX operations
+	 * vdev will be active will not deleted.
+	 */
+	status = ucfg_dp_rx_packet_cbk(adapter->vdev, (qdf_nbuf_t)skb);
 	if (QDF_IS_STATUS_ERROR(status)) {
 		hdd_err("Sending HLP packet fails");
 		return;
@@ -1634,9 +1958,9 @@ QDF_STATUS hdd_cm_ft_preauth_complete(struct wlan_objmgr_vdev *vdev,
 	struct wireless_dev *wdev;
 	uint16_t auth_resp_len = 0;
 	uint32_t ric_ies_length = 0;
-	struct cfg80211_ft_event_params ft_event;
-	uint8_t ft_ie[DOT11F_IE_FTINFO_MAX_LEN];
-	uint8_t ric_ies[DOT11F_IE_RICDESCRIPTOR_MAX_LEN];
+	struct cfg80211_ft_event_params ft_event = {0};
+	uint8_t ft_ie[DOT11F_IE_FTINFO_MAX_LEN] = {0};
+	uint8_t ric_ies[DOT11F_IE_RICDESCRIPTOR_MAX_LEN] = {0};
 
 	mac_handle = cds_get_context(QDF_MODULE_ID_SME);
 	if (!mac_handle) {
@@ -1655,9 +1979,6 @@ QDF_STATUS hdd_cm_ft_preauth_complete(struct wlan_objmgr_vdev *vdev,
 		return QDF_STATUS_E_INVAL;
 	}
 
-	qdf_mem_zero(ft_ie, DOT11F_IE_FTINFO_MAX_LEN);
-	qdf_mem_zero(ric_ies, DOT11F_IE_RICDESCRIPTOR_MAX_LEN);
-
 	if (rsp->ric_ies_length &&
 	    rsp->ric_ies_length <= DOT11F_IE_RICDESCRIPTOR_MAX_LEN) {
 		qdf_mem_copy(ric_ies, rsp->ric_ies, rsp->ric_ies_length);
@@ -1666,8 +1987,10 @@ QDF_STATUS hdd_cm_ft_preauth_complete(struct wlan_objmgr_vdev *vdev,
 		hdd_warn("Do not send RIC IEs as length is 0");
 	}
 
-	ft_event.ric_ies = ric_ies;
-	ft_event.ric_ies_len = ric_ies_length;
+	if (ric_ies_length) {
+		ft_event.ric_ies = ric_ies;
+		ft_event.ric_ies_len = ric_ies_length;
+	}
 	hdd_debug("RIC IEs is of length %d", ric_ies_length);
 
 	hdd_cm_get_ft_preauth_response(vdev, rsp, ft_ie,

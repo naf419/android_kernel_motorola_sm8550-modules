@@ -32,7 +32,10 @@
 #include "wlan_policy_mgr_public_struct.h"
 #include "wlan_policy_mgr_api.h"
 #include "wlan_scan_ucfg_api.h"
-
+#include "wlan_tdls_ucfg_api.h"
+#include "wlan_cm_roam_api.h"
+#include "wlan_cfg80211_tdls.h"
+#include "wlan_nan_api_i.h"
 
 /* Global tdls soc pvt object
  * this is useful for some functions which does not receive either vdev or psoc
@@ -527,7 +530,7 @@ static QDF_STATUS tdls_process_reset_all_peers(struct wlan_objmgr_vdev *vdev)
 
 		tdls_reset_peer(tdls_vdev, curr_peer->peer_mac.bytes);
 
-		tdls_decrement_peer_count(tdls_soc);
+		tdls_decrement_peer_count(vdev, tdls_soc);
 		tdls_soc->tdls_conn_info[staidx].valid_entry = false;
 		tdls_soc->tdls_conn_info[staidx].session_id = 255;
 		tdls_soc->tdls_conn_info[staidx].index =
@@ -843,31 +846,151 @@ QDF_STATUS tdls_update_fw_tdls_state(struct tdls_soc_priv_obj *tdls_soc_obj,
 	return status;
 }
 
+#ifdef WLAN_FEATURE_11AX
+uint32_t tdls_get_6g_pwr_for_power_type(struct wlan_objmgr_vdev *vdev,
+					qdf_freq_t freq,
+					enum supported_6g_pwr_types pwr_typ)
+{
+	struct wlan_objmgr_pdev *pdev = wlan_vdev_get_pdev(vdev);
+	struct regulatory_channel *chan;
+	uint8_t chn_idx, num_chan;
+	uint8_t band_mask = BIT(REG_BAND_6G);
+	uint32_t tx_power = 0;
+
+	if (!pdev)
+		return 0;
+
+	/* No power check is required for non 6 Ghz channel */
+	if (!wlan_reg_is_6ghz_chan_freq(freq))
+		return 0;
+
+	chan = qdf_mem_malloc(sizeof(struct regulatory_channel) * NUM_CHANNELS);
+	if (!chan)
+		return 0;
+
+	num_chan = wlan_reg_get_band_channel_list_for_pwrmode(pdev,
+							      band_mask,
+							      chan,
+							      REG_CLI_DEF_VLP);
+
+	for (chn_idx = 0; chn_idx < num_chan; chn_idx++) {
+		if (chan[chn_idx].center_freq == freq) {
+			tdls_debug("VLP power for channel %d is %d",
+				   chan[chn_idx].center_freq,
+				   chan[chn_idx].tx_power);
+			tx_power = chan[chn_idx].tx_power;
+		}
+	}
+
+	qdf_mem_free(chan);
+	return tx_power;
+}
+
+bool tdls_is_6g_freq_allowed(struct wlan_objmgr_vdev *vdev,
+			     qdf_freq_t freq)
+{
+	struct wlan_objmgr_pdev *pdev = wlan_vdev_get_pdev(vdev);
+	struct regulatory_channel *chan;
+	bool is_allowed = false;
+	uint8_t country_code[REG_ALPHA2_LEN + 1];
+	uint8_t chn_idx, num_chan = 0;
+	uint8_t band_mask = BIT(REG_BAND_6G);
+
+	/* Return if freq is not 6 Ghz freq */
+	if (!wlan_reg_is_6ghz_chan_freq(freq))
+		return false;
+
+	if (!wlan_cfg80211_tdls_is_fw_6ghz_capable(vdev))
+		return false;
+
+	if (!pdev)
+		return false;
+
+	wlan_cm_get_country_code(pdev, wlan_vdev_get_id(vdev), country_code);
+	if (!wlan_reg_ctry_support_vlp(country_code))
+		return false;
+
+	chan = qdf_mem_malloc(sizeof(struct regulatory_channel) * NUM_CHANNELS);
+	if (!chan)
+		return false;
+
+	num_chan = wlan_reg_get_band_channel_list_for_pwrmode(pdev,
+							      band_mask,
+							      chan,
+							      REG_CLI_DEF_VLP);
+	tdls_debug("Country IE:%c%c freq %d num_chan %d", country_code[0],
+			   country_code[1], freq, num_chan);
+	if (!num_chan)
+		goto error;
+
+	for (chn_idx = 0; chn_idx < num_chan; chn_idx++) {
+		if (chan[chn_idx].center_freq == freq) {
+			tdls_debug("TDLS 6ghz freq: %d supports VLP power",
+				   chan[chn_idx].center_freq);
+			is_allowed = true;
+			break;
+		}
+	}
+
+error:
+	qdf_mem_free(chan);
+	return is_allowed;
+}
+#else
+bool tdls_is_6g_freq_allowed(struct wlan_objmgr_vdev *vdev,
+				    qdf_freq_t freq)
+{
+	return false;
+}
+
+uint32_t tdls_get_6g_pwr_for_power_type(struct wlan_objmgr_vdev *vdev,
+					qdf_freq_t freq,
+					enum supported_6g_pwr_types pwr_typ)
+{
+	return 0;
+}
+#endif
+
 bool tdls_check_is_tdls_allowed(struct wlan_objmgr_vdev *vdev)
 {
 	struct tdls_vdev_priv_obj *tdls_vdev_obj;
 	struct tdls_soc_priv_obj *tdls_soc_obj;
 	bool state = false;
+	qdf_freq_t ch_freq;
+	QDF_STATUS status;
 
-	if (QDF_STATUS_SUCCESS != wlan_objmgr_vdev_try_get_ref(vdev,
-							       WLAN_TDLS_NB_ID))
+	status = wlan_objmgr_vdev_try_get_ref(vdev, WLAN_TDLS_NB_ID);
+	if (QDF_IS_STATUS_ERROR(status))
 		return state;
 
-	if (QDF_STATUS_SUCCESS != tdls_get_vdev_objects(vdev, &tdls_vdev_obj,
-						   &tdls_soc_obj)) {
-		wlan_objmgr_vdev_release_ref(vdev,
-					     WLAN_TDLS_NB_ID);
-		return state;
+	status = tdls_get_vdev_objects(vdev, &tdls_vdev_obj, &tdls_soc_obj);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		tdls_err("Failed to get TDLS objects");
+		goto exit;
+	}
+
+	if (wlan_vdev_mlme_is_mlo_vdev(vdev)) {
+		tdls_debug("TDLS not supported on MLO vdev");
+		goto exit;
+	}
+
+	if (wlan_nan_is_disc_active(tdls_soc_obj->soc)) {
+		tdls_err("NAN active. NAN+TDLS not supported");
+		goto exit;
 	}
 
 	if (policy_mgr_get_connection_count(tdls_soc_obj->soc) == 1)
 		state = true;
 	else
-		tdls_warn("Concurrent sessions are running or TDLS disabled");
-	/* If any concurrency is detected */
-	/* print session information */
-	wlan_objmgr_vdev_release_ref(vdev,
-				     WLAN_TDLS_NB_ID);
+		tdls_warn("Concurrent sessions exist disable TDLS");
+
+	ch_freq = wlan_get_operation_chan_freq(vdev);
+	if (wlan_reg_is_6ghz_chan_freq(ch_freq))
+		state &= tdls_is_6g_freq_allowed(vdev, ch_freq);
+
+exit:
+	wlan_objmgr_vdev_release_ref(vdev, WLAN_TDLS_NB_ID);
+
 	return state;
 }
 
@@ -942,16 +1065,26 @@ tdls_process_policy_mgr_notification(struct wlan_objmgr_psoc *psoc)
 		tdls_err("psoc: %pK", psoc);
 		return QDF_STATUS_E_NULL_VALUE;
 	}
+
 	tdls_obj_vdev = tdls_get_vdev(psoc, WLAN_TDLS_NB_ID);
+	if (!tdls_obj_vdev) {
+		tdls_err("No TDLS vdev");
+		return QDF_STATUS_E_NULL_VALUE;
+	}
+
+	if (!tdls_check_is_tdls_allowed(tdls_obj_vdev)) {
+		wlan_objmgr_vdev_release_ref(tdls_obj_vdev, WLAN_TDLS_NB_ID);
+		return QDF_STATUS_E_NULL_VALUE;
+	}
+
 	tdls_debug("enter ");
 	tdls_set_ct_mode(psoc);
-	if (tdls_obj_vdev && (tdls_get_vdev_objects(tdls_obj_vdev,
-	    &tdls_priv_vdev, &tdls_priv_soc) == QDF_STATUS_SUCCESS) &&
+	if (tdls_get_vdev_objects(tdls_obj_vdev, &tdls_priv_vdev,
+				  &tdls_priv_soc) == QDF_STATUS_SUCCESS &&
 	    tdls_priv_soc->enable_tdls_connection_tracker)
 		tdls_implicit_enable(tdls_priv_vdev);
 
-	if (tdls_obj_vdev)
-		wlan_objmgr_vdev_release_ref(tdls_obj_vdev, WLAN_TDLS_NB_ID);
+	wlan_objmgr_vdev_release_ref(tdls_obj_vdev, WLAN_TDLS_NB_ID);
 
 	tdls_debug("exit ");
 	return QDF_STATUS_SUCCESS;
@@ -1218,27 +1351,22 @@ tdls_process_sta_connect(struct tdls_sta_notify_params *notify)
 {
 	struct tdls_vdev_priv_obj *tdls_vdev_obj;
 	struct tdls_soc_priv_obj *tdls_soc_obj;
+	QDF_STATUS status;
 
-	if (QDF_STATUS_SUCCESS != tdls_get_vdev_objects(notify->vdev,
-							&tdls_vdev_obj,
-							&tdls_soc_obj))
+	if (!tdls_check_is_tdls_allowed(notify->vdev))
+		return QDF_STATUS_E_NOSUPPORT;
+
+	status = tdls_get_vdev_objects(notify->vdev, &tdls_vdev_obj,
+				       &tdls_soc_obj);
+	if (QDF_IS_STATUS_ERROR(status))
 		return QDF_STATUS_E_INVAL;
 
-
-	if (policy_mgr_get_connection_count(tdls_soc_obj->soc) > 1) {
-		tdls_debug("Concurrent sessions exist, TDLS can't be enabled");
-		return QDF_STATUS_SUCCESS;
-	}
-
 	/* Association event */
-	if (!tdls_soc_obj->tdls_disable_in_progress) {
-		tdls_send_update_to_fw(tdls_vdev_obj,
-				   tdls_soc_obj,
-				   notify->tdls_prohibited,
-				   notify->tdls_chan_swit_prohibited,
-				   true,
-				   notify->session_id);
-	}
+	if (!tdls_soc_obj->tdls_disable_in_progress)
+		tdls_send_update_to_fw(tdls_vdev_obj, tdls_soc_obj,
+				       notify->tdls_prohibited,
+				       notify->tdls_chan_swit_prohibited, true,
+				       notify->session_id);
 
 	/* check and set the connection tracker */
 	tdls_set_ct_mode(tdls_soc_obj->soc);
@@ -1854,33 +1982,62 @@ void tdls_scan_serialization_comp_info_cb(struct wlan_objmgr_vdev *vdev,
 		comp_info->scan_info.is_tdls_in_progress = true;
 }
 
+static uint8_t tdls_find_opclass_frm_freq(struct wlan_objmgr_vdev *vdev,
+				   qdf_freq_t ch_freq, uint8_t bw_offset,
+				   uint16_t behav_limit)
+{
+	struct wlan_objmgr_pdev *pdev = wlan_vdev_get_pdev(vdev);
+	uint8_t channel, opclass;
 
-uint8_t tdls_get_opclass_from_bandwidth(struct tdls_soc_priv_obj *soc_obj,
-					uint8_t channel, uint8_t bw_offset,
+	if (!pdev) {
+		tdls_err("pdev is NULL");
+		return 0;
+	}
+
+	wlan_reg_freq_width_to_chan_op_class(pdev, ch_freq, bw_offset, false,
+					     BIT(behav_limit), &opclass,
+					     &channel);
+
+	return opclass;
+}
+
+uint8_t tdls_get_opclass_from_bandwidth(struct wlan_objmgr_vdev *vdev,
+					qdf_freq_t freq, uint8_t bw_offset,
 					uint8_t *reg_bw_offset)
 {
 	uint8_t opclass;
 
-	if (bw_offset & (1 << BW_80_OFFSET_BIT)) {
-		opclass = tdls_find_opclass(soc_obj->soc,
-					    channel, BW80);
+	if (bw_offset &  (1 << BW_160_OFFSET_BIT)) {
+		opclass = tdls_find_opclass_frm_freq(vdev,
+						     freq, BW_160_MHZ,
+						     BEHAV_NONE);
+		*reg_bw_offset = BWALL;
+	} else if (bw_offset & (1 << BW_80_OFFSET_BIT)) {
+		opclass = tdls_find_opclass_frm_freq(vdev,
+						     freq, BW_80_MHZ,
+						     BEHAV_NONE);
 		*reg_bw_offset = BW80;
 	} else if (bw_offset & (1 << BW_40_OFFSET_BIT)) {
-		opclass = tdls_find_opclass(soc_obj->soc,
-					    channel, BW40_LOW_PRIMARY);
+		opclass = tdls_find_opclass_frm_freq(vdev,
+						     freq, BW_40_MHZ,
+						     BEHAV_BW40_LOW_PRIMARY);
 		*reg_bw_offset = BW40_LOW_PRIMARY;
 		if (!opclass) {
-			opclass = tdls_find_opclass(soc_obj->soc,
-						    channel, BW40_HIGH_PRIMARY);
+			opclass = tdls_find_opclass_frm_freq(vdev,
+						     freq,
+						     BW_40_MHZ,
+						     BEHAV_BW40_HIGH_PRIMARY);
 			*reg_bw_offset = BW40_HIGH_PRIMARY;
 		}
 	} else if (bw_offset & (1 << BW_20_OFFSET_BIT)) {
-		opclass = tdls_find_opclass(soc_obj->soc,
-					    channel, BW20);
+		opclass = tdls_find_opclass_frm_freq(vdev,
+						     freq, BW_20_MHZ,
+						     BEHAV_NONE);
 		*reg_bw_offset = BW20;
 	} else {
-		opclass = tdls_find_opclass(soc_obj->soc,
-					    channel, BWALL);
+		opclass = tdls_find_opclass_frm_freq(vdev,
+						     freq, BW_160_MHZ,
+						     BEHAV_NONE);
 		*reg_bw_offset = BWALL;
 	}
 

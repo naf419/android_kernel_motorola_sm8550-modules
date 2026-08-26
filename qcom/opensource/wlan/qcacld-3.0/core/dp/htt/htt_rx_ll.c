@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -38,7 +38,6 @@
 #include <wma_api.h>
 #endif
 #include <pktlog_ac_fmt.h>
-#include <wlan_mlme_api.h>
 
 #ifdef DEBUG_DMA_DONE
 #define MAX_DONE_BIT_CHECK_ITER 5
@@ -319,7 +318,7 @@ static qdf_nbuf_t htt_rx_buff_alloc(struct htt_pdev_t *pdev)
 }
 
 /**
- * htt_rx_ring_buf_attach() - retrun net buf to attach in ring
+ * htt_rx_ring_buf_attach() - return net buf to attach in ring
  * @pdev: pointer to device
  *
  * Return: nbuf or NULL
@@ -528,9 +527,6 @@ update_alloc_idx:
 static int htt_rx_ring_size(struct htt_pdev_t *pdev)
 {
 	int size;
-	QDF_STATUS status;
-	struct ol_txrx_soc_t *soc = cds_get_context(QDF_MODULE_ID_SOC);
-	bool enable_2x2 = true;
 
 	/*
 	 * It is expected that the host CPU will typically be able to service
@@ -561,13 +557,6 @@ static int htt_rx_ring_size(struct htt_pdev_t *pdev)
 		size = HTT_RX_RING_SIZE_MAX;
 
 	size = qdf_get_pwr2(size);
-
-	status = wlan_mlme_get_vht_enable2x2((void *)soc->psoc, &enable_2x2);
-	if (QDF_IS_STATUS_SUCCESS(status))
-		size = (enable_2x2) ? size : QDF_MIN(size, HTT_RX_RING_SIZE_1x1);
-	QDF_TRACE(QDF_MODULE_ID_HTT, QDF_TRACE_LEVEL_INFO_LOW,
-		  "HTT RX refill ring size:%u selected for %s mode", size, enable_2x2 ? "2x2" : "1x1");
-
 	return size;
 }
 
@@ -2098,7 +2087,7 @@ void *htt_rx_mpdu_desc_list_next_ll(htt_pdev_handle pdev, qdf_nbuf_t rx_ind_msg)
  * htt_rx_fill_ring_count() - replenish rx msdu buffer
  * @pdev: Handle (pointer) to HTT pdev.
  *
- * This funciton will replenish the rx buffer to the max number
+ * This function will replenish the rx buffer to the max number
  * that can be kept in the ring
  *
  * Return: None

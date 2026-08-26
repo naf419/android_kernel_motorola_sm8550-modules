@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -43,7 +43,8 @@
 #define CE_COUNT_MAX 8
 #endif
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+#if defined(CONFIG_PLD_PCIE_CNSS) && \
+	(LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
 #ifndef CHIP_VERSION
 #define CHIP_VERSION CNSS_CHIP_VER_ANY
 #endif
@@ -117,6 +118,36 @@ static void pld_pcie_remove(struct pci_dev *pdev)
 out:
 	osif_psoc_sync_trans_stop(psoc_sync);
 	osif_psoc_sync_destroy(psoc_sync);
+}
+
+/**
+ * pld_pcie_set_thermal_state() - Set thermal state for thermal mitigation
+ * @pdev: PCIE device
+ * @thermal_state: Thermal state set by thermal subsystem
+ * @mon_id: Thermal cooling device ID
+ *
+ * This function will be called when thermal subsystem notifies platform
+ * driver about change in thermal state.
+ *
+ * Return: 0 for success
+ * Non zero failure code for errors
+ */
+static int pld_pcie_set_thermal_state(struct pci_dev *pdev,
+				      unsigned long thermal_state,
+				      int mon_id)
+{
+	struct pld_context *pld_context;
+
+	pld_context = pld_get_global_context();
+	if (!pld_context)
+		return -EINVAL;
+
+	if (pld_context->ops->set_curr_therm_cdev_state)
+		return pld_context->ops->set_curr_therm_cdev_state(&pdev->dev,
+								thermal_state,
+								mon_id);
+
+	return -ENOTSUPP;
 }
 
 #ifdef CONFIG_PLD_PCIE_CNSS
@@ -276,6 +307,28 @@ static void pld_pcie_uevent(struct pci_dev *pdev, uint32_t status)
 out:
 	return;
 }
+
+#ifdef WLAN_FEATURE_SSR_DRIVER_DUMP
+static int
+pld_pcie_collect_driver_dump(struct pci_dev *pdev,
+			     struct cnss_ssr_driver_dump_entry *input_array,
+			     size_t *num_entries)
+{
+	struct pld_context *pld_context;
+	struct pld_driver_ops *ops;
+	int ret = -EINVAL;
+
+	pld_context = pld_get_global_context();
+	ops = pld_context->ops;
+	if (ops->collect_driver_dump) {
+		ret =  ops->collect_driver_dump(&pdev->dev,
+						PLD_BUS_TYPE_PCIE,
+						input_array,
+						num_entries);
+	}
+	return ret;
+}
+#endif
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
 /**
@@ -640,7 +693,11 @@ static struct pci_device_id pld_pcie_id_table[] = {
 #elif defined(QCA_WIFI_QCA6490)
 	{ 0x17cb, 0x1103, PCI_ANY_ID, PCI_ANY_ID },
 #elif defined(QCA_WIFI_KIWI)
+#if defined(QCA_WIFI_MANGO)
+	{ 0x17cb, 0x110A, PCI_ANY_ID, PCI_ANY_ID },
+#else
 	{ 0x17cb, 0x1107, PCI_ANY_ID, PCI_ANY_ID },
+#endif
 #elif defined(QCN7605_SUPPORT)
 	{ 0x17cb, 0x1102, PCI_ANY_ID, PCI_ANY_ID },
 #else
@@ -666,35 +723,6 @@ struct cnss_wlan_runtime_ops runtime_pm_ops = {
 };
 #endif
 
-#ifdef FEATURE_WLAN_FULL_POWER_DOWN_SUPPORT
-static enum cnss_suspend_mode pld_pcie_suspend_mode = CNSS_SUSPEND_LEGACY;
-
-int pld_pcie_set_suspend_mode(enum pld_suspend_mode mode)
-{
-	struct pld_context *pld_ctx =  pld_get_global_context();
-	enum cnss_suspend_mode suspend_mode;
-
-	if (!pld_ctx)
-		return -ENOMEM;
-
-	switch (pld_ctx->suspend_mode) {
-	case PLD_SUSPEND:
-		suspend_mode = CNSS_SUSPEND_LEGACY;
-		break;
-	case PLD_FULL_POWER_DOWN:
-		suspend_mode = CNSS_SUSPEND_POWER_DOWN;
-		break;
-	default:
-		suspend_mode = CNSS_SUSPEND_LEGACY;
-		break;
-	}
-
-	pld_pcie_suspend_mode = suspend_mode;
-
-	return 0;
-}
-#endif
-
 struct cnss_wlan_driver pld_pcie_ops = {
 	.name       = PLD_PCIE_OPS_NAME,
 	.id_table   = pld_pcie_id_table,
@@ -707,6 +735,9 @@ struct cnss_wlan_driver pld_pcie_ops = {
 	.crash_shutdown = pld_pcie_crash_shutdown,
 	.modem_status   = pld_pcie_notify_handler,
 	.update_status  = pld_pcie_uevent,
+#ifdef WLAN_FEATURE_SSR_DRIVER_DUMP
+	.collect_driver_dump = pld_pcie_collect_driver_dump,
+#endif
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
 	.update_event = pld_pcie_update_event,
 #endif
@@ -722,12 +753,10 @@ struct cnss_wlan_driver pld_pcie_ops = {
 #ifdef FEATURE_GET_DRIVER_MODE
 	.get_driver_mode  = pld_pcie_get_mode,
 #endif
-#ifdef FEATURE_WLAN_FULL_POWER_DOWN_SUPPORT
-	.suspend_mode = &pld_pcie_suspend_mode,
-#endif
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
 	.chip_version = CHIP_VERSION,
 #endif
+	.set_therm_cdev_state = pld_pcie_set_thermal_state,
 };
 
 /**
@@ -799,6 +828,22 @@ int pld_pcie_get_ce_id(struct device *dev, int irq)
 }
 
 #ifdef CONFIG_PLD_PCIE_CNSS
+#ifdef CONFIG_SHADOW_V3
+static inline void
+pld_pcie_populate_shadow_v3_cfg(struct cnss_wlan_enable_cfg *cfg,
+				struct pld_wlan_enable_cfg *config)
+{
+	cfg->num_shadow_reg_v3_cfg = config->num_shadow_reg_v3_cfg;
+	cfg->shadow_reg_v3_cfg = (struct cnss_shadow_reg_v3_cfg *)
+				 config->shadow_reg_v3_cfg;
+}
+#else
+static inline void
+pld_pcie_populate_shadow_v3_cfg(struct cnss_wlan_enable_cfg *cfg,
+				struct pld_wlan_enable_cfg *config)
+{
+}
+#endif
 /**
  * pld_pcie_wlan_enable() - Enable WLAN
  * @dev: device
@@ -837,6 +882,8 @@ int pld_pcie_wlan_enable(struct device *dev, struct pld_wlan_enable_cfg *config,
 		cfg.rri_over_ddr_cfg.base_addr_high =
 			 config->rri_over_ddr_cfg.base_addr_high;
 	}
+
+	pld_pcie_populate_shadow_v3_cfg(&cfg, config);
 
 	switch (mode) {
 	case PLD_FTM:

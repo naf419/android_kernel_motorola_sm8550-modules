@@ -76,7 +76,7 @@ enum wlan_fwol_southbound_event {
  * @bt_interference_high_ll: Lower limit of high level BT interference
  * @bt_interference_high_ul: Upper limit of high level BT interference
  * @btc_mpta_helper_enable: Enable/Disable tri-radio MPTA helper
- * @bt_sco_allow_wlan_2g_scan: Enable/Disble wlan 2g scan when
+ * @bt_sco_allow_wlan_2g_scan: Enable/Disable wlan 2g scan when
  *                             BT SCO connection is on
  * @btc_three_way_coex_config_legacy_enable: Enable/Disable tri-radio coex
  *                             config legacy feature
@@ -143,8 +143,8 @@ struct wlan_fwol_thermal_temp {
 };
 
 /**
- * struct wlan_fwol_ie_whitelist - Probe request IE whitelist config items
- * @ie_whitelist: IE whitelist flag
+ * struct wlan_fwol_ie_allowlist - Probe request IE allowlist config items
+ * @ie_allowlist: IE allowlist flag
  * @ie_bitmap_0: IE bitmap 0
  * @ie_bitmap_1: IE bitmap 1
  * @ie_bitmap_2: IE bitmap 2
@@ -156,8 +156,8 @@ struct wlan_fwol_thermal_temp {
  * @no_of_probe_req_ouis: Total number of ouis present in probe req
  * @probe_req_voui: Stores oui values after parsing probe req ouis
  */
-struct wlan_fwol_ie_whitelist {
-	bool ie_whitelist;
+struct wlan_fwol_ie_allowlist {
+	bool ie_allowlist;
 	uint32_t ie_bitmap_0;
 	uint32_t ie_bitmap_1;
 	uint32_t ie_bitmap_2;
@@ -192,13 +192,33 @@ struct wlan_fwol_neighbor_report_cfg {
 	uint32_t max_req_cap;
 };
 
+#ifdef WLAN_FEATURE_TSF_ACCURACY
+/**
+ * struct wlan_fwol_tsf_accuracy_configs - TSF Accuracy feature config params
+ * @enable: Flag to Enable/Disable TSF Accuracy Feature
+ * @sync_gpio: GPIO to indicate TSF sync is done. The GPIO pin is toggled at
+ *             every TSF sync done.
+ * @periodic_pulse_gpio: GPIO to indicate TSF time completes a cycle of given
+ *                       interval. The GPIO pin gets pulse of 1msec for every
+ *                       TSF cycle complete.
+ * @pulse_interval_ms: Periodicy of TSF pulse in milli seconds.
+ */
+struct wlan_fwol_tsf_accuracy_configs {
+	bool enable;
+	uint32_t sync_gpio;
+	uint32_t periodic_pulse_gpio;
+	uint32_t pulse_interval_ms;
+};
+#endif
+
 /**
  * struct wlan_fwol_cfg - fwol config items
  * @coex_config: coex config items
  * @thermal_temp_cfg: Thermal temperature related config items
- * @ie_whitelist_cfg: IE Whitelist related config items
+ * @ie_allowlist_cfg: IE Allowlist related config items
  * @neighbor_report_cfg: 11K neighbor report config
  * @ani_enabled: ANI enable/disable
+ * @pcie_config: to control pcie gen and lane params
  * @enable_rts_sifsbursting: Enable RTS SIFS Bursting
  * @enable_sifs_burst: Enable SIFS burst
  * @max_mpdus_inampdu: Max number of MPDUS
@@ -222,6 +242,7 @@ struct wlan_fwol_neighbor_report_cfg {
  * @tsf_sync_host_gpio_pin: TSF Sync GPIO Pin config
  * @tsf_ptp_options: TSF Plus feature options config
  * @tsf_sync_enable: TSF sync feature enable/disable
+ * @tsf_accuracy_configs: TSF Accuracy feature config parameters
  * @sae_enable: SAE feature enable config
  * @gcmp_enable: GCMP feature enable config
  * @enable_tx_sch_delay: Enable TX SCH delay value config
@@ -238,9 +259,10 @@ struct wlan_fwol_cfg {
 	/* Add CFG and INI items here */
 	struct wlan_fwol_coex_config coex_config;
 	struct wlan_fwol_thermal_temp thermal_temp_cfg;
-	struct wlan_fwol_ie_whitelist ie_whitelist_cfg;
+	struct wlan_fwol_ie_allowlist ie_allowlist_cfg;
 	struct wlan_fwol_neighbor_report_cfg neighbor_report_cfg;
 	bool ani_enabled;
+	bool pcie_config;
 	bool enable_rts_sifsbursting;
 	uint8_t enable_sifs_burst;
 	uint8_t max_mpdus_inampdu;
@@ -266,6 +288,9 @@ struct wlan_fwol_cfg {
 #ifdef WLAN_FEATURE_TSF_PLUS
 	uint32_t tsf_ptp_options;
 	bool tsf_sync_enable;
+#ifdef WLAN_FEATURE_TSF_ACCURACY
+	struct wlan_fwol_tsf_accuracy_configs tsf_accuracy_configs;
+#endif
 #ifdef WLAN_FEATURE_TSF_PLUS_EXT_GPIO_IRQ
 	uint32_t tsf_irq_host_gpio_pin;
 #endif
@@ -468,4 +493,21 @@ QDF_STATUS fwol_set_sap_sho(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id,
 QDF_STATUS fwol_configure_hw_assist(struct wlan_objmgr_pdev *pdev,
 				    bool disable_hw_assist);
 
+/**
+ * fwol_set_sap_wds_config() - API to configure WDS mode on SAP vdev
+ * @psoc: pointer to the psoc object
+ * @vdev_id: vdev id
+ *
+ * Return: QDF_STATUS
+ */
+#ifdef FEATURE_WDS
+QDF_STATUS
+fwol_set_sap_wds_config(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id);
+#else
+static inline QDF_STATUS
+fwol_set_sap_wds_config(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
 #endif

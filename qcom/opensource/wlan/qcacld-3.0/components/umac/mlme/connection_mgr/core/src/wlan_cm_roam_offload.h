@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -29,7 +29,59 @@
 #include "qdf_str.h"
 #include "wlan_cm_roam_public_struct.h"
 
-#if defined(WLAN_FEATURE_CONNECTIVITY_LOGGING) && \
+#if defined(CONNECTIVITY_DIAG_EVENT) && \
+	defined(WLAN_FEATURE_ROAM_OFFLOAD)
+/**
+ * cm_roam_scan_info_event() - send scan info to userspace
+ * @psoc: psoc common object
+ * @scan: roam scan data
+ * @vdev_id: vdev id
+ *
+ * Return: None
+ */
+void cm_roam_scan_info_event(struct wlan_objmgr_psoc *psoc,
+			     struct wmi_roam_scan_data *scan, uint8_t vdev_id);
+
+/**
+ * cm_roam_trigger_info_event() - send trigger info to userspace
+ * @data: roam trigger data
+ * @scan_data: Roam scan data
+ * @vdev_id: vdev id
+ * @is_full_scan: is full scan or partial scan
+ *
+ * Return: None
+ */
+void cm_roam_trigger_info_event(struct wmi_roam_trigger_info *data,
+				struct wmi_roam_scan_data *scan_data,
+				uint8_t vdev_id, bool is_full_scan);
+
+/**
+ * cm_roam_candidate_info_event() - send trigger info to userspace
+ * @ap: roam candidate info
+ * @cand_ap_idx: Candidate AP index
+ *
+ * Return: void
+ */
+void cm_roam_candidate_info_event(struct wmi_roam_candidate_info *ap,
+				  uint8_t cand_ap_idx);
+
+/**
+ * cm_roam_result_info_event() - send scan results info to userspace
+ * @psoc: Pointer to PSOC object
+ * @trigger: Roam trigger data
+ * @res: roam result data
+ * @scan_data: Roam scan info
+ * @vdev_id: vdev id
+ *
+ * Return: void
+ */
+void cm_roam_result_info_event(struct wlan_objmgr_psoc *psoc,
+			       struct wmi_roam_trigger_info *trigger,
+			       struct wmi_roam_result *res,
+			       struct wmi_roam_scan_data *scan_data,
+			       uint8_t vdev_id);
+
+#elif defined(WLAN_FEATURE_CONNECTIVITY_LOGGING) && \
     defined(WLAN_FEATURE_ROAM_OFFLOAD)
 /**
  * cm_roam_scan_info_event() - send scan info to userspace
@@ -317,6 +369,46 @@ QDF_STATUS
 cm_roam_send_disable_config(struct wlan_objmgr_psoc *psoc,
 			    uint8_t vdev_id, uint8_t cfg);
 
+#ifdef WLAN_VENDOR_HANDOFF_CONTROL
+/**
+ * cm_roam_send_vendor_handoff_param_req() - send vendor handoff param cmd
+ * @psoc: psoc pointer
+ * @vdev_id: vdev id
+ * @param_value: roam stats param value
+ * @vendor_handoff_context: vendor handoff context request
+ *
+ * This function is used to send vendor handoff param cmd
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+cm_roam_send_vendor_handoff_param_req(struct wlan_objmgr_psoc *psoc,
+				      uint8_t vdev_id,
+				      uint32_t param_value,
+				      void *vendor_handoff_context);
+
+/**
+ * cm_roam_is_vendor_handoff_control_enable() - check whether vendor handoff
+ * control feature is enable or not in driver
+ * @psoc: psoc pointer
+ *
+ * Return: true if feature supports
+ */
+bool
+cm_roam_is_vendor_handoff_control_enable(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * cm_roam_update_vendor_handoff_config() - update vendor handoff param to
+ * rso config structure
+ * @psoc: psoc pointer
+ * @list: vendor handoff parameters to be updated
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS cm_roam_update_vendor_handoff_config(struct wlan_objmgr_psoc *psoc,
+				     struct roam_vendor_handoff_params *list);
+#endif
+
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 /**
  * cm_roam_send_rt_stats_config() - Send roam event stats cfg value to FW
@@ -360,7 +452,7 @@ cm_exclude_rm_partial_scan_freq(struct wlan_objmgr_psoc *psoc,
 /**
  * cm_roam_full_scan_6ghz_on_disc() - Include the 6 GHz channels in roam full
  * scan only on prior discovery of any 6 GHz support in the environment
- * @psoc: PSOC pointer
+ * @pdev: Pointer to pdev
  * @vdev_id: vdev id
  * @param_value: Include the 6 GHz channels in roam full scan:
  * 1 - Include only on prior discovery of any 6 GHz support in the environment
@@ -370,21 +462,6 @@ cm_exclude_rm_partial_scan_freq(struct wlan_objmgr_psoc *psoc,
  */
 QDF_STATUS cm_roam_full_scan_6ghz_on_disc(struct wlan_objmgr_psoc *psoc,
 					  uint8_t vdev_id, uint8_t param_value);
-
-/**
- * cm_set_roam_scan_high_rssi_offset() - Set the delta change in high RSSI at
- * which roam scan is triggered in 2.4/5 GHz.
- * @psoc: PSOC pointer
- * @vdev_id: vdev id
- * @param_value: Set the High RSSI delta for roam scan trigger
- * * 1-16 - Set an offset value in this range
- * * 0    - Disable
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-cm_set_roam_scan_high_rssi_offset(struct wlan_objmgr_psoc *psoc,
-				  uint8_t vdev_id, uint8_t param_value);
 #else
 static inline QDF_STATUS
 cm_roam_send_rt_stats_config(struct wlan_objmgr_psoc *psoc,
@@ -480,7 +557,8 @@ cm_handle_mlo_rso_state_change(struct wlan_objmgr_pdev *pdev,
 
 #endif
 
-#if defined(WLAN_FEATURE_CONNECTIVITY_LOGGING) && \
+#if (defined(WLAN_FEATURE_CONNECTIVITY_LOGGING) || \
+	defined(CONNECTIVITY_DIAG_EVENT)) && \
 	defined(WLAN_FEATURE_ROAM_OFFLOAD)
 /**
  * cm_roam_mgmt_frame_event() - Roam management frame event
@@ -496,14 +574,17 @@ cm_roam_mgmt_frame_event(struct roam_frame_info *frame_data,
 
 /**
  * cm_roam_btm_req_event  - Send BTM request related logging event
- * @btm_data: BTM trigger related data
  * @vdev_id: Vdev id
+ * @btm_data: BTM trigger related data
+ * @trigger_info: Roam trigger related info
+ * @is_wtc: Is WTC or BTM response
  *
  * Return: QDF_STATUS
  */
 QDF_STATUS
 cm_roam_btm_req_event(struct wmi_roam_btm_trigger_data *btm_data,
-		      uint8_t vdev_id);
+		      struct wmi_roam_trigger_info *trigger_info,
+		      uint8_t vdev_id, bool is_wtc);
 
 /**
  * cm_roam_btm_resp_event() - Send BTM response logging event
@@ -543,6 +624,26 @@ QDF_STATUS
 cm_roam_beacon_loss_disconnect_event(struct wlan_objmgr_psoc *psoc,
 				     struct qdf_mac_addr bssid,
 				     uint8_t vdev_id);
+
+/**
+ * cm_roam_neigh_rpt_req_event() - Send Neighbor Report request logging
+ * event
+ * @neigh_rpt: Neighbor Report parameter
+ * @vdev: vdev pointer
+ */
+void
+cm_roam_neigh_rpt_req_event(struct wmi_neighbor_report_data *neigh_rpt,
+			    struct wlan_objmgr_vdev *vdev);
+
+/**
+ * cm_roam_neigh_rpt_resp_event() - Send Neighbor Report response logging
+ * event
+ * @neigh_rpt: Neighbor Report parameter
+ * @vdev_id: vdev id
+ */
+void
+cm_roam_neigh_rpt_resp_event(struct wmi_neighbor_report_data *neigh_rpt,
+			     uint8_t vdev_id);
 #else
 static inline QDF_STATUS
 cm_roam_mgmt_frame_event(struct roam_frame_info *frame_data,
@@ -553,7 +654,8 @@ cm_roam_mgmt_frame_event(struct roam_frame_info *frame_data,
 
 static inline QDF_STATUS
 cm_roam_btm_req_event(struct wmi_roam_btm_trigger_data *btm_data,
-		      uint8_t vdev_id)
+		      struct wmi_roam_trigger_info *trigger_info,
+		      uint8_t vdev_id, bool is_wtc)
 {
 	return QDF_STATUS_E_NOSUPPORT;
 }
@@ -580,5 +682,26 @@ cm_roam_beacon_loss_disconnect_event(struct wlan_objmgr_psoc *psoc,
 {
 	return QDF_STATUS_E_NOSUPPORT;
 }
+
+static inline void
+cm_roam_neigh_rpt_req_event(struct wmi_neighbor_report_data *neigh_rpt,
+			    struct wlan_objmgr_vdev *vdev)
+{
+}
+
+static inline void
+cm_roam_neigh_rpt_resp_event(struct wmi_neighbor_report_data *neigh_rpt,
+			     uint8_t vdev_id)
+{
+}
 #endif /* FEATURE_CONNECTIVITY_LOGGING */
+
+/**
+ * cm_is_mbo_ap_without_pmf() - Check if the connected AP is MBO without PMF
+ * @psoc: PSOC pointer
+ * @vdev_id: vdev id
+ *
+ * Return: True if connected AP is MBO capable without PMF
+ */
+bool cm_is_mbo_ap_without_pmf(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id);
 #endif /* _WLAN_CM_ROAM_OFFLOAD_H_ */

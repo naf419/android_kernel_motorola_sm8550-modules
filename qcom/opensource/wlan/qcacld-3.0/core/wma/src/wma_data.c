@@ -82,6 +82,8 @@
 #include <wlan_mlme_main.h>
 #include <wlan_cm_api.h>
 #include "wlan_pkt_capture_ucfg_api.h"
+#include "wma_eht.h"
+#include "wlan_mlo_mgr_sta.h"
 
 struct wma_search_rate {
 	int32_t rate;
@@ -317,7 +319,7 @@ static QDF_STATUS wma_fill_ofdm_cck_mcast_rate(int32_t mbpsx10_rate,
 
 /**
  * wma_set_ht_vht_mcast_rate() - set ht/vht mcast rate
- * @shortgi: short gaurd interval
+ * @shortgi: short guard interval
  * @mbpsx10_rate: mbps rates
  * @sgi_idx: shortgi index
  * @sgi_rate: shortgi rate
@@ -346,7 +348,7 @@ static void wma_set_ht_vht_mcast_rate(uint32_t shortgi, int32_t mbpsx10_rate,
 
 /**
  * wma_fill_ht20_mcast_rate() - fill ht20 mcast rate
- * @shortgi: short gaurd interval
+ * @shortgi: short guard interval
  * @mbpsx10_rate: mbps rates
  * @nss: nss
  * @rate: rate
@@ -385,7 +387,7 @@ static QDF_STATUS wma_fill_ht20_mcast_rate(uint32_t shortgi,
 
 /**
  * wma_fill_ht40_mcast_rate() - fill ht40 mcast rate
- * @shortgi: short gaurd interval
+ * @shortgi: short guard interval
  * @mbpsx10_rate: mbps rates
  * @nss: nss
  * @rate: rate
@@ -424,7 +426,7 @@ static QDF_STATUS wma_fill_ht40_mcast_rate(uint32_t shortgi,
 
 /**
  * wma_fill_vht20_mcast_rate() - fill vht20 mcast rate
- * @shortgi: short gaurd interval
+ * @shortgi: short guard interval
  * @mbpsx10_rate: mbps rates
  * @nss: nss
  * @rate: rate
@@ -464,7 +466,7 @@ static QDF_STATUS wma_fill_vht20_mcast_rate(uint32_t shortgi,
 
 /**
  * wma_fill_vht40_mcast_rate() - fill vht40 mcast rate
- * @shortgi: short gaurd interval
+ * @shortgi: short guard interval
  * @mbpsx10_rate: mbps rates
  * @nss: nss
  * @rate: rate
@@ -505,7 +507,7 @@ static QDF_STATUS wma_fill_vht40_mcast_rate(uint32_t shortgi,
 
 /**
  * wma_fill_vht80_mcast_rate() - fill vht80 mcast rate
- * @shortgi: short gaurd interval
+ * @shortgi: short guard interval
  * @mbpsx10_rate: mbps rates
  * @nss: nss
  * @rate: rate
@@ -545,7 +547,7 @@ static QDF_STATUS wma_fill_vht80_mcast_rate(uint32_t shortgi,
 
 /**
  * wma_fill_ht_mcast_rate() - fill ht mcast rate
- * @shortgi: short gaurd interval
+ * @shortgi: short guard interval
  * @chwidth: channel width
  * @chanmode: channel mode
  * @mhz: frequency
@@ -577,7 +579,7 @@ static QDF_STATUS wma_fill_ht_mcast_rate(uint32_t shortgi,
 
 /**
  * wma_fill_vht_mcast_rate() - fill vht mcast rate
- * @shortgi: short gaurd interval
+ * @shortgi: short guard interval
  * @chwidth: channel width
  * @chanmode: channel mode
  * @mhz: frequency
@@ -614,7 +616,7 @@ static QDF_STATUS wma_fill_vht_mcast_rate(uint32_t shortgi,
 #define WMA_MCAST_1X1_CUT_OFF_RATE 2000
 /**
  * wma_encode_mc_rate() - fill mc rates
- * @shortgi: short gaurd interval
+ * @shortgi: short guard interval
  * @chwidth: channel width
  * @chanmode: channel mode
  * @mhz: frequency
@@ -759,24 +761,6 @@ static void wma_cp_stats_set_rate_flag(tp_wma_handle wma, uint8_t vdev_id)
 	wlan_objmgr_vdev_release_ref(vdev, WLAN_LEGACY_WMA_ID);
 }
 
-#ifdef WLAN_FEATURE_11BE
-/**
- * wma_get_bss_eht_capable() - whether bss is eht capable or not
- * @add_bss: add_bss params
- *
- * Return: true if eht capable is present
- */
-static bool wma_get_bss_eht_capable(struct bss_params *add_bss)
-{
-	return add_bss->eht_capable;
-}
-#else
-static bool wma_get_bss_eht_capable(struct bss_params *add_bss)
-{
-	return false;
-}
-#endif
-
 #ifdef WLAN_FEATURE_11AX
 /**
  * wma_set_bss_rate_flags_he() - set rate flags based on BSS capability
@@ -870,7 +854,7 @@ void wma_set_bss_rate_flags(tp_wma_handle wma, uint8_t vdev_id,
 	struct wma_txrx_node *iface = &wma->interfaces[vdev_id];
 	struct vdev_mlme_obj *vdev_mlme;
 	enum tx_rate_info *rate_flags;
-
+	QDF_STATUS qdf_status;
 
 	vdev_mlme = wlan_vdev_mlme_get_cmpt_obj(iface->vdev);
 	if (!vdev_mlme) {
@@ -880,14 +864,15 @@ void wma_set_bss_rate_flags(tp_wma_handle wma, uint8_t vdev_id,
 	rate_flags = &vdev_mlme->mgmt.rate_info.rate_flags;
 	*rate_flags = 0;
 
-	if (QDF_STATUS_SUCCESS !=
-		wma_set_bss_rate_flags_he(rate_flags, add_bss)) {
-		if (add_bss->vhtCapable) {
-			*rate_flags = wma_get_vht_rate_flags(add_bss->ch_width);
-		}
-		/* avoid to conflict with htCapable flag */
-		else if (add_bss->htCapable) {
-			*rate_flags |= wma_get_ht_rate_flags(add_bss->ch_width);
+	qdf_status = wma_set_bss_rate_flags_eht(rate_flags, add_bss);
+	if (QDF_IS_STATUS_ERROR(qdf_status)) {
+		if (QDF_STATUS_SUCCESS !=
+			wma_set_bss_rate_flags_he(rate_flags, add_bss)) {
+			if (add_bss->vhtCapable)
+				*rate_flags = wma_get_vht_rate_flags(add_bss->ch_width);
+			/* avoid to conflict with htCapable flag */
+			else if (add_bss->htCapable)
+				*rate_flags |= wma_get_ht_rate_flags(add_bss->ch_width);
 		}
 	}
 
@@ -1070,6 +1055,57 @@ QDF_STATUS wma_check_txrx_chainmask(int num_rf_chains, int cmd_value)
 		return QDF_STATUS_E_INVAL;
 	}
 	return QDF_STATUS_SUCCESS;
+}
+
+/**
+ * wma_peer_state_change_event_handler() - peer state change event handler
+ * @handle: wma handle
+ * @event_buff: event buffer
+ * @len: length of buffer
+ *
+ * This event handler unpauses vdev if peer state change to AUTHORIZED STATE
+ *
+ * Return: 0 for success or error code
+ */
+int wma_peer_state_change_event_handler(void *handle,
+					uint8_t *event_buff,
+					uint32_t len)
+{
+	WMI_PEER_STATE_EVENTID_param_tlvs *param_buf;
+	wmi_peer_state_event_fixed_param *event;
+#ifdef QCA_LL_LEGACY_TX_FLOW_CONTROL
+	tp_wma_handle wma_handle = (tp_wma_handle) handle;
+#endif
+
+	if (!event_buff) {
+		wma_err("Received NULL event ptr from FW");
+		return -EINVAL;
+	}
+	param_buf = (WMI_PEER_STATE_EVENTID_param_tlvs *) event_buff;
+	if (!param_buf) {
+		wma_err("Received NULL buf ptr from FW");
+		return -ENOMEM;
+	}
+
+	event = param_buf->fixed_param;
+
+	if ((cdp_get_opmode(cds_get_context(QDF_MODULE_ID_SOC),
+			    event->vdev_id) == wlan_op_mode_sta) &&
+	    event->state == WMI_PEER_STATE_AUTHORIZED) {
+		/*
+		 * set event so that hdd
+		 * can procced and unpause tx queue
+		 */
+#ifdef QCA_LL_LEGACY_TX_FLOW_CONTROL
+		if (!wma_handle->peer_authorized_cb) {
+			wma_err("peer authorized cb not registered");
+			return -EINVAL;
+		}
+		wma_handle->peer_authorized_cb(event->vdev_id);
+#endif
+	}
+
+	return 0;
 }
 
 /**
@@ -1572,7 +1608,7 @@ int wma_mcc_vdev_tx_pause_evt_handler(void *handle, uint8_t *event,
  * @config:	Bad peer configuration from SIR module
  *
  * It is a wrapper function to sent WMI_PEER_SET_RATE_REPORT_CONDITION_CMDID
- * to the firmare\target.If the command sent to firmware failed, free the
+ * to the firmware\target. If the command sent to firmware failed, free the
  * buffer that allocated.
  *
  * Return: QDF_STATUS based on values sent to firmware
@@ -1614,7 +1650,7 @@ QDF_STATUS wma_set_peer_rate_report_condition(WMA_HANDLE handle,
  *
  * This function initializes the bad peer tx control data structure in WMA,
  * sends down the initial configuration to the firmware and configures
- * the peer status update seeting in the tx_rx module.
+ * the peer status update setting in the tx_rx module.
  *
  * Return: QDF_STATUS based on procedure status
  */
@@ -2251,7 +2287,9 @@ QDF_STATUS wma_tx_packet(void *wma_context, void *tx_frame, uint16_t frmLen,
 	struct ieee80211_frame *wh;
 	struct wlan_objmgr_peer *peer = NULL;
 	struct wlan_objmgr_psoc *psoc;
+	struct wlan_objmgr_vdev *vdev = NULL;
 	void *mac_addr;
+	uint8_t *mld_addr = NULL;
 	bool is_5g = false;
 	uint8_t pdev_id;
 
@@ -2560,7 +2598,7 @@ QDF_STATUS wma_tx_packet(void *wma_context, void *tx_frame, uint16_t frmLen,
 	}
 
 	/*
-	 * If Dowload Complete is required
+	 * If Download Complete is required
 	 * Wait for download complete
 	 */
 	if (downld_comp_required) {
@@ -2600,14 +2638,29 @@ QDF_STATUS wma_tx_packet(void *wma_context, void *tx_frame, uint16_t frmLen,
 		chanfreq = 0;
 	}
 
-	if (mac->mlme_cfg->gen.debug_packet_log & 0x1) {
-		if ((pFc->type == SIR_MAC_MGMT_FRAME) &&
+	if (pFc->type == SIR_MAC_MGMT_FRAME) {
+		if ((mac->mlme_cfg->gen.debug_packet_log &
+		    DEBUG_PKTLOG_TYPE_MGMT) &&
 		    (pFc->subType != SIR_MAC_MGMT_PROBE_REQ) &&
-		    (pFc->subType != SIR_MAC_MGMT_PROBE_RSP)) {
+		    (pFc->subType != SIR_MAC_MGMT_PROBE_RSP) &&
+		    (pFc->subType != SIR_MAC_MGMT_ACTION)) {
 			wma_debug("TX MGMT - Type %hu, SubType %hu seq_num[%d]",
-				 pFc->type, pFc->subType,
+				  pFc->type, pFc->subType,
+				  ((mHdr->seqControl.seqNumHi << 4) |
+				  mHdr->seqControl.seqNumLo));
+			qdf_trace_hex_dump(QDF_MODULE_ID_WMA,
+					   QDF_TRACE_LEVEL_DEBUG, pData,
+					   frmLen);
+		} else if ((mac->mlme_cfg->gen.debug_packet_log &
+			   DEBUG_PKTLOG_TYPE_ACTION) &&
+			   (pFc->subType == SIR_MAC_MGMT_ACTION)) {
+			wma_debug("TX MGMT - Type %hu, SubType %hu seq_num[%d]",
+				  pFc->type, pFc->subType,
 				 ((mHdr->seqControl.seqNumHi << 4) |
 				 mHdr->seqControl.seqNumLo));
+			qdf_trace_hex_dump(QDF_MODULE_ID_WMA,
+					   QDF_TRACE_LEVEL_DEBUG, pData,
+					   frmLen);
 		}
 	}
 
@@ -2623,6 +2676,13 @@ QDF_STATUS wma_tx_packet(void *wma_context, void *tx_frame, uint16_t frmLen,
 	mgmt_param.use_6mbps = use_6mbps;
 	mgmt_param.tx_type = tx_frm_index;
 	mgmt_param.peer_rssi = peer_rssi;
+	if (iface && wlan_vdev_mlme_get_opmode(iface->vdev) == QDF_STA_MODE &&
+	    wlan_vdev_mlme_is_mlo_vdev(iface->vdev) &&
+	    (wlan_vdev_mlme_is_active(iface->vdev) == QDF_STATUS_SUCCESS) &&
+	    frmType == TXRX_FRM_802_11_MGMT &&
+	    pFc->subType != SIR_MAC_MGMT_PROBE_REQ &&
+	    pFc->subType != SIR_MAC_MGMT_AUTH)
+		mgmt_param.mlo_link_agnostic = true;
 
 	if (tx_flag & HAL_USE_INCORRECT_KEY_PMF)
 		mgmt_param.tx_flags |= MGMT_TX_USE_INCORRECT_KEY;
@@ -2659,6 +2719,33 @@ QDF_STATUS wma_tx_packet(void *wma_context, void *tx_frame, uint16_t frmLen,
 		mac_addr = wh->i_addr2;
 		peer = wlan_objmgr_get_peer(psoc, pdev_id, mac_addr,
 					WLAN_MGMT_NB_ID);
+		if (!peer) {
+			vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc,
+								    vdev_id,
+								    WLAN_MGMT_NB_ID);
+			if (!vdev) {
+				wma_err("vdev is null");
+				cds_packet_free((void *)tx_frame);
+				goto error;
+			}
+			mld_addr = wlan_vdev_mlme_get_mldaddr(vdev);
+			wlan_objmgr_vdev_release_ref(vdev, WLAN_MGMT_NB_ID);
+			if (!mld_addr) {
+				wma_err("mld addr is null");
+				cds_packet_free((void *)tx_frame);
+				goto error;
+			}
+			wma_debug("mld mac addr " QDF_MAC_ADDR_FMT,
+				  QDF_MAC_ADDR_REF(mld_addr));
+			peer = wlan_objmgr_get_peer(psoc, pdev_id,
+						    mld_addr,
+						    WLAN_MGMT_NB_ID);
+			if (!peer) {
+				wma_err("peer is null");
+				cds_packet_free((void *)tx_frame);
+				goto error;
+			}
+		}
 	}
 
 	if (ucfg_pkt_capture_get_pktcap_mode(psoc) &
@@ -2816,7 +2903,7 @@ void ol_rx_aggregation_hole(uint32_t hole_info)
 /*
  * Local prototype added to temporarily address warning caused by
  * -Wmissing-prototypes. A more correct solution will come later
- * as a solution to IR-196435 at whihc point this prototype will
+ * as a solution to IR-196435 at which point this prototype will
  * be removed.
  */
 void ol_rx_err(void *pdev, uint8_t vdev_id,

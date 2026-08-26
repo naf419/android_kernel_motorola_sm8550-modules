@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -28,7 +28,7 @@
 #include <i_qdf_util.h>
 
 #ifdef QCA_CONFIG_SMP
-#define QDF_MAX_AVAILABLE_CPU	8
+#define QDF_MAX_AVAILABLE_CPU	NR_CPUS
 #else
 #define QDF_MAX_AVAILABLE_CPU	1
 #endif
@@ -84,12 +84,12 @@ typedef __qdf_wait_queue_head_t qdf_wait_queue_head_t;
 #endif /* QDF_DEBUG */
 
 /**
- * qdf_assert_always - alway assert "expr" evaluates to false.
+ * qdf_assert_always - always assert "expr" evaluates to false.
  */
 #define qdf_assert_always(expr)  __qdf_assert(expr)
 
 /**
- * qdf_target_assert_always - alway target assert "expr" evaluates to false.
+ * qdf_target_assert_always - always target assert "expr" evaluates to false.
  */
 #define qdf_target_assert_always(expr)  __qdf_target_assert(expr)
 
@@ -123,6 +123,17 @@ typedef __qdf_wait_queue_head_t qdf_wait_queue_head_t;
 	 (_a)[4] == 0xff &&        \
 	 (_a)[5] == 0xff)
 
+/**
+ * QDF_IS_LAST_3_BYTES_OF_MAC_SAME - check the last 3 bytes
+ * same or not for two mac addresses
+ * @mac1: mac address 1
+ * @mac2: mac address 2
+ */
+#define QDF_IS_LAST_3_BYTES_OF_MAC_SAME(mac1, mac2) \
+	((mac1)->bytes[3] == (mac2)->bytes[3] && \
+	 (mac1)->bytes[4] == (mac2)->bytes[4] && \
+	 (mac1)->bytes[5] == (mac2)->bytes[5])
+
 /* Get number of bits from the index bit */
 #define QDF_GET_BITS(_val, _index, _num_bits) \
 		(((_val) >> (_index)) & ((1 << (_num_bits)) - 1))
@@ -131,6 +142,14 @@ typedef __qdf_wait_queue_head_t qdf_wait_queue_head_t;
 #define QDF_SET_BITS(_var, _index, _num_bits, _val) do { \
 		(_var) &= ~(((1 << (_num_bits)) - 1) << (_index)); \
 		(_var) |= (((_val) & ((1 << (_num_bits)) - 1)) << (_index)); \
+		} while (0)
+
+#define QDF_SET_BITS64(_var, _tmp, _index, _num_bits, _val) do { \
+		(_var) = (((_var) & 0xffffffff00000000) >> 32); \
+		(_var) &= ~(((1 << (_num_bits)) - 1) << ((_index) - 32)); \
+		(_var) |= (((_val) & ((1 << (_num_bits)) - 1)) << ((_index) - 32)); \
+		(_var) = (((_var) & 0x00000000ffffffff) << 32); \
+		(_var) |= ((_tmp) & 0x00000000ffffffff); \
 		} while (0)
 
 /* Get number of bits from the index bit supporting 64 bits */
@@ -427,7 +446,7 @@ static inline void qdf_set_macaddr_broadcast(struct qdf_mac_addr *mac_addr)
  * @ptr: Starting address of a byte array
  * @value: The value to assign to the byte array
  *
- * Caller must validate the byte array has enough space to hold the vlaue
+ * Caller must validate the byte array has enough space to hold the value
  *
  * Return: The address to the byte after the assignment. This may or may not
  * be valid. Caller to verify.
@@ -451,7 +470,7 @@ static inline uint8_t *qdf_set_u16(uint8_t *ptr, uint16_t value)
  * @value: Pointer to a caller allocated buffer for 16 bit value. Value is to
  * assign to this location.
  *
- * Caller must validate the byte array has enough space to hold the vlaue
+ * Caller must validate the byte array has enough space to hold the value
  *
  * Return: The address to the byte after the assignment. This may or may not
  * be valid. Caller to verify.
@@ -473,7 +492,7 @@ static inline uint8_t *qdf_get_u16(uint8_t *ptr, uint16_t *value)
  * @value: Pointer to a caller allocated buffer for 32 bit value. Value is to
  * assign to this location.
  *
- * Caller must validate the byte array has enough space to hold the vlaue
+ * Caller must validate the byte array has enough space to hold the value
  *
  * Return: The address to the byte after the assignment. This may or may not
  * be valid. Caller to verify.
@@ -491,6 +510,11 @@ static inline uint8_t *qdf_get_u32(uint8_t *ptr, uint32_t *value)
 #endif
 	return ptr + 4;
 }
+
+/**
+ * qdf_abs - Get absolute value
+ */
+#define qdf_abs(x)                           __qdf_abs(x)
 
 /**
  * qdf_ntohs - Convert a 16-bit value from network byte order to host byte order
@@ -719,7 +743,7 @@ unsigned int qdf_get_hweight32(unsigned int w)
 /**
  * qdf_device_init_wakeup() - allow a device to wake up the aps system
  * @qdf_dev: the qdf device context
- * @enable: enable/disable the device as a wakup source
+ * @enable: enable/disable the device as a wakeup source
  *
  * Return: 0 or errno
  */
@@ -895,5 +919,16 @@ int qdf_fls(uint32_t x)
 static inline int qdf_get_smp_processor_id(void)
 {
 	return __qdf_get_smp_processor_id();
+}
+
+/**
+ * qdf_in_atomic: Check whether current thread running in atomic context
+ *
+ * Return: true if current thread is running in the atomic context
+ *	   else it will be return false.
+ */
+static inline bool qdf_in_atomic(void)
+{
+	return __qdf_in_atomic();
 }
 #endif /*_QDF_UTIL_H*/

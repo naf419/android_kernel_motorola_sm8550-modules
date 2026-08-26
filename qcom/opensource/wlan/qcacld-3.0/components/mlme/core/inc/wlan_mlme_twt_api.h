@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -123,13 +124,11 @@ uint8_t mlme_get_twt_peer_capabilities(struct wlan_objmgr_psoc *psoc,
  * context
  * @psoc: Pointer to psoc object
  * @peer_mac: Pointer to peer mac address
- * @he_cap: Pointer to HE capabilities IE
- * @he_op: Pointer to HE operations IE
+ * @caps: Bitmap of enum wlan_twt_capabilities
  */
 void mlme_set_twt_peer_capabilities(struct wlan_objmgr_psoc *psoc,
 				    struct qdf_mac_addr *peer_mac,
-				    tDot11fIEhe_cap *he_cap,
-				    tDot11fIEhe_op *he_op);
+				    uint8_t caps);
 
 /**
  * mlme_twt_any_peer_cmd_in_progress() - Iterate through the list of peers
@@ -220,6 +219,7 @@ void mlme_twt_set_wait_for_notify(struct wlan_objmgr_psoc *psoc,
 bool mlme_is_twt_notify_in_progress(struct wlan_objmgr_psoc *psoc,
 				    uint32_t vdev_id);
 
+#ifdef WLAN_FEATURE_11AX
 /**
  * mlme_is_flexible_twt_enabled() - Check if flexible TWT is enabled.
  * @psoc: Pointer to psoc object
@@ -227,6 +227,13 @@ bool mlme_is_twt_notify_in_progress(struct wlan_objmgr_psoc *psoc,
  * Return: True if flexible TWT is supported
  */
 bool mlme_is_flexible_twt_enabled(struct wlan_objmgr_psoc *psoc);
+#else
+static inline
+bool mlme_is_flexible_twt_enabled(struct wlan_objmgr_psoc *psoc)
+{
+	return false;
+}
+#endif /* WLAN_FEATURE_11AX */
 
 /**
  * mlme_sap_set_twt_command_in_progress() - Set TWT command is in progress.
@@ -324,8 +331,7 @@ bool mlme_is_24ghz_twt_enabled(struct wlan_objmgr_psoc *psoc);
 static inline
 void mlme_set_twt_peer_capabilities(struct wlan_objmgr_psoc *psoc,
 				    struct qdf_mac_addr *peer_mac,
-				    tDot11fIEhe_cap *he_cap,
-				    tDot11fIEhe_op *he_op)
+				    uint8_t caps)
 {}
 
 static inline
@@ -334,6 +340,12 @@ QDF_STATUS mlme_init_twt_context(struct wlan_objmgr_psoc *psoc,
 				 uint8_t dialog_id)
 {
 	return QDF_STATUS_E_NOSUPPORT;
+}
+
+static inline
+bool mlme_is_flexible_twt_enabled(struct wlan_objmgr_psoc *psoc)
+{
+	return false;
 }
 #endif /* WLAN_SUPPORT_TWT */
 #endif /* _WLAN_MLME_TWT_API_H_ */

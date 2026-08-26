@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -164,6 +164,7 @@ void target_if_vdev_mgr_rsp_timer_cb(void *arg)
 	} else if (qdf_atomic_test_bit(PEER_DELETE_ALL_RESPONSE_BIT,
 				&vdev_rsp->rsp_status)) {
 		peer_del_all_rsp.vdev_id = vdev_id;
+		peer_del_all_rsp.peer_type_bitmap = vdev_rsp->peer_type_bitmap;
 		rsp_pos = PEER_DELETE_ALL_RESPONSE_BIT;
 		recovery_reason = QDF_VDEV_PEER_DELETE_ALL_RESPONSE_TIMED_OUT;
 		target_if_vdev_mgr_rsp_timer_stop(psoc, vdev_rsp, rsp_pos);
@@ -174,10 +175,16 @@ void target_if_vdev_mgr_rsp_timer_cb(void *arg)
 	} else if (qdf_atomic_test_bit(RSO_STOP_RESPONSE_BIT,
 				       &vdev_rsp->rsp_status)) {
 		rsp_pos = RSO_STOP_RESPONSE_BIT;
-		recovery_reason = QDF_RSO_STOP_RSP_TIMEOUT;
 		target_if_vdev_mgr_rsp_timer_stop(psoc, vdev_rsp, rsp_pos);
-		target_if_vdev_mgr_handle_recovery(psoc, vdev_id,
-						   recovery_reason, rsp_pos);
+		/**
+		 * FW did not respond to rso stop cmd, as roaming is
+		 * disabled either due to race condition
+		 * that happened during previous disconnect OR
+		 * supplicant disabled roaming.
+		 * To solve this issue, skip recovery and host will
+		 * continue disconnect and cleanup rso state.
+		 */
+		mlme_debug("No rsp from FW received , continue with disconnect");
 		target_if_send_rso_stop_failure_rsp(psoc, vdev_id);
 	} else {
 		mlme_err("PSOC_%d VDEV_%d: Unknown error",
@@ -530,6 +537,8 @@ static int target_if_vdev_mgr_peer_delete_all_response_handler(
 		goto err;
 	}
 
+	vdev_peer_del_all_resp.peer_type_bitmap = vdev_rsp->peer_type_bitmap;
+
 	status = rx_ops->vdev_mgr_peer_delete_all_response(
 						psoc,
 						&vdev_peer_del_all_resp);
@@ -710,6 +719,7 @@ static int target_if_vdev_mgr_multi_vdev_restart_resp_handler(
 	}
 
 	qdf_mem_zero(&restart_resp, sizeof(restart_resp));
+	restart_resp.timestamp = qdf_get_log_timestamp();
 	if (wmi_extract_multi_vdev_restart_resp_event(wmi_handle, data,
 						      &restart_resp)) {
 		mlme_err("WMI extract failed");

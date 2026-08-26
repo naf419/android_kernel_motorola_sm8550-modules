@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -25,6 +26,20 @@
 #include "wlan_objmgr_vdev_obj.h"
 
 #ifdef FEATURE_WLAN_TDLS
+
+#ifdef FEATURE_SET
+/**
+ * wlan_tdls_get_features_info() - Get tdls features info
+ * @psoc: psoc context
+ * @tdls_feature_set: TDLS feature set info structure
+ *
+ * Return: None
+ */
+
+void wlan_tdls_get_features_info(struct wlan_objmgr_psoc *psoc,
+				 struct wlan_tdls_features *tdls_feature_set);
+#endif
+
 /**
  * wlan_tdls_teardown_links() - notify TDLS module to teardown all TDLS links
  * @psoc: psoc object
@@ -73,7 +88,38 @@ wlan_tdls_notify_sta_connect(uint8_t vdev_id,
 			     bool tdls_prohibited,
 			     struct wlan_objmgr_vdev *vdev);
 
+/**
+ * wlan_tdls_update_tx_pkt_cnt() - update tx pkt count
+ * @vdev: tdls vdev object
+ * @mac_addr: peer mac address
+ *
+ * Return: None
+ */
+void wlan_tdls_update_tx_pkt_cnt(struct wlan_objmgr_vdev *vdev,
+				 struct qdf_mac_addr *mac_addr);
+
+/**
+ * wlan_tdls_update_rx_pkt_cnt() - update rx pkt count
+ * @vdev: tdls vdev object
+ * @mac_addr: peer mac address
+ * @dest_mac_addr: dest mac address
+ *
+ * Return: None
+ */
+void wlan_tdls_update_rx_pkt_cnt(struct wlan_objmgr_vdev *vdev,
+				 struct qdf_mac_addr *mac_addr,
+				 struct qdf_mac_addr *dest_mac_addr);
+
 #else
+
+#ifdef FEATURE_SET
+static inline
+void wlan_tdls_get_features_info(struct wlan_objmgr_psoc *psoc,
+				 struct wlan_tdls_features *tdls_feature_set)
+{
+}
+#endif
+
 static inline QDF_STATUS wlan_tdls_teardown_links(struct wlan_objmgr_psoc *psoc)
 {
 	return QDF_STATUS_SUCCESS;
@@ -93,6 +139,19 @@ wlan_tdls_notify_sta_connect(uint8_t vdev_id,
 			     bool tdls_chan_swit_prohibited,
 			     bool tdls_prohibited,
 			     struct wlan_objmgr_vdev *vdev) {}
+
+static inline void
+wlan_tdls_update_tx_pkt_cnt(struct wlan_objmgr_vdev *vdev,
+			    struct qdf_mac_addr *mac_addr)
+{
+}
+
+static inline
+void wlan_tdls_update_rx_pkt_cnt(struct wlan_objmgr_vdev *vdev,
+				 struct qdf_mac_addr *mac_addr,
+				 struct qdf_mac_addr *dest_mac_addr)
+{
+}
 
 #endif
 #endif

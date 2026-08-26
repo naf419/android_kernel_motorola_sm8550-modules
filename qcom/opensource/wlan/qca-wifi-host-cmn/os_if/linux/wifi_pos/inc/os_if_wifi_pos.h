@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2012-2017, 2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -25,7 +26,9 @@
 
 #include "qdf_types.h"
 #include "qdf_status.h"
-
+#include <wlan_objmgr_cmn.h>
+#include "wifi_pos_public_struct.h"
+#include "wlan_cfg80211.h"
 
 /* forward declaration */
 struct wifi_pos_ch_info;
@@ -33,8 +36,14 @@ struct wlan_objmgr_psoc;
 struct wifi_pos_driver_caps;
 
 #ifdef WIFI_POS_CONVERGED
+#define FEATURE_WIFI_POS_11AZ_AUTH_EVENTS                              \
+[QCA_NL80211_VENDOR_SUBCMD_PASN_AUTH_STATUS_INDEX] = {                 \
+	.vendor_id = QCA_NL80211_VENDOR_ID,                            \
+	.subcmd = QCA_NL80211_VENDOR_SUBCMD_PASN,                      \
+},
+
 /**
- * os_if_wifi_pos_register_nl() - abstration API to register callback with GENL
+ * os_if_wifi_pos_register_nl() - abstraction API to register callback with GENL
  * socket.
  *
  * Return: status of operation
@@ -42,7 +51,7 @@ struct wifi_pos_driver_caps;
 int os_if_wifi_pos_register_nl(void);
 
 /**
- * os_if_wifi_pos_deregister_nl() - abstration API to deregister callback with
+ * os_if_wifi_pos_deregister_nl() - abstraction API to deregister callback with
  * GENL socket.
  *
  * Return: status of operation
@@ -78,6 +87,8 @@ void os_if_wifi_pos_send_peer_status(struct qdf_mac_addr *peer_mac,
 int os_if_wifi_pos_populate_caps(struct wlan_objmgr_psoc *psoc,
 				struct wifi_pos_driver_caps *caps);
 #else
+#define FEATURE_WIFI_POS_11AZ_AUTH_EVENTS
+
 static inline int os_if_wifi_pos_register_nl(void)
 {
 	return 0;
@@ -283,4 +294,30 @@ enum cld80211_sub_attr_peer_info {
 		CLD80211_SUB_ATTR_PEER_AFTER_LAST - 1
 };
 #endif
+
+#if defined(WIFI_POS_CONVERGED) && defined(WLAN_FEATURE_RTT_11AZ_SUPPORT)
+/**
+ * os_if_wifi_pos_initiate_pasn_auth() - Initiate PASN authentication from
+ * userspace
+ * @vdev: Vdev object pointer
+ * @pasn_peer: PASN Peer list
+ * @num_pasn_peers: number of PASN peers
+ * @is_initiate_pasn: Initiate pasn or initiate flush keys
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS os_if_wifi_pos_initiate_pasn_auth(struct wlan_objmgr_vdev *vdev,
+					     struct wlan_pasn_request *pasn_peer,
+					     uint8_t num_pasn_peers,
+					     bool is_initiate_pasn);
+#else
+static inline
+QDF_STATUS os_if_wifi_pos_initiate_pasn_auth(struct wlan_objmgr_vdev *vdev,
+					     struct wlan_pasn_request *pasn_peer,
+					     uint8_t num_pasn_peers,
+					     bool is_initiate_pasn)
+{
+	return QDF_STATUS_E_NOSUPPORT;
+}
+#endif /* WLAN_FEATURE_RTT_11AZ_SUPPORT */
 #endif /* _OS_IF_WIFI_POS_H_ */

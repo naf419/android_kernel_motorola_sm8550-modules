@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -264,11 +264,8 @@ enum wmamsgtype {
 	WMA_NAN_REQUEST = SIR_HAL_NAN_REQUEST,
 #endif
 
-	WMA_START_SCAN_OFFLOAD_REQ = SIR_HAL_START_SCAN_OFFLOAD_REQ,
-	WMA_STOP_SCAN_OFFLOAD_REQ = SIR_HAL_STOP_SCAN_OFFLOAD_REQ,
 	WMA_UPDATE_CHAN_LIST_REQ = SIR_HAL_UPDATE_CHAN_LIST_REQ,
 	WMA_RX_SCAN_EVENT = SIR_HAL_RX_SCAN_EVENT,
-	WMA_RX_CHN_STATUS_EVENT = SIR_HAL_RX_CHN_STATUS_EVENT,
 
 	WMA_CLI_SET_CMD = SIR_HAL_CLI_SET_CMD,
 
@@ -443,6 +440,8 @@ enum wmamsgtype {
 	WMA_TWT_RESUME_DIALOG_REQUEST =  SIR_HAL_TWT_RESUME_DIALOG_REQUEST,
 	WMA_PEER_CREATE_REQ = SIR_HAL_PEER_CREATE_REQ,
 	WMA_TWT_NUDGE_DIALOG_REQUEST = SIR_HAL_TWT_NUDGE_DIALOG_REQUEST,
+	WMA_PASN_PEER_DELETE_REQUEST = SIR_HAL_PASN_PEER_DELETE_REQUEST,
+	WMA_UPDATE_EDCA_PIFS_PARAM_IND = SIR_HAL_UPDATE_EDCA_PIFS_PARAM_IND,
 };
 
 /* Bit 6 will be used to control BD rate for Management frames */
@@ -732,25 +731,29 @@ QDF_STATUS wma_register_roaming_callbacks(
 		QDF_STATUS (*csr_roam_auth_event_handle_cb)(
 			struct mac_context *mac,
 			uint8_t vdev_id,
-			struct qdf_mac_addr bssid),
+			struct qdf_mac_addr bssid,
+			uint32_t akm),
 		pe_roam_synch_fn_t pe_roam_synch_cb,
 		QDF_STATUS (*pe_disconnect_cb) (struct mac_context *mac,
 			uint8_t vdev_id,
 			uint8_t *deauth_disassoc_frame,
 			uint16_t deauth_disassoc_frame_len,
-			uint16_t reason_code));
+			uint16_t reason_code),
+		set_ies_fn_t pe_roam_set_ie_cb);
 #else
 static inline QDF_STATUS wma_register_roaming_callbacks(
 		QDF_STATUS (*csr_roam_auth_event_handle_cb)(
 			struct mac_context *mac,
 			uint8_t vdev_id,
-			struct qdf_mac_addr bssid),
+			struct qdf_mac_addr bssid,
+			uint32_t akm),
 		pe_roam_synch_fn_t pe_roam_synch_cb,
 		QDF_STATUS (*pe_disconnect_cb) (struct mac_context *mac,
 			uint8_t vdev_id,
 			uint8_t *deauth_disassoc_frame,
 			uint16_t deauth_disassoc_frame_len,
-			uint16_t reason_code))
+			uint16_t reason_code),
+		set_ies_fn_t pe_roam_set_ie_cb)
 {
 	return QDF_STATUS_E_NOSUPPORT;
 }

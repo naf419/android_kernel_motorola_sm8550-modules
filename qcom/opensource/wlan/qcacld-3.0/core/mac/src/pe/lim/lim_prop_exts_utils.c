@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -228,10 +228,13 @@ void lim_update_he_bw_cap_mcs(struct pe_session *session,
 			      tSirProbeRespBeacon *beacon)
 {
 	uint8_t is_80mhz;
+	uint8_t sta_prefer_80mhz_over_160mhz;
 
 	if (!session->he_capable)
 		return;
 
+	sta_prefer_80mhz_over_160mhz =
+		session->mac_ctx->mlme_cfg->sta.sta_prefer_80mhz_over_160mhz;
 	if ((session->opmode == QDF_STA_MODE ||
 	     session->opmode == QDF_P2P_CLIENT_MODE) &&
 	    beacon && beacon->he_cap.present) {
@@ -245,6 +248,13 @@ void lim_update_he_bw_cap_mcs(struct pe_session *session,
 			is_80mhz = 1;
 			if (session->ch_width == CH_WIDTH_160MHZ) {
 				pe_debug("HE160 Rx/Tx MCS is not valid, falling back to 80MHz");
+				session->ch_width = CH_WIDTH_80MHZ;
+			}
+		} else if (sta_prefer_80mhz_over_160mhz ==
+				STA_PREFER_BW_80MHZ) {
+			is_80mhz = 1;
+			if (session->ch_width == CH_WIDTH_160MHZ) {
+				pe_debug("STA preferred HE80 over HE160, falling back to 80MHz");
 				session->ch_width = CH_WIDTH_80MHZ;
 			}
 		} else {
@@ -337,16 +347,119 @@ void lim_update_he_mcs_12_13_map(struct wlan_objmgr_psoc *psoc,
 static void lim_extract_eht_op(struct pe_session *session,
 			       tSirProbeRespBeacon *beacon_struct)
 {
+	uint32_t max_eht_bw;
+
+	if (!session->eht_capable)
+		return;
+
+	if (!beacon_struct->eht_op.present) {
+		pe_debug("EHT OP not present in beacon");
+		return;
+	}
+
+	if (!beacon_struct->eht_op.eht_op_information_present) {
+		pe_debug("EHT Operation Information Present not set");
+		return;
+	}
+
+	qdf_mem_copy(&session->eht_op, &beacon_struct->eht_op,
+		     sizeof(session->eht_op));
+
+	max_eht_bw = wma_get_eht_ch_width();
+
+	if (session->eht_op.channel_width == WLAN_EHT_CHWIDTH_320) {
+		if (max_eht_bw == WNI_CFG_EHT_CHANNEL_WIDTH_320MHZ) {
+			session->ch_width = CH_WIDTH_320MHZ;
+		} else if (max_eht_bw == WNI_CFG_VHT_CHANNEL_WIDTH_160MHZ) {
+			session->ch_width = CH_WIDTH_160MHZ;
+		} else {
+			session->ch_width = CH_WIDTH_80MHZ;
+			session->ch_center_freq_seg1 = 0;
+		}
+	} else if (session->eht_op.channel_width == WLAN_EHT_CHWIDTH_160) {
+		if (max_eht_bw >= WNI_CFG_VHT_CHANNEL_WIDTH_160MHZ) {
+			session->ch_width = CH_WIDTH_160MHZ;
+		} else {
+			session->ch_width = CH_WIDTH_80MHZ;
+			session->ch_center_freq_seg1 = 0;
+		}
+	} else if (session->eht_op.channel_width == WLAN_EHT_CHWIDTH_80) {
+		session->ch_width = CH_WIDTH_80MHZ;
+		session->ch_center_freq_seg1 = 0;
+	} else if (session->eht_op.channel_width == WLAN_EHT_CHWIDTH_40) {
+		session->ch_width = CH_WIDTH_40MHZ;
+		session->ch_center_freq_seg1 = 0;
+	} else {
+		session->ch_width = CH_WIDTH_20MHZ;
+		session->ch_center_freq_seg1 = 0;
+	}
+
+	session->ch_center_freq_seg0 = session->eht_op.ccfs0;
+	session->ch_center_freq_seg1 = session->eht_op.ccfs1;
+
+	pe_debug("session ch_width %d ccfs0 %d ccfs1 %d", session->ch_width,
+		 session->ch_center_freq_seg0, session->ch_center_freq_seg1);
 }
 
 void lim_update_eht_bw_cap_mcs(struct pe_session *session,
 			       tSirProbeRespBeacon *beacon)
 {
+	if (!session->eht_capable)
+		return;
+
+	if ((session->opmode == QDF_STA_MODE ||
+	     session->opmode == QDF_P2P_CLIENT_MODE) &&
+	    beacon && beacon->eht_cap.present) {
+		if (!beacon->eht_cap.support_320mhz_6ghz) {
+			pe_debug("Session 6G 320M unsupported");
+			session->eht_config.support_320mhz_6ghz = 0;
+		}
+	}
 }
 #else
 static void lim_extract_eht_op(struct pe_session *session,
 			       tSirProbeRespBeacon *beacon_struct)
 {
+}
+#endif
+
+#ifdef WLAN_FEATURE_11BE_MLO
+void lim_objmgr_update_emlsr_caps(struct wlan_objmgr_psoc *psoc,
+				  uint8_t vdev_id, tpSirAssocRsp assoc_rsp)
+{
+	struct wlan_objmgr_vdev *vdev;
+	bool ap_emlsr_cap = false;
+
+	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
+						    WLAN_LEGACY_MAC_ID);
+	if (!vdev) {
+		pe_err("vdev not found for id: %d", vdev_id);
+		return;
+	}
+
+	/* Check for assoc link vdev to extract emlsr cap from assoc rsp */
+	if (!wlan_vdev_mlme_is_mlo_link_vdev(vdev)) {
+		ap_emlsr_cap =
+			assoc_rsp->mlo_ie.mlo_ie.eml_capabilities_info.emlsr_support;
+
+		if (!(wlan_vdev_mlme_cap_get(vdev, WLAN_VDEV_C_EMLSR_CAP) &&
+		      ap_emlsr_cap)) {
+			if (!wlan_vdev_mlme_cap_get(vdev, WLAN_VDEV_C_EMLSR_CAP)
+			    && ap_emlsr_cap)
+				pe_debug("No eMLSR STA supp but recvd EML caps in assc rsp");
+			else
+				pe_debug("EML caps not present in assoc rsp");
+			wlan_vdev_obj_lock(vdev);
+			wlan_vdev_mlme_cap_clear(vdev, WLAN_VDEV_C_EMLSR_CAP);
+			wlan_vdev_obj_unlock(vdev);
+		} else {
+			pe_debug("EML caps present in assoc rsp");
+		}
+	} else {
+		pe_debug("no change required for link vdev");
+	}
+
+	wlan_objmgr_vdev_release_ref(vdev, WLAN_LEGACY_MAC_ID);
 }
 #endif
 
@@ -442,6 +555,8 @@ void lim_update_ch_width_for_p2p_client(struct mac_context *mac,
 {
 	struct ch_params ch_params = {0};
 
+	if (session->dot11mode > MLME_DOT11_MODE_11AC_ONLY)
+		return;
 	/*
 	 * Some IOT AP's/P2P-GO's (e.g. make: Wireless-AC 9560160MHz as P2P GO),
 	 * send beacon with 20mhz and assoc resp with 80mhz and
@@ -458,7 +573,9 @@ void lim_update_ch_width_for_p2p_client(struct mac_context *mac,
 	 */
 	ch_params.ch_width = CH_WIDTH_80MHZ;
 
-	wlan_reg_set_channel_params_for_freq(mac->pdev, ch_freq, 0, &ch_params);
+	wlan_reg_set_channel_params_for_pwrmode(mac->pdev, ch_freq, 0,
+						&ch_params,
+						REG_CURRENT_PWR_MODE);
 	if (ch_params.ch_width == CH_WIDTH_20MHZ)
 		ch_params.sec_ch_offset = PHY_SINGLE_CHANNEL_CENTERED;
 
@@ -490,6 +607,7 @@ void lim_extract_ap_capability(struct mac_context *mac_ctx, uint8_t *p_ie,
 	uint8_t chan_center_freq_seg1;
 	tDot11fIEVHTCaps *vht_caps;
 	uint8_t channel = 0;
+	uint8_t sta_prefer_80mhz_over_160mhz;
 	struct mlme_vht_capabilities_info *mlme_vht_cap;
 
 	beacon_struct = qdf_mem_malloc(sizeof(tSirProbeRespBeacon));
@@ -498,6 +616,8 @@ void lim_extract_ap_capability(struct mac_context *mac_ctx, uint8_t *p_ie,
 
 	*qos_cap = 0;
 	*uapsd = 0;
+	sta_prefer_80mhz_over_160mhz =
+		session->mac_ctx->mlme_cfg->sta.sta_prefer_80mhz_over_160mhz;
 
 	if (sir_parse_beacon_ie(mac_ctx, beacon_struct, p_ie,
 		(uint32_t) ie_len) != QDF_STATUS_SUCCESS) {
@@ -605,11 +725,13 @@ void lim_extract_ap_capability(struct mac_context *mac_ctx, uint8_t *p_ie,
 		 * AP supports Nss > 1 in 160MHz mode then connect the STA
 		 * in 2x2 80MHz mode instead of connecting in 160MHz mode.
 		 */
-		if ((vht_ch_wd > WNI_CFG_VHT_CHANNEL_WIDTH_80MHZ) &&
-		    mac_ctx->mlme_cfg->sta.sta_prefer_80mhz_over_160mhz) {
-			if (!(IS_VHT_NSS_1x1(beacon_struct->VHTCaps.txMCSMap))
-					&&
-			   (!IS_VHT_NSS_1x1(beacon_struct->VHTCaps.rxMCSMap)))
+		if (vht_ch_wd > WNI_CFG_VHT_CHANNEL_WIDTH_80MHZ) {
+			if (sta_prefer_80mhz_over_160mhz == STA_PREFER_BW_80MHZ)
+				vht_ch_wd = WNI_CFG_VHT_CHANNEL_WIDTH_80MHZ;
+			else if ((sta_prefer_80mhz_over_160mhz ==
+						STA_PREFER_BW_VHT80MHZ) &&
+			  (!(IS_VHT_NSS_1x1(beacon_struct->VHTCaps.txMCSMap)) &&
+			    (!IS_VHT_NSS_1x1(beacon_struct->VHTCaps.rxMCSMap))))
 				vht_ch_wd = WNI_CFG_VHT_CHANNEL_WIDTH_80MHZ;
 		}
 		/*
@@ -703,8 +825,9 @@ void lim_extract_ap_capability(struct mac_context *mac_ctx, uint8_t *p_ie,
 	lim_check_is_he_mcs_valid(session, beacon_struct);
 	lim_check_peer_ldpc_and_update(session, beacon_struct);
 	lim_extract_he_op(session, beacon_struct);
-	lim_update_he_bw_cap_mcs(session, beacon_struct);
 	lim_extract_eht_op(session, beacon_struct);
+	if (!mac_ctx->usr_eht_testbed_cfg)
+		lim_update_he_bw_cap_mcs(session, beacon_struct);
 	lim_update_eht_bw_cap_mcs(session, beacon_struct);
 	/* Extract the UAPSD flag from WMM Parameter element */
 	if (beacon_struct->wmeEdcaPresent)

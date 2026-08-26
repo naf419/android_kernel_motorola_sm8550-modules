@@ -18,7 +18,7 @@
  */
 
 /**
- * DOC : wlan_hdd_stats.h
+ * DOC: wlan_hdd_stats.h
  *
  * WLAN Host Device Driver statistics related implementation
  *
@@ -28,14 +28,19 @@
 #define WLAN_HDD_STATS_H
 
 #include "wlan_hdd_main.h"
+#ifdef WLAN_FEATURE_11BE_MLO
+#include "wlan_mlo_mgr_cmn.h"
+#endif
 
 #define INVALID_MCS_IDX 255
+#define MAX_HT_MCS_IDX 8
+#define MAX_VHT_MCS_IDX 10
 
 #define DATA_RATE_11AC_MCS_MASK    0x03
 
 #ifdef FEATURE_CLUB_LL_STATS_AND_GET_STATION
 /* LL stats get request time out value */
-#define WLAN_WAIT_TIME_LL_STATS 2000
+#define WLAN_WAIT_TIME_LL_STATS 3300
 #else
 #define WLAN_WAIT_TIME_LL_STATS 800
 #endif
@@ -110,11 +115,11 @@ struct index_vht_data_rate_type {
 };
 
 /**
- * enum - data_rate_11ac_max_mcs
+ * enum data_rate_11ac_max_mcs - possible VHT max MCS values
  * @DATA_RATE_11AC_MAX_MCS_7: MCS7 rate
  * @DATA_RATE_11AC_MAX_MCS_8: MCS8 rate
  * @DATA_RATE_11AC_MAX_MCS_9: MCS9 rate
- * @DATA_RATE_11AC_MAX_MCS_NA:i Not applicable
+ * @DATA_RATE_11AC_MAX_MCS_NA: Not applicable
  */
 enum data_rate_11ac_max_mcs {
 	DATA_RATE_11AC_MAX_MCS_7,
@@ -186,7 +191,7 @@ static inline bool hdd_link_layer_stats_supported(void)
 }
 
 /**
- * __wlan_hdd_cfg80211_ll_stats_ext_set_param - config monitor parameters
+ * wlan_hdd_cfg80211_ll_stats_ext_set_param() - config monitor parameters
  * @wiphy: wiphy handle
  * @wdev: wdev handle
  * @data: user layer input
@@ -329,6 +334,21 @@ int wlan_hdd_cfg80211_stats_ext_request(struct wiphy *wiphy,
 #endif /* End of WLAN_FEATURE_STATS_EXT */
 
 /**
+ * wlan_hdd_cfg80211_connected_chan_stats_req() - get currently connected
+ * channel statistics from driver/firmware
+ * @wiphy: Pointer to wiphy
+ * @wdev: Pointer to wdev
+ * @data: Pointer to data
+ * @data_len: Data length
+ *
+ * Return: int
+ */
+int wlan_hdd_cfg80211_connected_chan_stats_req(struct wiphy *wiphy,
+					       struct wireless_dev *wdev,
+					       const void *data,
+					       int data_len);
+
+/**
  * wlan_hdd_cfg80211_get_station() - get station statistics
  * @wiphy: Pointer to wiphy
  * @dev: Pointer to network device
@@ -395,14 +415,21 @@ wlan_hdd_cfg80211_stats_ext2_callback(hdd_handle_t hdd_handle,
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 /**
  * wlan_hdd_cfg80211_roam_events_callback() - roam_events_callback
- * @roam_stats: roam events stats
+ * @hdd_handle: opaque handle to the hdd context
  * @idx: TLV index in roam stats event
+ * @roam_stats: roam events stats
  *
  * Return: void
  */
 void
-wlan_hdd_cfg80211_roam_events_callback(struct roam_stats_event *roam_stats,
-				       uint8_t idx);
+wlan_hdd_cfg80211_roam_events_callback(hdd_handle_t hdd_handle, uint8_t idx,
+				       struct roam_stats_event *roam_stats);
+#else
+static inline void
+wlan_hdd_cfg80211_roam_events_callback(hdd_handle_t hdd_handle, uint8_t idx,
+				       struct roam_stats_event *roam_stats)
+{
+}
 #endif /* End of WLAN_FEATURE_ROAM_OFFLOAD */
 
 /**
@@ -477,6 +504,27 @@ int wlan_hdd_get_linkspeed_for_peermac(struct hdd_adapter *adapter,
  */
 int wlan_hdd_get_link_speed(struct hdd_adapter *adapter, uint32_t *link_speed);
 
+#ifdef FEATURE_RX_LINKSPEED_ROAM_TRIGGER
+/**
+ * wlan_hdd_get_peer_rx_rate_stats() - STA gets rx rate stats
+ * @adapter: adapter upon which the measurement is requested
+ *
+ * STA gets rx rate stats through using the existed API
+ * cdp_host_get_peer_stats. The reason that we make this
+ * function is to avoid being disrupted by the flag
+ * "get_station_fw_request_needed"
+ *
+ * Return: void
+ */
+void
+wlan_hdd_get_peer_rx_rate_stats(struct hdd_adapter *adapter);
+#else
+static inline void
+wlan_hdd_get_peer_rx_rate_stats(struct hdd_adapter *adapter)
+{
+}
+#endif
+
 /**
  * wlan_hdd_get_station_stats() - Get station statistics
  * @adapter: adapter for which statistics are desired
@@ -512,7 +560,6 @@ wlan_cfg80211_mc_cp_get_big_data_stats(struct wlan_objmgr_vdev *vdev,
 /**
  * wlan_cfg80211_mc_cp_stats_free_big_data_stats_event() - API to release big
  * data statistics buffer
- * @vdev:    Pointer to vdev
  * @info:    pointer to object to populate with big data stats
  *
  * Return: None
@@ -562,6 +609,35 @@ int wlan_hdd_get_temperature(struct hdd_adapter *adapter, int *temperature);
 void wlan_hdd_display_txrx_stats(struct hdd_context *hdd_ctx);
 
 /**
+ * hdd_get_max_tx_bitrate() - Get the max tx bitrate of the AP
+ * @hdd_ctx: hdd context
+ * @adapter: hostapd interface
+ *
+ * THis function gets the MAX supported rate by AP and cache
+ * it into connection info structure
+ *
+ * Return: None
+ */
+void hdd_get_max_tx_bitrate(struct hdd_context *hdd_ctx,
+			    struct hdd_adapter *adapter);
+
+#ifdef TX_MULTIQ_PER_AC
+/**
+ * wlan_hdd_display_tx_multiq_stats() - display Tx multi queue stats
+ * @context: hdd context
+ * @vdev_id: vdev id
+ *
+ * Return: none
+ */
+void wlan_hdd_display_tx_multiq_stats(hdd_cb_handle context, uint8_t vdev_id);
+#else
+static inline
+void wlan_hdd_display_tx_multiq_stats(hdd_cb_handle context, uint8_t vdev_id)
+{
+}
+#endif
+
+/**
  * hdd_report_max_rate() - Fill the max rate stats in the station info structure
  * to be sent to the userspace.
  * @adapter: pointer to adapter
@@ -569,7 +645,7 @@ void wlan_hdd_display_txrx_stats(struct hdd_context *hdd_ctx);
  * @rate: The station_info tx/rx rate to be filled
  * @signal: signal from station_info
  * @rate_flags: TX/RX rate flags computed from tx/rx rate
- * @mcs_index; The TX/RX mcs index computed from tx/rx rate
+ * @mcs_index: The TX/RX mcs index computed from tx/rx rate
  * @fw_rate: The tx/rx rate from fw stats
  * @nss: The TX/RX NSS from fw stats
  *

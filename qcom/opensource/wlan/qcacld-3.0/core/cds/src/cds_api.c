@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -37,7 +37,9 @@
 #include "wlan_hdd_power.h"
 #include "wlan_hdd_tsf.h"
 #include <linux/vmalloc.h>
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)) && defined(MSM_PLATFORM)
+#if (defined(__ANDROID_COMMON_KERNEL__) && \
+	(LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)) && \
+	defined(MSM_PLATFORM))
 #include <linux/qcom-iommu-util.h>
 #endif
 #include <scheduler_core.h>
@@ -65,7 +67,7 @@
 #include "target_type.h"
 #include "wlan_ocb_ucfg_api.h"
 #include "wlan_ipa_ucfg_api.h"
-#include "dp_txrx.h"
+
 #ifdef ENABLE_SMMU_S1_TRANSLATION
 #include "pld_common.h"
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0))
@@ -85,6 +87,9 @@
 #include <qwlan_version.h>
 #include <qdf_trace.h>
 #include <qdf_nbuf.h>
+#include "wlan_dp_ucfg_api.h"
+#include "wlan_dp_prealloc.h"
+#include "qdf_ipa.h"
 
 /* Preprocessor Definitions and Constants */
 
@@ -234,7 +239,7 @@ static QDF_STATUS cds_wmi_send_recv_qmi(void *buf, uint32_t len, void * cb_ctx,
 
 /**
  * cds_update_recovery_reason() - update the recovery reason code
- * @reason: recovery reason
+ * @recovery_reason: recovery reason
  *
  * Return: None
  */
@@ -349,7 +354,7 @@ void cds_tdls_tx_rx_mgmt_event(uint8_t event_id, uint8_t tx_rx,
 /**
  * cds_cfg_update_ac_specs_params() - update ac_specs params
  * @olcfg: cfg handle
- * @mac_params: mac params
+ * @cds_cfg: pointer to cds config
  *
  * Return: none
  */
@@ -435,7 +440,7 @@ cds_cdp_update_bundle_params(struct wlan_objmgr_psoc *psoc,
 
 /**
  * cds_cdp_cfg_attach() - attach data path config module
- * @cds_cfg: generic platform level config instance
+ * @psoc: psoc handle
  *
  * Return: none
  */
@@ -443,7 +448,6 @@ static void cds_cdp_cfg_attach(struct wlan_objmgr_psoc *psoc)
 {
 	struct txrx_pdev_cfg_param_t cdp_cfg = {0};
 	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
-	struct hdd_context *hdd_ctx = gp_cds_context->hdd_context;
 	uint32_t gro_bit_set;
 
 	cdp_cfg.is_full_reorder_offload = DP_REORDER_OFFLOAD_SUPPORT;
@@ -455,7 +459,7 @@ static void cds_cdp_cfg_attach(struct wlan_objmgr_psoc *psoc)
 		cfg_get(psoc, CFG_DP_IPA_UC_RX_IND_RING_COUNT);
 	cdp_cfg.uc_tx_partition_base =
 		cfg_get(psoc, CFG_DP_IPA_UC_TX_PARTITION_BASE);
-	cdp_cfg.enable_rxthread = hdd_ctx->enable_rxthread;
+	cdp_cfg.enable_rxthread = ucfg_dp_is_rx_common_thread_enabled(psoc);
 	cdp_cfg.ip_tcp_udp_checksum_offload =
 		cfg_get(psoc, CFG_DP_TCP_UDP_CKSUM_OFFLOAD);
 	cdp_cfg.nan_ip_tcp_udp_checksum_offload =
@@ -565,7 +569,6 @@ static QDF_STATUS cds_deregister_all_modules(void)
 /**
  * cds_set_ac_specs_params() - set ac_specs params in cds_config_info
  * @cds_cfg: Pointer to cds_config_info
- * @hdd_ctx: Pointer to hdd context
  *
  * Return: none
  */
@@ -646,6 +649,7 @@ static qdf_notif_block cds_hang_event_notifier = {
  *
  * - All the WLAN SW components should have been opened. This includes
  * SYS, MAC, SME, WMA and TL.
+ * @psoc: psoc handle
  *
  * Return: QDF status
  */
@@ -815,7 +819,8 @@ QDF_STATUS cds_open(struct wlan_objmgr_psoc *psoc)
 				goto err_soc_detach;
 			}
 		hdd_ctx->is_wifi3_0_target = true;
-	} else if (hdd_ctx->target_type == TARGET_TYPE_KIWI) {
+	} else if (hdd_ctx->target_type == TARGET_TYPE_KIWI ||
+		   hdd_ctx->target_type == TARGET_TYPE_MANGO) {
 		gp_cds_context->dp_soc =
 			cdp_soc_attach(BERYLLIUM_DP,
 				       gp_cds_context->hif_context,
@@ -962,7 +967,8 @@ QDF_STATUS cds_dp_open(struct wlan_objmgr_psoc *psoc)
 	    hdd_ctx->target_type == TARGET_TYPE_QCA6390 ||
 	    hdd_ctx->target_type == TARGET_TYPE_QCA6490 ||
 	    hdd_ctx->target_type == TARGET_TYPE_QCA6750 ||
-	    hdd_ctx->target_type == TARGET_TYPE_KIWI) {
+	    hdd_ctx->target_type == TARGET_TYPE_KIWI ||
+	    hdd_ctx->target_type == TARGET_TYPE_MANGO) {
 		qdf_status = cdp_pdev_init(cds_get_context(QDF_MODULE_ID_SOC),
 					   gp_cds_context->htc_ctx,
 					   gp_cds_context->qdf_ctx, 0);
@@ -984,9 +990,9 @@ QDF_STATUS cds_dp_open(struct wlan_objmgr_psoc *psoc)
 		(cds_get_conparam() == QDF_GLOBAL_MONITOR_MODE) ?
 		false : gp_cds_context->cds_cfg->enable_dp_rx_threads;
 
-	qdf_status = dp_txrx_init(cds_get_context(QDF_MODULE_ID_SOC),
-				  OL_TXRX_PDEV_ID,
-				  &dp_config);
+	qdf_status = ucfg_dp_txrx_init(cds_get_context(QDF_MODULE_ID_SOC),
+				       OL_TXRX_PDEV_ID,
+				       &dp_config);
 
 	if (!QDF_IS_STATUS_SUCCESS(qdf_status))
 		goto intr_close;
@@ -1000,12 +1006,12 @@ QDF_STATUS cds_dp_open(struct wlan_objmgr_psoc *psoc)
 	cds_debug("CDS successfully Opened");
 
 	if (cdp_cfg_get(gp_cds_context->dp_soc, cfg_dp_tc_based_dyn_gro_enable))
-		hdd_ctx->dp_agg_param.tc_based_dyn_gro = true;
+		ucfg_dp_set_tc_based_dyn_gro(psoc, true);
 	else
-		hdd_ctx->dp_agg_param.tc_based_dyn_gro = false;
+		ucfg_dp_set_tc_based_dyn_gro(psoc, false);
 
-	hdd_ctx->dp_agg_param.tc_ingress_prio =
-		    cdp_cfg_get(gp_cds_context->dp_soc, cfg_dp_tc_ingress_prio);
+	ucfg_dp_set_tc_ingress_prio(psoc, cdp_cfg_get(gp_cds_context->dp_soc,
+						      cfg_dp_tc_ingress_prio));
 
 	return 0;
 
@@ -1458,7 +1464,7 @@ QDF_STATUS cds_dp_close(struct wlan_objmgr_psoc *psoc)
 
 	qdf_nbuf_stop_replenish_timer();
 
-	dp_txrx_deinit(cds_get_context(QDF_MODULE_ID_SOC));
+	ucfg_dp_txrx_deinit(cds_get_context(QDF_MODULE_ID_SOC));
 
 	cdp_pdev_deinit(cds_get_context(QDF_MODULE_ID_SOC), OL_TXRX_PDEV_ID, 1);
 
@@ -1646,7 +1652,7 @@ void cds_clear_driver_state(enum cds_driver_state state)
  * @module_context: pointer to location where the pointer to the
  *	allocated context is returned. Note this output pointer
  *	is valid only if the API returns QDF_STATUS_SUCCESS
- * @param size: size of the context area to be allocated.
+ * @size: size of the context area to be allocated.
  *
  * This API allows any user to allocate a user context area within the
  * CDS Global Context.
@@ -2007,6 +2013,9 @@ static void cds_trigger_recovery_handler(const char *func, const uint32_t line)
 		cds_force_assert_target(qdf);
 	cds_set_assert_target_in_progress(false);
 
+	/* Do not wait for firmware down block wmi transactions */
+	wma_wmi_stop();
+
 	/*
 	 * if *wlan* recovery is disabled, once all the required registers are
 	 * read via the platform driver check and crash the system.
@@ -2099,7 +2108,7 @@ void cds_set_wakelock_logging(bool value)
 
 	p_cds_context = cds_get_global_context();
 	if (!p_cds_context) {
-		cds_err("cds context is Invald");
+		cds_err("cds context is Invalid");
 		return;
 	}
 	p_cds_context->is_wakelock_log_enabled = value;
@@ -2107,7 +2116,6 @@ void cds_set_wakelock_logging(bool value)
 
 /**
  * cds_is_wakelock_enabled() - Check if logging of wakelock is enabled/disabled
- * @value: Boolean value
  *
  * This function is used to check whether logging of wakelock is enabled or not
  *
@@ -2119,7 +2127,7 @@ bool cds_is_wakelock_enabled(void)
 
 	p_cds_context = cds_get_global_context();
 	if (!p_cds_context) {
-		cds_err("cds context is Invald");
+		cds_err("cds context is Invalid");
 		return false;
 	}
 	return p_cds_context->is_wakelock_log_enabled;
@@ -2128,7 +2136,7 @@ bool cds_is_wakelock_enabled(void)
 /**
  * cds_set_ring_log_level() - Sets the log level of a particular ring
  * @ring_id: ring_id
- * @log_levelvalue: Log level specificed
+ * @log_level: Log level specified
  *
  * This function converts HLOS values to driver log levels and sets the log
  * level of a particular ring accordingly.
@@ -2142,7 +2150,7 @@ void cds_set_ring_log_level(uint32_t ring_id, uint32_t log_level)
 
 	p_cds_context = cds_get_global_context();
 	if (!p_cds_context) {
-		cds_err("cds context is Invald");
+		cds_err("cds context is Invalid");
 		return;
 	}
 
@@ -2194,7 +2202,7 @@ enum wifi_driver_log_level cds_get_ring_log_level(uint32_t ring_id)
 
 	p_cds_context = cds_get_global_context();
 	if (!p_cds_context) {
-		cds_err("cds context is Invald");
+		cds_err("cds context is Invalid");
 		return WLAN_LOG_LEVEL_OFF;
 	}
 
@@ -2268,7 +2276,7 @@ void cds_init_log_completion(void)
 /**
  * cds_set_log_completion() - Store the logging params
  * @is_fatal: Indicates if the event triggering bug report is fatal or not
- * @indicator: Source which trigerred the bug report
+ * @indicator: Source which triggered the bug report
  * @reason_code: Reason for triggering bug report
  * @recovery_needed: If recovery is needed after bug report
  *
@@ -2306,7 +2314,7 @@ QDF_STATUS cds_set_log_completion(uint32_t is_fatal,
 /**
  * cds_get_and_reset_log_completion() - Get and reset logging related params
  * @is_fatal: Indicates if the event triggering bug report is fatal or not
- * @indicator: Source which trigerred the bug report
+ * @indicator: Source which triggered the bug report
  * @reason_code: Reason for triggering bug report
  * @recovery_needed: If recovery is needed after bug report
  *
@@ -2469,7 +2477,7 @@ void cds_wlan_flush_host_logs_for_fatal(void)
 /**
  * cds_flush_logs() - Report fatal event to userspace
  * @is_fatal: Indicates if the event triggering bug report is fatal or not
- * @indicator: Source which trigerred the bug report
+ * @indicator: Source which triggered the bug report
  * @reason_code: Reason for triggering bug report
  * @dump_mac_trace: If mac trace are needed in logs.
  * @recovery_needed: If recovery is needed after bug report
@@ -2825,22 +2833,6 @@ cds_print_htc_credit_history(uint32_t count, qdf_abstract_print *print,
 }
 #endif
 
-uint32_t cds_get_connectivity_stats_pkt_bitmap(void *context)
-{
-	struct hdd_adapter *adapter = NULL;
-
-	if (!context)
-		return 0;
-
-	adapter = (struct hdd_adapter *)context;
-	if (unlikely(adapter->magic != WLAN_HDD_ADAPTER_MAGIC)) {
-		cds_err("Magic cookie(%x) for adapter sanity verification is invalid",
-			adapter->magic);
-		return 0;
-	}
-	return adapter->pkt_type_bitmap;
-}
-
 #ifdef FEATURE_ALIGN_STATS_FROM_DP
 /**
  * cds_get_cdp_vdev_stats() - Function which retrieves cdp vdev stats
@@ -2897,8 +2889,9 @@ QDF_STATUS cds_smmu_mem_map_setup(qdf_device_t osdev, bool ipa_present)
 	domain = pld_smmu_get_domain(osdev->dev);
 	if (domain) {
 		int attr = 0;
-		int errno = iommu_domain_get_attr(domain,
-						  DOMAIN_ATTR_S1_BYPASS, &attr);
+		int errno = qdf_iommu_domain_get_attr(domain,
+						      QDF_DOMAIN_ATTR_S1_BYPASS,
+						      &attr);
 
 		wlan_smmu_enabled = !errno && !attr;
 	} else {
@@ -2944,8 +2937,9 @@ QDF_STATUS cds_smmu_mem_map_setup(qdf_device_t osdev, bool ipa_present)
 	mapping = pld_smmu_get_mapping(osdev->dev);
 	if (mapping) {
 		int attr = 0;
-		int errno = iommu_domain_get_attr(mapping->domain,
-						  DOMAIN_ATTR_S1_BYPASS, &attr);
+		int errno = qdf_iommu_domain_get_attr(mapping->domain,
+						      QDF_DOMAIN_ATTR_S1_BYPASS,
+						      &attr);
 
 		wlan_smmu_enabled = !errno && !attr;
 	} else {

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -46,7 +46,8 @@
 #include "wlan_lmac_if_def.h"
 #include <lim_mlo.h>
 #include "wlan_mlo_mgr_sta.h"
-#include "utils_mlo.h"
+#include "../../../../qca-wifi-host-cmn/umac/mlo_mgr/inc/utils_mlo.h"
+#include "wlan_mlo_mgr_roam.h"
 
 #define MAX_SUPPORTED_PEERS_WEP 16
 
@@ -207,10 +208,9 @@ void lim_process_mlm_start_cnf(struct mac_context *mac, uint32_t *msg_buf)
 		pe_session = NULL;
 		pe_err("Start BSS Failed");
 	}
-	/* Send response to Host */
-	lim_send_sme_start_bss_rsp(mac, eWNI_SME_START_BSS_RSP,
-				((tLimMlmStartCnf *)msg_buf)->resultCode,
-				pe_session, smesessionId);
+	lim_send_sme_start_bss_rsp(mac,
+				   ((tLimMlmStartCnf *)msg_buf)->resultCode,
+				   pe_session, smesessionId);
 	if (pe_session &&
 	    (((tLimMlmStartCnf *)msg_buf)->resultCode == eSIR_SME_SUCCESS)) {
 		lim_ndi_mlme_vdev_up_transition(pe_session);
@@ -231,17 +231,25 @@ void lim_process_mlm_start_cnf(struct mac_context *mac, uint32_t *msg_buf)
 		if (!LIM_IS_AP_ROLE(pe_session))
 			return;
 		if (pe_session->ch_width == CH_WIDTH_160MHZ) {
-			if (wlan_reg_get_bonded_channel_state_for_freq(
-					mac->pdev, chan_freq,
-					pe_session->ch_width, 0) !=
-					CHANNEL_STATE_DFS)
+			struct ch_params ch_params = {0};
+
+			if (IS_DOT11_MODE_EHT(pe_session->dot11mode))
+				wlan_reg_set_create_punc_bitmap(&ch_params, true);
+			ch_params.ch_width = pe_session->ch_width;
+			if (wlan_reg_get_5g_bonded_channel_state_for_pwrmode(mac->pdev,
+									     chan_freq,
+									     &ch_params,
+									     REG_CURRENT_PWR_MODE)  !=
+			    CHANNEL_STATE_DFS)
 				send_bcon_ind = true;
 		} else if (pe_session->ch_width == CH_WIDTH_80P80MHZ) {
-			if ((wlan_reg_get_channel_state_for_freq(
-					mac->pdev, chan_freq) !=
+			if ((wlan_reg_get_channel_state_for_pwrmode(
+					mac->pdev, chan_freq,
+					REG_CURRENT_PWR_MODE) !=
 					CHANNEL_STATE_DFS) &&
-			    (wlan_reg_get_channel_state_for_freq(
-					mac->pdev, ch_cfreq1) !=
+			    (wlan_reg_get_channel_state_for_pwrmode(
+					mac->pdev, ch_cfreq1,
+					REG_CURRENT_PWR_MODE) !=
 					CHANNEL_STATE_DFS))
 				send_bcon_ind = true;
 		} else {
@@ -257,10 +265,10 @@ void lim_process_mlm_start_cnf(struct mac_context *mac, uint32_t *msg_buf)
 
 		if (send_bcon_ind) {
 			/* Configure beacon and send beacons to HAL */
-			QDF_TRACE(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
-					"Start Beacon with ssid %s Ch freq %d",
-					pe_session->ssId.ssId,
-					pe_session->curr_op_freq);
+			pe_debug("Start Beacon with ssid " QDF_SSID_FMT " Ch freq %d",
+				 QDF_SSID_REF(pe_session->ssId.length,
+					      pe_session->ssId.ssId),
+				 pe_session->curr_op_freq);
 			lim_send_beacon(mac, pe_session);
 			lim_enable_obss_detection_config(mac, pe_session);
 			lim_send_obss_color_collision_cfg(mac, pe_session,
@@ -708,6 +716,24 @@ void lim_process_mlm_assoc_cnf(struct mac_context *mac_ctx,
 	}
 }
 
+#ifdef WLAN_FEATURE_11BE_MLO
+static void
+lim_fill_sme_assoc_ind_mlo_mld_addr_copy(struct assoc_ind *sme_assoc_ind,
+					 tpLimMlmAssocInd assoc_ind,
+					 uint32_t num_bytes)
+{
+	qdf_mem_copy(sme_assoc_ind->peer_mld_addr, assoc_ind->peer_mld_addr,
+		     num_bytes);
+}
+#else /* WLAN_FEATURE_11BE_MLO */
+static inline void
+lim_fill_sme_assoc_ind_mlo_mld_addr_copy(struct assoc_ind *sme_assoc_ind,
+					 tpLimMlmAssocInd assoc_ind,
+					 uint32_t num_bytes)
+{
+}
+#endif /* WLAN_FEATURE_11BE_MLO */
+
 void
 lim_fill_sme_assoc_ind_params(
 	struct mac_context *mac_ctx,
@@ -731,10 +757,8 @@ lim_fill_sme_assoc_ind_params(
 	/* Fill in peerMacAddr */
 	qdf_mem_copy(sme_assoc_ind->peerMacAddr, assoc_ind->peerMacAddr,
 		sizeof(tSirMacAddr));
-#ifdef WLAN_FEATURE_11BE_MLO
-	qdf_mem_copy(sme_assoc_ind->peer_mld_addr, assoc_ind->peer_mld_addr,
-		     sizeof(tSirMacAddr));
-#endif
+	lim_fill_sme_assoc_ind_mlo_mld_addr_copy(sme_assoc_ind, assoc_ind,
+						 sizeof(tSirMacAddr));
 	/* Fill in aid */
 	sme_assoc_ind->aid = assoc_ind->aid;
 	/* Fill in bssId */
@@ -790,9 +814,12 @@ lim_fill_sme_assoc_ind_params(
 	sme_assoc_ind->max_supp_idx = assoc_ind->max_supp_idx;
 	sme_assoc_ind->max_ext_idx = assoc_ind->max_ext_idx;
 	sme_assoc_ind->max_mcs_idx = assoc_ind->max_mcs_idx;
+	sme_assoc_ind->max_real_mcs_idx = assoc_ind->max_real_mcs_idx;
 	sme_assoc_ind->rx_mcs_map = assoc_ind->rx_mcs_map;
 	sme_assoc_ind->tx_mcs_map = assoc_ind->tx_mcs_map;
 	sme_assoc_ind->ecsa_capable = assoc_ind->ecsa_capable;
+	sme_assoc_ind->ext_cap = assoc_ind->ext_cap;
+	sme_assoc_ind->supported_band = assoc_ind->supported_band;
 
 	if (assoc_ind->ht_caps.present)
 		sme_assoc_ind->HTCaps = assoc_ind->ht_caps;
@@ -946,7 +973,7 @@ void lim_process_mlm_disassoc_cnf(struct mac_context *mac_ctx,
 			eLIM_SME_WT_DEAUTH_STATE)) {
 			/*
 			 * Should not have received
-			 * Disassocate confirm
+			 * Disassociate confirm
 			 * from MLM in other states.Log error
 			 */
 			pe_err("received MLM_DISASSOC_CNF in state %X",
@@ -1210,7 +1237,7 @@ void lim_process_mlm_set_keys_cnf(struct mac_context *mac, uint32_t *msg_buf)
 	tLimMlmSetKeysCnf *pMlmSetKeysCnf;
 	struct pe_session *pe_session;
 	uint16_t aid;
-	tpDphHashNode sta_ds;
+	tpDphHashNode sta_ds = NULL;
 
 	if (!msg_buf) {
 		pe_err("Buffer is Pointing to NULL");
@@ -1220,25 +1247,26 @@ void lim_process_mlm_set_keys_cnf(struct mac_context *mac, uint32_t *msg_buf)
 	pe_session = pe_find_session_by_session_id(mac,
 					   pMlmSetKeysCnf->sessionId);
 	if (!pe_session) {
-		pe_err("session does not exist for given sessionId");
+		pe_err("session does not exist for given sessionId %d",
+		       pMlmSetKeysCnf->sessionId);
 		return;
 	}
-	pe_session->is_key_installed = 0;
-	pe_debug("Received MLM_SETKEYS_CNF with resultCode = %d",
-		pMlmSetKeysCnf->resultCode);
 	/* if the status is success keys are installed in the
 	* Firmware so we can set the protection bit
 	*/
 	if (eSIR_SME_SUCCESS == pMlmSetKeysCnf->resultCode) {
-		if (pMlmSetKeysCnf->key_len_nonzero)
-			pe_session->is_key_installed = 1;
 		sta_ds = dph_lookup_hash_entry(mac,
 				pMlmSetKeysCnf->peer_macaddr.bytes,
 				&aid, &pe_session->dph.dphHashTable);
 		if (sta_ds && pMlmSetKeysCnf->key_len_nonzero)
 			sta_ds->is_key_installed = 1;
 	}
-	pe_debug("is_key_installed = %d", pe_session->is_key_installed);
+	pe_debug("vdev %d: " QDF_MAC_ADDR_FMT " Status %d key_len_nonzero %d key installed %d",
+		 pe_session->vdev_id,
+		 QDF_MAC_ADDR_REF(pMlmSetKeysCnf->peer_macaddr.bytes),
+		 pMlmSetKeysCnf->resultCode,
+		 pMlmSetKeysCnf->key_len_nonzero,
+		 sta_ds ? sta_ds->is_key_installed : 0);
 
 	lim_send_sme_set_context_rsp(mac,
 				     pMlmSetKeysCnf->peer_macaddr,
@@ -1246,6 +1274,16 @@ void lim_process_mlm_set_keys_cnf(struct mac_context *mac, uint32_t *msg_buf)
 				     (tSirResultCodes) pMlmSetKeysCnf->resultCode,
 				     pe_session, pe_session->smeSessionId);
 } /*** end lim_process_mlm_set_keys_cnf() ***/
+
+void lim_update_lost_link_rssi(struct mac_context *mac, uint32_t rssi)
+{
+	if (!mac) {
+		pe_debug("mac is null");
+		return;
+	}
+
+	mac->lim.bss_rssi = rssi;
+}
 
 void lim_join_result_callback(struct mac_context *mac,
 			      uint8_t vdev_id)
@@ -1408,7 +1446,7 @@ void lim_process_mlm_add_sta_rsp(struct mac_context *mac,
 {
 	/* we need to process the deferred message since the initiating req. there might be nested request. */
 	/* in the case of nested request the new request initiated from the response will take care of resetting */
-	/* the deffered flag. */
+	/* the deferred flag. */
 	SET_LIM_PROCESS_DEFD_MESGS(mac, true);
 	if (LIM_IS_AP_ROLE(pe_session)) {
 		lim_process_ap_mlm_add_sta_rsp(mac, limMsgQ, pe_session);
@@ -1416,6 +1454,29 @@ void lim_process_mlm_add_sta_rsp(struct mac_context *mac,
 	}
 	lim_process_sta_mlm_add_sta_rsp(mac, limMsgQ, pe_session);
 }
+
+#ifdef WLAN_FEATURE_11BE_MLO
+static void
+lim_process_add_sta_rsp_mlo(struct mac_context *mac_ctx,
+			    tLimMlmAssocCnf *mlm_assoc_cnf,
+			    struct pe_session *session_entry)
+{
+	if (wlan_vdev_mlme_is_mlo_link_vdev(session_entry->vdev)) {
+		pe_err("sending assoc cnf for MLO link vdev");
+		mlm_assoc_cnf->resultCode = eSIR_SME_SUCCESS;
+		mlm_assoc_cnf->sessionId = session_entry->peSessionId;
+		lim_post_sme_message(mac_ctx, LIM_MLM_ASSOC_CNF,
+				     (uint32_t *)mlm_assoc_cnf);
+	}
+}
+#else /* WLAN_FEATURE_11BE_MLO */
+static inline void
+lim_process_add_sta_rsp_mlo(struct mac_context *mac_ctx,
+			    tLimMlmAssocCnf *mlm_assoc_cnf,
+			    struct pe_session *session_entry)
+{
+}
+#endif /* WLAN_FEATURE_11BE_MLO */
 
 /**
  * lim_process_sta_mlm_add_sta_rsp () - Process add sta response
@@ -1496,16 +1557,8 @@ void lim_process_sta_mlm_add_sta_rsp(struct mac_context *mac_ctx,
 		MTRACE(mac_trace(mac_ctx, TRACE_CODE_MLM_STATE,
 			session_entry->peSessionId,
 			session_entry->limMlmState));
-#ifdef WLAN_FEATURE_11BE_MLO
-		if (wlan_vdev_mlme_is_mlo_link_vdev(session_entry->vdev)) {
-			pe_err("sending assoc cnf for MLO link vdev");
-			mlm_assoc_cnf.resultCode = eSIR_SME_SUCCESS;
-			mlm_assoc_cnf.sessionId = session_entry->peSessionId;
-			lim_post_sme_message(mac_ctx, LIM_MLM_ASSOC_CNF,
-					     (uint32_t *)&mlm_assoc_cnf);
-		}
-#endif
-
+		lim_process_add_sta_rsp_mlo(mac_ctx, &mlm_assoc_cnf,
+					    session_entry);
 #ifdef WLAN_DEBUG
 		mac_ctx->lim.gLimNumLinkEsts++;
 #endif
@@ -1563,7 +1616,7 @@ void lim_process_mlm_del_bss_rsp(struct mac_context *mac,
 {
 	/* we need to process the deferred message since the initiating req. there might be nested request. */
 	/* in the case of nested request the new request initiated from the response will take care of resetting */
-	/* the deffered flag. */
+	/* the deferred flag. */
 	SET_LIM_PROCESS_DEFD_MESGS(mac, true);
 	mac->sys.gSysFrameCount[SIR_MAC_MGMT_FRAME][SIR_MAC_MGMT_DEAUTH] = 0;
 
@@ -1678,8 +1731,7 @@ void lim_process_ap_mlm_del_bss_rsp(struct mac_context *mac,
 	/* Initialize number of associated stations during cleanup */
 	pe_session->gLimNumOfCurrentSTAs = 0;
 end:
-	lim_send_sme_rsp(mac, eWNI_SME_STOP_BSS_RSP, rc,
-			 pe_session->smeSessionId);
+	lim_send_stop_bss_response(mac, pe_session->vdev_id, rc);
 	pe_delete_session(mac, pe_session);
 }
 
@@ -1742,7 +1794,7 @@ void lim_process_mlm_del_sta_rsp(struct mac_context *mac_ctx,
 	 * initiating req. there might be nested request
 	 * in the case of nested request the new request
 	 * initiated from the response will take care of resetting
-	 * the deffered flag.
+	 * the deferred flag.
 	 */
 	struct pe_session *session_entry;
 	tpDeleteStaParams del_sta_params;
@@ -2112,6 +2164,28 @@ static void lim_update_fils_auth_mode(struct pe_session *session_entry,
 { }
 #endif
 
+#ifdef WLAN_FEATURE_11BE_MLO
+static bool
+lim_process_mlo_sta_add_bss_skip_auth(tLimMlmAuthReq *pMlmAuthReq,
+				      struct pe_session *session_entry)
+{
+	if (wlan_vdev_mlme_is_mlo_link_vdev(session_entry->vdev)) {
+		qdf_mem_free(pMlmAuthReq);
+		pe_err("vdev is an MLO link, skip Auth");
+		return true;
+	}
+
+	return false;
+}
+#else /* WLAN_FEATURE_11BE_MLO */
+static inline bool
+lim_process_mlo_sta_add_bss_skip_auth(tLimMlmAuthReq *pMlmAuthReq,
+				      struct pe_session *session_entry)
+{
+	return false;
+}
+#endif /* WLAN_FEATURE_11BE_MLO */
+
 void lim_process_sta_add_bss_rsp_pre_assoc(struct mac_context *mac_ctx,
 					   struct bss_params *add_bss_params,
 					   struct pe_session *session_entry,
@@ -2168,13 +2242,10 @@ void lim_process_sta_add_bss_rsp_pre_assoc(struct mac_context *mac_ctx,
 		MTRACE(mac_trace(mac_ctx, TRACE_CODE_SME_STATE,
 			session_entry->peSessionId,
 			session_entry->limSmeState));
-#ifdef WLAN_FEATURE_11BE_MLO
-		if (wlan_vdev_mlme_is_mlo_link_vdev(session_entry->vdev)) {
-			qdf_mem_free(pMlmAuthReq);
-			pe_err("vdev is an MLO link, skip Auth");
+
+		if (lim_process_mlo_sta_add_bss_skip_auth(pMlmAuthReq,
+							  session_entry))
 			return;
-		}
-#endif
 		lim_post_mlm_message(mac_ctx, LIM_MLM_AUTH_REQ,
 			(uint32_t *) pMlmAuthReq);
 		return;
@@ -2312,7 +2383,7 @@ void lim_handle_add_bss_rsp(struct mac_context *mac_ctx,
 	 * we need to process the deferred message since the
 	 * initiating req.there might be nested request.
 	 * in the case of nested request the new request initiated
-	 * from the response will take care of resetting the deffered
+	 * from the response will take care of resetting the deferred
 	 * flag.
 	 */
 	SET_LIM_PROCESS_DEFD_MESGS(mac_ctx, true);
@@ -2334,7 +2405,7 @@ void lim_handle_add_bss_rsp(struct mac_context *mac_ctx,
 			}
 			tx_ops = wlan_reg_get_tx_ops(mac_ctx->psoc);
 
-			lim_calculate_tpc(mac_ctx, session_entry);
+			lim_calculate_tpc(mac_ctx, session_entry, false);
 
 			if (tx_ops->set_tpc_power)
 				tx_ops->set_tpc_power(mac_ctx->psoc,
@@ -2353,9 +2424,8 @@ void lim_handle_add_bss_rsp(struct mac_context *mac_ctx,
 							false);
 				} else {
 					lim_update_tx_power(mac_ctx,
-							    session_entry,
-							    sta_session,
-							    false);
+						    session_entry, sta_session,
+						    false);
 				}
 			}
 		}
@@ -2469,6 +2539,7 @@ void lim_process_mlm_set_sta_key_rsp(struct mac_context *mac_ctx,
 	uint16_t key_len;
 	uint16_t result_status;
 	tSetStaKeyParams *set_key_params;
+	tLimMlmStates mlm_state = eLIM_MLM_OFFLINE_STATE;
 
 	SET_LIM_PROCESS_DEFD_MESGS(mac_ctx, true);
 	qdf_mem_zero((void *)&mlm_set_key_cnf, sizeof(tLimMlmSetKeysCnf));
@@ -2478,20 +2549,28 @@ void lim_process_mlm_set_sta_key_rsp(struct mac_context *mac_ctx,
 	}
 	set_key_params = msg->bodyptr;
 	vdev_id = set_key_params->vdev_id;
-	session_entry = pe_find_session_by_vdev_id(mac_ctx, vdev_id);
-	if (!session_entry) {
-		pe_err("session does not exist for given vdev_id %d", vdev_id);
-		qdf_mem_zero(msg->bodyptr, sizeof(*set_key_params));
-		qdf_mem_free(msg->bodyptr);
-		msg->bodyptr = NULL;
-		lim_send_sme_set_context_rsp(mac_ctx,
-					     mlm_set_key_cnf.peer_macaddr,
-					     0, eSIR_SME_INVALID_SESSION, NULL,
-					     vdev_id);
-		return;
+	session_id = vdev_id;
+	if (wlan_get_opmode_from_vdev_id(mac_ctx->pdev,
+					 vdev_id) != QDF_NAN_DISC_MODE) {
+		session_entry = pe_find_session_by_vdev_id(mac_ctx, vdev_id);
+		if (!session_entry) {
+			pe_err("session does not exist for given vdev_id %d",
+			       vdev_id);
+			qdf_mem_zero(msg->bodyptr, sizeof(*set_key_params));
+			qdf_mem_free(msg->bodyptr);
+			msg->bodyptr = NULL;
+			lim_send_sme_set_context_rsp(mac_ctx,
+						     mlm_set_key_cnf.peer_macaddr,
+						     0,
+						     eSIR_SME_INVALID_SESSION,
+						     NULL, vdev_id);
+			return;
+		}
+		session_id = session_entry->peSessionId;
+		mlm_state = session_entry->limMlmState;
 	}
 
-	session_id = session_entry->peSessionId;
+	MTRACE(mac_trace(mac_ctx, TRACE_CODE_MLM_STATE, session_id, mlm_state));
 	pe_debug("PE session ID %d, vdev_id %d", session_id, vdev_id);
 	result_status = set_key_params->status;
 	key_len = set_key_params->key[0].keyLength;
@@ -2501,9 +2580,6 @@ void lim_process_mlm_set_sta_key_rsp(struct mac_context *mac_ctx,
 	else
 		mlm_set_key_cnf.key_len_nonzero = false;
 
-
-	MTRACE(mac_trace(mac_ctx, TRACE_CODE_MLM_STATE,
-		session_entry->peSessionId, session_entry->limMlmState));
 	if (resp_reqd) {
 		tpLimMlmSetKeysReq lpLimMlmSetKeysReq =
 			(tpLimMlmSetKeysReq) mac_ctx->lim.gpLimMlmSetKeysReq;
@@ -2574,7 +2650,6 @@ void lim_process_mlm_set_bss_key_rsp(struct mac_context *mac_ctx,
 	}
 
 	session_id = session_entry->peSessionId;
-	pe_debug("PE session ID %d, vdev_id %d", session_id, vdev_id);
 	if (eLIM_MLM_WT_SET_BSS_KEY_STATE == session_entry->limMlmState) {
 		result_status =
 			(uint16_t)(((tpSetBssKeyParams)msg->bodyptr)->status);
@@ -2585,8 +2660,9 @@ void lim_process_mlm_set_bss_key_rsp(struct mac_context *mac_ctx,
 		key_len = ((tpSetBssKeyParams)msg->bodyptr)->key[0].keyLength;
 	}
 
-	pe_debug("limMlmState %d status %d key_len %d",
-		 session_entry->limMlmState, result_status, key_len);
+	pe_debug("vdev %d (pe %d) limMlmState %d status %d key_len %d",
+		 vdev_id, session_id, session_entry->limMlmState,
+		 result_status, key_len);
 
 	if (result_status == eSIR_SME_SUCCESS && key_len)
 		set_key_cnf.key_len_nonzero = true;
@@ -2692,13 +2768,194 @@ end:
 	}
 
 	mlmReassocCnf.protStatusCode = STATUS_UNSPECIFIED_FAILURE;
-	/* Update PE sessio Id */
+	/* Update PE session Id */
 	mlmReassocCnf.sessionId = pe_session->peSessionId;
 
 	lim_post_sme_message(mac, LIM_MLM_REASSOC_CNF,
 			     (uint32_t *) &mlmReassocCnf);
 }
 
+#ifdef WLAN_FEATURE_11BE_MLO
+static QDF_STATUS
+lim_process_switch_channel_join_mlo(struct pe_session *session_entry,
+				    struct mac_context *mac_ctx)
+{
+	QDF_STATUS status = QDF_STATUS_SUCCESS;
+	struct mlo_partner_info *partner_info;
+	struct element_info assoc_rsp;
+	struct qdf_mac_addr sta_link_addr;
+	uint8_t link_id = 0;
+
+	assoc_rsp.len = 0;
+	mlo_get_assoc_rsp(session_entry->vdev, &assoc_rsp);
+
+	partner_info = &session_entry->lim_join_req->partner_info;
+	if (!partner_info->num_partner_links) {
+		pe_debug("MLO: num_partner_links is 0");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	/* Todo: update the sta addr by matching link id */
+	qdf_mem_copy(&sta_link_addr, session_entry->self_mac_addr,
+		     QDF_MAC_ADDR_SIZE);
+
+	if (assoc_rsp.len) {
+		struct element_info link_assoc_rsp;
+		tLimMlmJoinCnf mlm_join_cnf;
+		tLimMlmAssocCnf assoc_cnf;
+
+		mlm_join_cnf.resultCode = eSIR_SME_SUCCESS;
+		mlm_join_cnf.protStatusCode = STATUS_SUCCESS;
+		/* Update PE sessionId */
+		mlm_join_cnf.sessionId = session_entry->peSessionId;
+		lim_post_sme_message(mac_ctx, LIM_MLM_JOIN_CNF,
+				     (uint32_t *)&mlm_join_cnf);
+
+		session_entry->limSmeState = eLIM_SME_WT_ASSOC_STATE;
+		assoc_rsp.len += SIR_MAC_HDR_LEN_3A;
+		pe_debug("MLO:assoc rsp len + hdr %d ", assoc_rsp.len);
+
+		link_assoc_rsp.ptr = qdf_mem_malloc(assoc_rsp.len);
+		if (!link_assoc_rsp.ptr)
+			return QDF_STATUS_E_NOMEM;
+
+		link_assoc_rsp.len = assoc_rsp.len + 24;
+		session_entry->limMlmState = eLIM_MLM_WT_ASSOC_RSP_STATE;
+
+		link_id = wlan_vdev_get_link_id(session_entry->vdev);
+		pe_debug("MLO: Generate and process assoc rsp for link vdev %d",
+			 link_id);
+		status = util_gen_link_assoc_rsp(assoc_rsp.ptr,
+						 assoc_rsp.len - 24,
+						 false, link_id, sta_link_addr,
+						 link_assoc_rsp.ptr,
+						 assoc_rsp.len,
+						 (qdf_size_t *)&link_assoc_rsp.len);
+		if (QDF_IS_STATUS_SUCCESS(status)) {
+			pe_debug("MLO: process assoc rsp for link vdev");
+			lim_process_assoc_rsp_frame(mac_ctx,
+					    link_assoc_rsp.ptr,
+					    (link_assoc_rsp.len - SIR_MAC_HDR_LEN_3A),
+					    LIM_ASSOC,
+					    session_entry);
+		} else {
+			pe_debug("MLO: link vdev assoc rsp generation failed");
+			assoc_cnf.resultCode = eSIR_SME_INVALID_PARAMETERS;
+			assoc_cnf.protStatusCode = STATUS_UNSPECIFIED_FAILURE;
+			/* Update PE sessionId */
+			assoc_cnf.sessionId = session_entry->peSessionId;
+			lim_post_sme_message(mac_ctx, LIM_MLM_ASSOC_CNF,
+					(uint32_t *)&assoc_cnf);
+		}
+
+		qdf_mem_free(link_assoc_rsp.ptr);
+		link_assoc_rsp.ptr = NULL;
+		link_assoc_rsp.len = 0;
+	}
+
+	return status;
+}
+
+#else /* WLAN_FEATURE_11BE_MLO */
+static QDF_STATUS
+lim_process_switch_channel_join_mlo(struct pe_session *session_entry,
+				    struct mac_context *mac_ctx)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif /* WLAN_FEATURE_11BE_MLO */
+
+#if defined(WLAN_FEATURE_ROAM_OFFLOAD) && defined(WLAN_FEATURE_11BE_MLO)
+static QDF_STATUS
+lim_process_switch_channel_join_mlo_roam(struct pe_session *session_entry,
+					 struct mac_context *mac_ctx)
+{
+	QDF_STATUS status;
+	struct element_info assoc_rsp = {};
+	struct qdf_mac_addr sta_link_addr;
+	uint8_t link_id = 0;
+
+	assoc_rsp.len = 0;
+	mlo_get_assoc_rsp(session_entry->vdev, &assoc_rsp);
+
+	if (!session_entry->lim_join_req->partner_info.num_partner_links) {
+		pe_debug("MLO_ROAM: num_partner_links is 0");
+		return QDF_STATUS_E_INVAL;
+	}
+	/* Todo: update the sta addr by matching link id */
+	qdf_mem_copy(&sta_link_addr, session_entry->self_mac_addr,
+		     QDF_MAC_ADDR_SIZE);
+
+	pe_err("sta_link_addr" QDF_MAC_ADDR_FMT,
+	       QDF_MAC_ADDR_REF(&sta_link_addr));
+
+	if (assoc_rsp.len) {
+		struct element_info link_assoc_rsp;
+		tLimMlmJoinCnf mlm_join_cnf;
+		tLimMlmAssocCnf assoc_cnf;
+		struct qdf_mac_addr bssid;
+
+		mlm_join_cnf.resultCode = eSIR_SME_SUCCESS;
+		mlm_join_cnf.protStatusCode = STATUS_SUCCESS;
+		/* Update PE sessionId */
+		mlm_join_cnf.sessionId = session_entry->peSessionId;
+		lim_post_sme_message(mac_ctx, LIM_MLM_JOIN_CNF,
+				     (uint32_t *)&mlm_join_cnf);
+
+		session_entry->limSmeState = eLIM_SME_WT_ASSOC_STATE;
+		pe_debug("MLO_ROAM: reassoc rsp len %d ", assoc_rsp.len);
+
+		link_assoc_rsp.ptr = qdf_mem_malloc(assoc_rsp.len);
+		if (!link_assoc_rsp.ptr)
+			return QDF_STATUS_E_NOMEM;
+
+		link_assoc_rsp.len = assoc_rsp.len;
+		session_entry->limMlmState = eLIM_MLM_WT_REASSOC_RSP_STATE;
+		mlo_get_link_mac_addr_from_reassoc_rsp(session_entry->vdev, &bssid);
+		sir_copy_mac_addr(session_entry->limReAssocbssId, bssid.bytes);
+		link_id = wlan_vdev_get_link_id(session_entry->vdev);
+		pe_debug("MLO ROAM: Generate and process assoc rsp for link vdev %d",
+			 link_id);
+
+		status = util_gen_link_assoc_rsp(assoc_rsp.ptr,
+						 assoc_rsp.len,
+						 true, link_id, sta_link_addr,
+						 link_assoc_rsp.ptr,
+						 assoc_rsp.len,
+						 (qdf_size_t *)&link_assoc_rsp.len);
+
+		if (QDF_IS_STATUS_SUCCESS(status)) {
+			pe_debug("MLO_ROAM: process reassoc rsp for link vdev");
+			lim_process_assoc_rsp_frame(mac_ctx,
+						    link_assoc_rsp.ptr,
+						    (link_assoc_rsp.len - WLAN_MAC_HDR_LEN_3A),
+						    LIM_REASSOC,
+						    session_entry);
+			qdf_mem_free(link_assoc_rsp.ptr);
+		} else {
+			pe_debug("MLO_ROAM: link vdev assoc rsp generation failed");
+			assoc_cnf.resultCode = eSIR_SME_INVALID_PARAMETERS;
+			assoc_cnf.protStatusCode = STATUS_UNSPECIFIED_FAILURE;
+			/* Update PE sessionId */
+			assoc_cnf.sessionId = session_entry->peSessionId;
+			lim_post_sme_message(mac_ctx, LIM_MLM_ASSOC_CNF,
+					     (uint32_t *)&assoc_cnf);
+
+			session_entry->limMlmState = eLIM_MLM_IDLE_STATE;
+			qdf_mem_free(link_assoc_rsp.ptr);
+		}
+	}
+	return QDF_STATUS_SUCCESS;
+}
+
+#else /* (WLAN_FEATURE_ROAM_OFFLOAD) && (WLAN_FEATURE_11BE_MLO) */
+static QDF_STATUS
+lim_process_switch_channel_join_mlo_roam(struct pe_session *session_entry,
+					 struct mac_context *mac_ctx)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif /* (WLAN_FEATURE_ROAM_OFFLOAD) && (WLAN_FEATURE_11BE_MLO) */
 
 /**
  * lim_process_switch_channel_join_req() -Initiates probe request
@@ -2723,6 +2980,7 @@ static void lim_process_switch_channel_join_req(
 	struct vdev_mlme_obj *mlme_obj;
 	struct wlan_lmac_if_reg_tx_ops *tx_ops;
 	bool tpe_change = false;
+	QDF_STATUS mlo_status;
 	struct pe_session *sap_session;
 
 	if (status != QDF_STATUS_SUCCESS) {
@@ -2745,69 +3003,20 @@ static void lim_process_switch_channel_join_req(
 	/* Apply previously set configuration at HW */
 	lim_apply_configuration(mac_ctx, session_entry);
 
-/* WLAN_FEATURE_11BE_MLO flag will be removed
- * once the MLO testing is complete
- */
-#ifdef WLAN_FEATURE_11BE_MLO
 	if (wlan_vdev_mlme_is_mlo_link_vdev(session_entry->vdev)) {
-		struct element_info assoc_rsp;
-		struct qdf_mac_addr sta_link_addr;
+		if (mlo_roam_is_auth_status_connected(mac_ctx->psoc,
+						      session_entry->vdev_id))
+			mlo_status = lim_process_switch_channel_join_mlo_roam(session_entry,
+									      mac_ctx);
+		else
+			mlo_status = lim_process_switch_channel_join_mlo(session_entry,
+									 mac_ctx);
 
-		pe_err("sta_link_addr" QDF_MAC_ADDR_FMT,
-		       QDF_MAC_ADDR_REF(&sta_link_addr));
-		assoc_rsp.len = 0;
-		mlo_get_assoc_rsp(session_entry->vdev, &assoc_rsp);
-
-		if (!session_entry->lim_join_req->
-					partner_info.num_partner_links) {
-			pe_debug("MLO: num_partner_links is 0");
+		if (mlo_status == QDF_STATUS_E_INVAL)
 			goto error;
-		}
-		/* Todo: update the sta addr by matching link id */
-		qdf_mem_copy(&sta_link_addr, session_entry->self_mac_addr,
-			     QDF_MAC_ADDR_SIZE);
-
-		if (assoc_rsp.len) {
-			struct element_info link_assoc_rsp;
-			tLimMlmJoinCnf mlm_join_cnf;
-
-			mlm_join_cnf.resultCode = eSIR_SME_SUCCESS;
-			mlm_join_cnf.protStatusCode = STATUS_SUCCESS;
-			/* Update PE sessionId */
-			mlm_join_cnf.sessionId = session_entry->peSessionId;
-			lim_post_sme_message(mac_ctx, LIM_MLM_JOIN_CNF,
-					     (uint32_t *)&mlm_join_cnf);
-
-			session_entry->limSmeState = eLIM_SME_WT_ASSOC_STATE;
-			assoc_rsp.len += SIR_MAC_HDR_LEN_3A;
-			pe_debug("MLO:assoc rsp len + hdr %d ", assoc_rsp.len);
-
-			link_assoc_rsp.ptr = qdf_mem_malloc(assoc_rsp.len);
-			if (!link_assoc_rsp.ptr)
-				return;
-
-			link_assoc_rsp.len = assoc_rsp.len + 24;
-			session_entry->limMlmState = eLIM_MLM_WT_ASSOC_RSP_STATE;
-			pe_debug("MLO: Generate and process assoc rsp for link vdev");
-
-			if (QDF_IS_STATUS_SUCCESS(
-				util_gen_link_assoc_rsp(
-					assoc_rsp.ptr, assoc_rsp.len - 24,
-					false, sta_link_addr,
-					link_assoc_rsp.ptr, assoc_rsp.len,
-					(qdf_size_t *)&link_assoc_rsp.len))) {
-				pe_debug("MLO: process assoc rsp for link vdev");
-				lim_process_assoc_rsp_frame(mac_ctx,
-							    link_assoc_rsp.ptr,
-							    link_assoc_rsp.len,
-							    LIM_ASSOC,
-							    session_entry);
-				qdf_mem_free(link_assoc_rsp.ptr);
-			}
-		}
-		return;
+		else
+			return;
 	}
-#endif
 	/*
 	* If deauth_before_connection is enabled, Send Deauth first to AP if
 	* last disconnection was caused by HB failure.
@@ -2865,8 +3074,10 @@ static void lim_process_switch_channel_join_req(
 	/* assign appropriate sessionId to the timer object */
 	mac_ctx->lim.lim_timers.gLimPeriodicJoinProbeReqTimer.sessionId =
 		session_entry->peSessionId;
-	pe_debug("vdev %d Send Probe req on freq %d %.*s  " QDF_MAC_ADDR_FMT, session_entry->vdev_id,
-		 session_entry->curr_op_freq, ssId.length, ssId.ssId,
+	pe_debug("vdev %d Send Probe req on freq %d " QDF_SSID_FMT " " QDF_MAC_ADDR_FMT,
+		 session_entry->vdev_id,
+		 session_entry->curr_op_freq,
+		 QDF_SSID_REF(ssId.length, ssId.ssId),
 		 QDF_MAC_ADDR_REF(
 		 session_entry->pLimMlmJoinReq->bssDescription.bssId));
 
@@ -2898,8 +3109,7 @@ static void lim_process_switch_channel_join_req(
 	 * then do not update the TPC if the connecting AP is in LPI.
 	 */
 	if (sap_session &&
-	    lim_is_power_change_required_for_sta(mac_ctx, session_entry,
-						 sap_session))
+	    lim_is_power_change_required_for_sta(mac_ctx, session_entry, sap_session))
 		lim_update_tx_power(mac_ctx, sap_session, session_entry, false);
 
 	if (wlan_reg_is_ext_tpc_supported(mac_ctx->psoc) &&
@@ -2915,7 +3125,7 @@ static void lim_process_switch_channel_join_req(
 			goto error;
 		}
 
-		lim_calculate_tpc(mac_ctx, session_entry);
+		lim_calculate_tpc(mac_ctx, session_entry, false);
 
 		if (tx_ops->set_tpc_power)
 			tx_ops->set_tpc_power(mac_ctx->psoc,
@@ -3025,7 +3235,7 @@ void lim_process_switch_channel_rsp(struct mac_context *mac,
 	struct wlan_channel *vdev_chan;
 	/* we need to process the deferred message since the initiating req. there might be nested request. */
 	/* in the case of nested request the new request initiated from the response will take care of resetting */
-	/* the deffered flag. */
+	/* the deferred flag. */
 	SET_LIM_PROCESS_DEFD_MESGS(mac, true);
 	status = rsp->status;
 
@@ -3074,11 +3284,14 @@ void lim_process_switch_channel_rsp(struct mac_context *mac,
 							  gpchangeChannelData,
 							  pe_session);
 
-		/* If MCC upgrade/DBS downgrade happended during channel switch,
+		/* If MCC upgrade/DBS downgrade happened during channel switch,
 		 * the policy manager connection table needs to be updated.
+		 * STA PCL to F/W need update after sta channel switch.
 		 */
 		policy_mgr_update_connection_info(mac->psoc,
 			pe_session->smeSessionId);
+		wlan_cm_handle_sta_sta_roaming_enablement(mac->psoc,
+							  pe_session->smeSessionId);
 		if (pe_session->opmode == QDF_P2P_CLIENT_MODE) {
 			pe_debug("Send p2p operating channel change conf action frame once first beacon is received on new channel");
 			pe_session->send_p2p_conf_frame = true;
@@ -3088,6 +3301,9 @@ void lim_process_switch_channel_rsp(struct mac_context *mac,
 			ucfg_pkt_capture_record_channel(pe_session->vdev);
 		break;
 	case LIM_SWITCH_CHANNEL_SAP_DFS:
+		if (QDF_IS_STATUS_SUCCESS(status))
+			lim_set_tpc_power(mac, pe_session);
+
 		/* Note: This event code specific to SAP mode
 		 * When SAP session issues channel change as performing
 		 * DFS, we will come here. Other sessions, for e.g. P2P
@@ -3097,7 +3313,7 @@ void lim_process_switch_channel_rsp(struct mac_context *mac,
 		 * SAP.
 		 */
 		lim_send_sme_ap_channel_switch_resp(mac, pe_session, rsp);
-		/* If MCC upgrade/DBS downgrade happended during channel switch,
+		/* If MCC upgrade/DBS downgrade happened during channel switch,
 		 * the policy manager connection table needs to be updated.
 		 */
 		policy_mgr_update_connection_info(mac->psoc,
@@ -3107,7 +3323,7 @@ void lim_process_switch_channel_rsp(struct mac_context *mac,
 	case LIM_SWITCH_CHANNEL_MONITOR:
 		lim_handle_mon_switch_channel_rsp(pe_session, status);
 		/*
-		 * If MCC upgrade/DBS downgrade happended during channel switch,
+		 * If MCC upgrade/DBS downgrade happened during channel switch,
 		 * the policy manager connection table needs to be updated.
 		 */
 		policy_mgr_update_connection_info(mac->psoc,
@@ -3138,27 +3354,4 @@ QDF_STATUS lim_send_beacon_ind(struct mac_context *mac,
 	msg.bodyptr = params;
 
 	return sch_process_pre_beacon_ind(mac, &msg, reason);
-}
-
-void lim_process_rx_channel_status_event(struct mac_context *mac_ctx, void *buf)
-{
-	struct lim_channel_status *chan_status = buf;
-
-	if (!chan_status) {
-		QDF_TRACE(QDF_MODULE_ID_PE,
-			  QDF_TRACE_LEVEL_ERROR,
-			  "%s: ACS evt report buf NULL", __func__);
-		return;
-	}
-
-	if (mac_ctx->sap.acs_with_more_param)
-		lim_add_channel_status_info(mac_ctx, chan_status,
-					    chan_status->channel_id);
-	else
-		QDF_TRACE(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_WARN,
-			  "%s: Error evt report", __func__);
-
-	qdf_mem_free(buf);
-
-	return;
 }

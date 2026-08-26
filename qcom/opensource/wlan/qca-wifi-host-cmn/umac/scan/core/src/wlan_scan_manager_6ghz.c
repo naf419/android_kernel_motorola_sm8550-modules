@@ -35,6 +35,7 @@
 /* Saved profile weightage multiplier */
 #define SAVED_PROFILE_WEIGHTAGE 10
 
+#ifdef CONFIG_BAND_6GHZ
 #ifdef FEATURE_6G_SCAN_CHAN_SORT_ALGO
 
 /**
@@ -478,11 +479,11 @@ void scm_add_channel_flags(struct wlan_objmgr_vdev *vdev,
 			scm_set_rnr_flag_all_6g_ch(&chan_list->chan[0],
 						   num_scan_chan);
 		else if (scan_mode == SCAN_MODE_6G_PSC_DUTY_CYCLE) {
-			if (is_pno_scan)
-				scm_debug("Duty cycle scan not supported in pno");
-			scm_set_rnr_flag_non_psc_6g_ch(&chan_list->chan[0],
-						       num_scan_chan);
+			if (!is_pno_scan)
+				scm_set_rnr_flag_non_psc_6g_ch(&chan_list->chan[0],
+							       num_scan_chan);
 		}
+
 		fallthrough;
 		/* Even when the scan mode is SCAN_MODE_6G_PSC_DUTY_CYCLE or
 		 * SCAN_MODE_6G_ALL_DUTY_CYCLE, it is better to add other 6 GHz
@@ -538,6 +539,11 @@ scm_update_6ghz_channel_list(struct scan_start_request *req,
 	    op_mode == QDF_P2P_GO_MODE)
 		return;
 
+	if (!wlan_reg_is_6ghz_band_set(pdev)) {
+		scm_debug("6 GHz band disabled.");
+		return;
+	}
+
 	scan_mode = scan_obj->scan_def.scan_mode_6g;
 	scm_debug("6g scan mode %d", scan_mode);
 
@@ -569,3 +575,4 @@ end:
 
 	scm_sort_6ghz_channel_list(req->vdev, &req->scan_req.chan_list);
 }
+#endif

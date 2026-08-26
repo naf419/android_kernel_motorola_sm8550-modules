@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021, 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -112,7 +112,7 @@ void htt_htc_pkt_pool_free(struct htt_soc *soc);
 
 /*
  * Set the base misclist size to HTT copy engine source ring size
- * to guarantee that a packet on the misclist wont be freed while it
+ * to guarantee that a packet on the misclist won't be freed while it
  * is sitting in the copy engine.
  */
 #define DP_HTT_HTC_PKT_MISCLIST_SIZE          2048
@@ -159,6 +159,8 @@ void htt_htc_pkt_pool_free(struct htt_soc *soc);
 #define HTT_VDEV_STATS_TLV_TX_RETRY_BYTE_CNT_OFFSET   16
 #define HTT_VDEV_STATS_TLV_TX_DROP_BYTE_CNT_OFFSET    18
 #define HTT_VDEV_STATS_TLV_TX_AGE_OUT_BYTE_CNT_OFFSET 20
+#define HTT_VDEV_STATS_TLV_TX_TQM_BYPASS_PKT_CNT_OFFSET  22
+#define HTT_VDEV_STATS_TLV_TX_TQM_BYPASS_BYTE_CNT_OFFSET 24
 
 #define HTT_VDEV_STATS_GET_INDEX(index) \
 	HTT_VDEV_STATS_TLV_##index##_OFFSET
@@ -192,6 +194,11 @@ void htt_htc_pkt_pool_free(struct htt_soc *soc);
 	__QDF_TRACE_FL(QDF_TRACE_LEVEL_INFO_HIGH, QDF_MODULE_ID_DP_HTT_TX_STATS, ## params)
 #define dp_htt_tx_stats_debug(params...) QDF_TRACE_DEBUG(QDF_MODULE_ID_DP_HTT_TX_STATS, params)
 
+#define RXMON_GLOBAL_EN_SHIFT 28
+#ifdef IPA_OPT_WIFI_DP
+#define MAX_RESERVE_FAIL_ATTEMPT 5
+#endif
+
 /**
  * enum dp_full_mon_config - enum to enable/disable full monitor mode
  *
@@ -216,9 +223,16 @@ struct dp_htt_htc_pkt_union {
 	} u;
 };
 
+struct bp_handler {
+	unsigned long bp_start_tt;
+	unsigned long bp_last_tt;
+	unsigned long bp_duration;
+	unsigned long bp_counter;
+};
+
 struct dp_htt_timestamp {
-	long *umac_ttt;
-	long *lmac_ttt;
+	struct bp_handler *umac_path;
+	struct bp_handler *lmac_path;
 };
 
 struct htt_soc {
@@ -249,6 +263,8 @@ struct htt_soc {
 		int fail_count;
 		/* rtpm put skip count for ver req msg */
 		int htt_ver_req_put_skip;
+		int reserve_fail_cnt;
+		int abort_count;
 	} stats;
 
 	HTT_TX_MUTEX_TYPE htt_tx_mutex;
@@ -326,10 +342,10 @@ struct dp_tx_mon_downstream_tlv_config {
  * rx_frame_bitmap_ack: RX_FRAME_BITMAP_ACK TLV
  * rx_frame_1k_bitmap_ack: RX_FRAME_1K_BITMAP_ACK TLV
  * coex_tx_status: COEX_TX_STATUS TLV
- * recevied_response_info: RECEIVED_RESPONSE_INFO TLV
- * recevied_response_info_p2: RECEIVED_RESPONSE_INFO_PART2 TLV
+ * received_response_info: RECEIVED_RESPONSE_INFO TLV
+ * received_response_info_p2: RECEIVED_RESPONSE_INFO_PART2 TLV
  * ofdma_trigger_details: OFDMA_TRIGGER_DETAILS
- * recevied_trigger_info: RECEIVED_TRIGGER_INFO
+ * received_trigger_info: RECEIVED_TRIGGER_INFO
  * pdg_tx_request: PDG_TX_REQUEST
  * pdg_response: PDG_RESPONSE
  * pdg_trig_response: PDG_TRIG_RESPONSE
@@ -414,10 +430,10 @@ struct dp_tx_mon_upstream_tlv_config {
 		 rx_frame_bitmap_ack:1,
 		 rx_frame_1k_bitmap_ack:1,
 		 coex_tx_status:1,
-		 recevied_response_info:1,
-		 recevied_response_info_p2:1,
+		 received_response_info:1,
+		 received_response_info_p2:1,
 		 ofdma_trigger_details:1,
-		 recevied_trigger_info:1,
+		 received_trigger_info:1,
 		 pdg_tx_request:1,
 		 pdg_response:1,
 		 pdg_trig_response:1,
@@ -503,7 +519,7 @@ struct dp_tx_mon_wordmask_config {
 	uint16_t tx_queue_ext;
 	uint16_t tx_msdu_start;
 	uint16_t tx_mpdu_start;
-	uint16_t pcu_ppdu_setup_init;
+	uint32_t pcu_ppdu_setup_init;
 	uint16_t rxpcu_user_setup;
 };
 
@@ -512,7 +528,7 @@ struct dp_tx_mon_wordmask_config {
  * enable/disable.
  * @dtlvs: enable/disable downstream TLVs
  * @utlvs: enable/disable upstream TLVs
- * @wmask: enable/disbale word mask subscription
+ * @wmask: enable/disable word mask subscription
  * @mgmt_filter: enable/disable mgmt packets
  * @data_filter: enable/disable data packets
  * @ctrl_filter: enable/disable ctrl packets
@@ -534,6 +550,7 @@ struct dp_tx_mon_wordmask_config {
  * @mgmt_mpdu_log: enable mgmt mpdu level logging
  * @ctrl_mpdu_log: enable ctrl mpdu level logging
  * @data_mpdu_log: enable data mpdu level logging
+ * @enable: enable tx monitor
  *
  * NOTE: Do not change the layout of this structure
  */
@@ -562,6 +579,7 @@ struct htt_tx_ring_tlv_filter {
 	uint8_t  mgmt_mpdu_log:1,
 		 ctrl_mpdu_log:1,
 		 data_mpdu_log:1;
+	uint8_t  enable:1;
 };
 #endif /* QCA_MONITOR_2_0_SUPPORT */
 
@@ -594,6 +612,13 @@ struct htt_tx_ring_tlv_filter {
  * @rx_msdu_end_offset: Offset of rx_msdu_end tlv
  * @rx_msdu_start_offset: Offset of rx_msdu_start tlv
  * @rx_attn_offset: Offset of rx_attention tlv
+ * @fp_phy_err: Flag to indicate FP PHY status tlv
+ * @fp_phy_err_buf_src: source ring selection for the FP PHY ERR status tlv
+ * @fp_phy_err_buf_dest: dest ring selection for the FP PHY ERR status tlv
+ * @phy_err_mask: select the phy errors defined in phyrx_abort_request_reason
+ *  enums 0 to 31.
+ * @phy_err_mask_cont: select the fp phy errors defined in
+ *  phyrx_abort_request_reason enums 32 to 63
  * @rx_mpdu_start_wmask: word mask for mpdu start tlv
  * @rx_mpdu_end_wmask: word mask for mpdu end tlv
  * @rx_msdu_end_tlv: word mask for msdu end tlv
@@ -601,9 +626,16 @@ struct htt_tx_ring_tlv_filter {
  * @mgmt_dma_length: configure length for mgmt packet
  * @ctrl_dma_length: configure length for ctrl packet
  * @data_dma_length: configure length for data packet
+ * @rx_hdr_length: configure length for rx header tlv
  * @mgmt_mpdu_log: enable mgmt mpdu level logging
  * @ctrl_mpdu_log: enable ctrl mpdu level logging
  * @data_mpdu_log: enable data mpdu level logging
+ * @enable: enable rx monitor
+ * @enable_fpmo: enable/disable FPMO packet
+ * @fpmo_data_filter: FPMO mode data filter
+ * @fpmo_mgmt_filter: FPMO mode mgmt filter
+ * @fpmo_ctrl_filter: FPMO mode ctrl filter
+ * @enable_mon_mac_filter: enable/disable mac based filter on scan radio
  *
  * NOTE: Do not change the layout of this structure
  */
@@ -620,6 +652,7 @@ struct htt_rx_ring_tlv_filter {
 		ppdu_end_user_stats:1,
 		ppdu_end_user_stats_ext:1,
 		ppdu_end_status_done:1,
+		ppdu_start_user_info:1,
 		header_per_msdu:1,
 		enable_fp:1,
 		enable_md:1,
@@ -641,18 +674,33 @@ struct htt_rx_ring_tlv_filter {
 	uint16_t rx_msdu_end_offset;
 	uint16_t rx_msdu_start_offset;
 	uint16_t rx_attn_offset;
-#ifdef QCA_MONITOR_2_0_SUPPORT
+#ifdef QCA_UNDECODED_METADATA_SUPPORT
+	u_int32_t fp_phy_err:1,
+		fp_phy_err_buf_src:2,
+		fp_phy_err_buf_dest:2,
+		phy_err_filter_valid:1;
+	u_int32_t phy_err_mask;
+	u_int32_t phy_err_mask_cont;
+#endif
+#if defined(QCA_MONITOR_2_0_SUPPORT) || defined(CONFIG_WORD_BASED_TLV)
 	uint16_t rx_mpdu_start_wmask;
 	uint16_t rx_mpdu_end_wmask;
-	uint16_t rx_msdu_end_wmask;
+	uint32_t rx_msdu_end_wmask;
 	uint16_t rx_pkt_tlv_offset;
 	uint16_t mgmt_dma_length:3,
 		 ctrl_dma_length:3,
-		 data_dma_lepngth:3,
+		 data_dma_length:3,
+		 rx_hdr_length:3,
 		 mgmt_mpdu_log:1,
 		 ctrl_mpdu_log:1,
-		 data_mpdu_log:1;
+		 data_mpdu_log:1,
+		 enable:1;
+	u_int16_t enable_fpmo:1;
+	u_int16_t fpmo_data_filter;
+	u_int16_t fpmo_mgmt_filter;
+	u_int16_t fpmo_ctrl_filter;
 #endif
+	bool enable_mon_mac_filter;
 };
 
 /**
@@ -758,7 +806,7 @@ htt_htc_misc_pkt_list_add(struct htt_soc *soc, struct dp_htt_htc_pkt *pkt);
  * @soc : HTT SOC handle
  * @pkt: pkt to be send
  * @cmd : command to be recorded in dp htt logger
- * @buf : Pointer to buffer needs to be recored for above cmd
+ * @buf : Pointer to buffer needs to be recorded for above cmd
  *
  * Return: None
  */
@@ -780,6 +828,35 @@ static inline QDF_STATUS DP_HTT_SEND_HTC_PKT(struct htt_soc *soc,
 
 QDF_STATUS dp_htt_rx_fisa_config(struct dp_pdev *pdev,
 				 struct dp_htt_rx_fisa_cfg *fisa_config);
+
+#ifdef WLAN_SUPPORT_PPEDS
+
+/**
+ * dp_htt_rxdma_rxole_ppe_config: Rx DMA and RxOLE PPE config
+ * @override: RxDMA override to override the reo_destinatoin_indication
+ * @reo_destination_indication: REO destination indication value
+ * @multi_buffer_msdu_override_en: Override the indicatio for SG
+ * @intra_bss_override: Rx OLE IntraBSS override
+ * @decap_raw_override: Rx Decap Raw override
+ * @decap_nwifi_override: Rx Native override
+ * @ip_frag_override: IP fragments override
+ * @reserved: Reserved
+ */
+struct dp_htt_rxdma_rxole_ppe_config {
+	uint32_t override:1,
+		 reo_destination_indication:5,
+		 multi_buffer_msdu_override_en:1,
+		 intra_bss_override:1,
+		 decap_raw_override:1,
+		 decap_nwifi_override:1,
+		 ip_frag_override:1,
+		 reserved:21;
+};
+
+QDF_STATUS
+dp_htt_rxdma_rxole_ppe_cfg_set(struct dp_soc *soc,
+			       struct dp_htt_rxdma_rxole_ppe_config *cfg);
+#endif /* WLAN_SUPPORT_PPEDS */
 
 /*
  * htt_soc_initialize() - SOC level HTT initialization
@@ -885,6 +962,31 @@ struct htt_stats_context {
 	uint32_t msg_len;
 };
 
+#ifdef DP_UMAC_HW_RESET_SUPPORT
+/**
+ * struct dp_htt_umac_reset_setup_cmd_params - Params for UMAC reset setup cmd
+ * @msi_data: MSI data to be used for raising the UMAC reset interrupt
+ * @shmem_addr_low: Lower 32-bits of shared memory
+ * @shmem_addr_high: Higher 32-bits of shared memory
+ */
+struct dp_htt_umac_reset_setup_cmd_params {
+	uint32_t msi_data;
+	uint32_t shmem_addr_low;
+	uint32_t shmem_addr_high;
+};
+
+/**
+ * dp_htt_umac_reset_send_setup_cmd(): Send the HTT UMAC reset setup command
+ * @soc: dp soc object
+ * @setup_params: parameters required by this command
+ *
+ * Return: Success when HTT message is sent, error on failure
+ */
+QDF_STATUS dp_htt_umac_reset_send_setup_cmd(
+		struct dp_soc *soc,
+		const struct dp_htt_umac_reset_setup_cmd_params *setup_params);
+#endif
+
 /**
  * dp_htt_rx_flow_fst_setup(): Send HTT Rx FST setup message to FW
  * @pdev: DP pdev handle
@@ -909,7 +1011,7 @@ dp_htt_rx_flow_fse_operation(struct dp_pdev *pdev,
 			     struct dp_htt_rx_flow_fst_operation *op_info);
 
 /**
- * htt_h2t_full_mon_cfg() - Send full monitor configuarion msg to FW
+ * htt_h2t_full_mon_cfg() - Send full monitor configuration msg to FW
  *
  * @htt_soc: HTT Soc handle
  * @pdev_id: Radio id
@@ -935,4 +1037,52 @@ int htt_h2t_full_mon_cfg(struct htt_soc *htt_soc,
 QDF_STATUS dp_h2t_hw_vdev_stats_config_send(struct dp_soc *dpsoc,
 					    uint8_t pdev_id, bool enable,
 					    bool reset, uint64_t reset_bitmask);
+
+static inline enum htt_srng_ring_id
+dp_htt_get_mon_htt_ring_id(struct dp_soc *soc,
+			   enum hal_ring_type hal_ring_type)
+{
+	enum htt_srng_ring_id htt_srng_id = 0;
+
+	if (wlan_cfg_get_txmon_hw_support(soc->wlan_cfg_ctx)) {
+		switch (hal_ring_type) {
+		case RXDMA_MONITOR_BUF:
+			htt_srng_id = HTT_RX_MON_HOST2MON_BUF_RING;
+			break;
+		case RXDMA_MONITOR_DST:
+			htt_srng_id = HTT_RX_MON_MON2HOST_DEST_RING;
+			break;
+		default:
+			dp_err("Invalid ring type %d ", hal_ring_type);
+			break;
+		}
+	} else {
+		switch (hal_ring_type) {
+		case RXDMA_MONITOR_BUF:
+			htt_srng_id = HTT_RXDMA_MONITOR_BUF_RING;
+			break;
+		case RXDMA_MONITOR_DST:
+			htt_srng_id = HTT_RXDMA_MONITOR_DEST_RING;
+			break;
+		default:
+			dp_err("Invalid ring type %d ", hal_ring_type);
+			break;
+		}
+	}
+
+	return htt_srng_id;
+}
+
+#ifdef IPA_OPT_WIFI_DP
+/**
+ * htt_h2t_rx_cce_super_rule_setup() - htt message to set cce super rules
+ *
+ * @htt_soc: HTT Soc handle
+ * @flt_params: Filter tuple
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS htt_h2t_rx_cce_super_rule_setup(struct htt_soc *htt_soc,
+					   void *flt_params);
+#endif
 #endif /* _DP_HTT_H_ */

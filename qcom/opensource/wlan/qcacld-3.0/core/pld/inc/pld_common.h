@@ -25,6 +25,12 @@
 #include <linux/pm.h>
 #include <osapi_linux.h>
 
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "cnss2.h"
+#else
+#include <net/cnss2.h>
+#endif
+
 #ifdef CNSS_UTILS
 #ifdef CONFIG_CNSS_OUT_OF_TREE
 #include "cnss_utils.h"
@@ -109,6 +115,7 @@ enum pld_bus_type {
  * @PLD_BUS_WIDTH_LOW: vote for low bus bandwidth
  * @PLD_BUS_WIDTH_MEDIUM: vote for medium bus bandwidth
  * @PLD_BUS_WIDTH_HIGH: vote for high bus bandwidth
+ * @PLD_BUS_WIDTH_MID_HIGH: vote for mid high bus bandwidth
  * @PLD_BUS_WIDTH_VERY_HIGH: vote for very high bus bandwidth
  * @PLD_BUS_WIDTH_ULTRA_HIGH: vote for ultra high bus bandwidth
  * @PLD_BUS_WIDTH_LOW_LATENCY: vote for low latency bus bandwidth
@@ -123,6 +130,7 @@ enum pld_bus_width_type {
 	PLD_BUS_WIDTH_ULTRA_HIGH,
 	PLD_BUS_WIDTH_MAX,
 	PLD_BUS_WIDTH_LOW_LATENCY,
+	PLD_BUS_WIDTH_MID_HIGH,
 };
 
 #define PLD_MAX_FILE_NAME NAME_MAX
@@ -202,16 +210,6 @@ enum pld_uevent {
 	PLD_SMMU_FAULT,
 };
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-/**
- * enum pld_device_config - Get PLD device config
- * @PLD_IPA_DISABLD: IPA is disabled
- */
-enum pld_device_config {
-	PLD_IPA_DISABLED,
-};
-#endif
-
 /**
  * enum pld_bus_event - PLD bus event types
  * @PLD_BUS_EVENT_PCIE_LINK_DOWN: PCIe link is down
@@ -223,6 +221,16 @@ enum pld_bus_event {
 
 	PLD_BUS_EVENT_INVALID = 0xFFFF,
 };
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
+/**
+ * enum pld_device_config - Get PLD device config
+ * @PLD_IPA_DISABLD: IPA is disabled
+ */
+enum pld_device_config {
+	PLD_IPA_DISABLED,
+};
+#endif
 
 /**
  * struct pld_uevent_data - uevent status received from platform driver
@@ -307,6 +315,12 @@ struct pld_shadow_reg_v2_cfg {
 	u32 addr;
 };
 
+#ifdef CONFIG_SHADOW_V3
+struct pld_shadow_reg_v3_cfg {
+	u32 addr;
+};
+#endif
+
 /**
  * struct pld_rri_over_ddr_cfg_s - rri_over_ddr configuration
  * @base_addr_low: lower 32bit
@@ -347,6 +361,10 @@ struct pld_wlan_enable_cfg {
 	struct pld_shadow_reg_v2_cfg *shadow_reg_v2_cfg;
 	bool rri_over_ddr_cfg_valid;
 	struct pld_rri_over_ddr_cfg rri_over_ddr_cfg;
+#ifdef CONFIG_SHADOW_V3
+	u32 num_shadow_reg_v3_cfg;
+	struct pld_shadow_reg_v3_cfg *shadow_reg_v3_cfg;
+#endif
 };
 
 /**
@@ -367,16 +385,6 @@ enum pld_driver_mode {
 	PLD_OFF,
 	PLD_COLDBOOT_CALIBRATION = 7,
 	PLD_FTM_COLDBOOT_CALIBRATION = 10
-};
-
-/**
- * enum pld_suspend_mode - WLAN suspend mode
- * @PLD_SUSPEND: suspend
- * @PLD_FULL_POWER_DOWN: full power down while suspend
- */
-enum pld_suspend_mode {
-	PLD_SUSPEND,
-	PLD_FULL_POWER_DOWN,
 };
 
 /**
@@ -408,6 +416,54 @@ struct pld_dev_mem_info {
 	u64 size;
 };
 
+/**
+ * enum pld_wlan_hw_nss_info - WLAN HW nss info
+ * @PLD_WLAN_HW_CAP_NSS_UNSPECIFIED: nss info not specified
+ * @PLD_WLAN_HW_CAP_NSS_1x1: supported nss link 1x1
+ * @PLD_WLAN_HW_CAP_NSS_2x2: supported nss link 2x2
+ */
+enum pld_wlan_hw_nss_info {
+	PLD_WLAN_HW_CAP_NSS_UNSPECIFIED,
+	PLD_WLAN_HW_CAP_NSS_1x1,
+	PLD_WLAN_HW_CAP_NSS_2x2
+};
+
+/**
+ * enum pld_wlan_hw_channel_bw_info - WLAN HW channel bw info
+ * @PLD_WLAN_HW_CHANNEL_BW_UNSPECIFIED: bw info not specified
+ * @PLD_WLAN_HW_CHANNEL_BW_80MHZ: supported bw 80MHZ
+ * @PLD_WLAN_HW_CHANNEL_BW_160MHZ: supported bw 160MHZ
+ */
+enum pld_wlan_hw_channel_bw_info  {
+	PLD_WLAN_HW_CHANNEL_BW_UNSPECIFIED,
+	PLD_WLAN_HW_CHANNEL_BW_80MHZ,
+	PLD_WLAN_HW_CHANNEL_BW_160MHZ
+};
+
+/**
+ * enum pld_wlan_hw_qam_info - WLAN HW qam info
+ * @PLD_WLAN_HW_QAM_UNSPECIFIED: QAM info not specified
+ * @PLD_WLAN_HW_QAM_1K: 1K QAM supported
+ * @PLD_WLAN_HW_QAM_4K: 4K QAM supported
+ */
+enum pld_wlan_hw_qam_info  {
+	PLD_WLAN_HW_QAM_UNSPECIFIED,
+	PLD_WLAN_HW_QAM_1K,
+	PLD_WLAN_HW_QAM_4K
+};
+
+/**
+ * struct pld_wlan_hw_cap_info - WLAN HW cap info
+ * @nss: nss info
+ * @bw: bw info
+ * @qam: qam info
+ */
+struct pld_wlan_hw_cap_info {
+	enum pld_wlan_hw_nss_info nss;
+	enum pld_wlan_hw_channel_bw_info bw;
+	enum pld_wlan_hw_qam_info qam;
+};
+
 #define PLD_MAX_TIMESTAMP_LEN 32
 #define PLD_WLFW_MAX_BUILD_ID_LEN 128
 #define PLD_MAX_DEV_MEM_NUM 4
@@ -424,6 +480,7 @@ struct pld_dev_mem_info {
  * @fw_build_timestamp: FW build timestamp
  * @device_version: WLAN device version info
  * @dev_mem_info: WLAN device memory info
+ * @hw_cap_info: WLAN HW capabilities info
  *
  * pld_soc_info is used to store WLAN SOC information.
  */
@@ -439,6 +496,7 @@ struct pld_soc_info {
 	struct pld_device_version device_version;
 	struct pld_dev_mem_info dev_mem_info[PLD_MAX_DEV_MEM_NUM];
 	char fw_build_id[PLD_WLFW_MAX_BUILD_ID_LEN + 1];
+	struct pld_wlan_hw_cap_info hw_cap_info;
 };
 
 /**
@@ -549,6 +607,13 @@ struct pld_driver_ops {
 			     enum pld_bus_type bus_type,
 			     int state);
 	void (*uevent)(struct device *dev, struct pld_uevent_data *uevent);
+#ifdef WLAN_FEATURE_SSR_DRIVER_DUMP
+	int (*collect_driver_dump)(struct device *dev,
+				   enum pld_bus_type bus_type,
+				   struct cnss_ssr_driver_dump_entry
+				   *input_array,
+				   size_t *num_entries_loaded);
+#endif
 	int (*runtime_suspend)(struct device *dev,
 			       enum pld_bus_type bus_type);
 	int (*runtime_resume)(struct device *dev,
@@ -573,33 +638,6 @@ void pld_deinit(void);
  *         Non zero failure code for errors
  */
 int pld_set_mode(u8 mode);
-
-#ifdef FEATURE_WLAN_FULL_POWER_DOWN_SUPPORT
-/**
- * pld_set_suspend_mode() - set suspend mode in PLD module
- * @mode: pld suspend mode
- *
- * Return: 0 for success
- *         Non zero failure code for errors
- */
-int pld_set_suspend_mode(enum pld_suspend_mode mode);
-/**
- * pld_is_full_power_down_enable() - check full power down is enabled or not
- *
- * Return: true if full power down is enabled else false
- */
-bool pld_is_full_power_down_enable(void);
-#else
-static inline int pld_set_suspend_mode(enum pld_suspend_mode mode)
-{
-	return 0;
-}
-
-static inline bool pld_is_full_power_down_enable(void)
-{
-	return false;
-}
-#endif
 
 int pld_register_driver(struct pld_driver_ops *ops);
 void pld_unregister_driver(void);
@@ -631,7 +669,7 @@ void pld_get_bus_reg_dump(struct device *dev, uint8_t *buf, uint32_t len);
 int pld_shadow_control(struct device *dev, bool enable);
 void pld_schedule_recovery_work(struct device *dev,
 				enum pld_recovery_reason reason);
-
+int pld_wlan_hw_enable(void);
 #ifdef FEATURE_WLAN_TIME_SYNC_FTM
 int pld_get_audio_wlan_timestamp(struct device *dev,
 				 enum pld_wlan_time_sync_trigger_type type,
@@ -863,6 +901,16 @@ int pld_auto_resume(struct device *dev);
 int pld_force_wake_request(struct device *dev);
 
 /**
+ * pld_is_direct_link_supported() - Get whether direct_link is supported
+ *                                  by FW or not
+ * @dev: device
+ *
+ * Return: true if supported
+ *         false on failure or if not supported
+ */
+bool pld_is_direct_link_supported(struct device *dev);
+
+/**
  * pld_force_wake_request_sync() - Request to awake MHI synchronously
  * @dev: device
  * @timeout_us: timeout in micro-sec request to wake
@@ -893,8 +941,6 @@ int pld_get_mhi_state(struct device *dev);
 int pld_is_pci_ep_awake(struct device *dev);
 int pld_get_ce_id(struct device *dev, int irq);
 int pld_get_irq(struct device *dev, int ce_id);
-void pld_lock_pm_sem(struct device *dev);
-void pld_release_pm_sem(struct device *dev);
 void pld_lock_reg_window(struct device *dev, unsigned long *flags);
 void pld_unlock_reg_window(struct device *dev, unsigned long *flags);
 int pld_get_pci_slot(struct device *dev);
@@ -911,6 +957,14 @@ void *pld_smmu_get_mapping(struct device *dev);
 #endif
 int pld_smmu_map(struct device *dev, phys_addr_t paddr,
 		 uint32_t *iova_addr, size_t size);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+struct kobject *pld_get_wifi_kobj(struct device *dev);
+#else
+static inline struct kobject *pld_get_wifi_kobj(struct device *dev)
+{
+	return NULL;
+}
+#endif
 #ifdef CONFIG_SMMU_S1_UNMAP
 int pld_smmu_unmap(struct device *dev,
 		   uint32_t iova_addr, size_t size);
@@ -1164,6 +1218,23 @@ const char *pld_bus_width_type_to_str(enum pld_bus_width_type level);
 int pld_get_thermal_state(struct device *dev, unsigned long *thermal_state,
 			  int mon_id);
 
+/**
+ * pld_set_tsf_sync_period() - Set TSF sync period
+ * @dev: device
+ * @val: TSF sync time value
+ *
+ * Return: void
+ */
+void pld_set_tsf_sync_period(struct device *dev, u32 val);
+
+/**
+ * pld_reset_tsf_sync_period() - Reset TSF sync period
+ * @dev: device
+ *
+ * Return: void
+ */
+void pld_reset_tsf_sync_period(struct device *dev);
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
 /**
  * pld_is_ipa_offload_disabled() - Check if IPA offload is enabled or not
@@ -1285,4 +1356,52 @@ static inline int pfrm_write_config_dword(struct pci_dev *pdev, int offset,
 	return pld_pci_write_config_dword(pdev, offset, val);
 }
 
+static inline bool pld_get_enable_intx(struct device *dev)
+{
+	return false;
+}
+
+/**
+ * pld_is_one_msi()- whether one MSI is used or not
+ * @dev: device structure
+ *
+ * Return: true if it is one MSI
+ */
+bool pld_is_one_msi(struct device *dev);
+
+#ifdef FEATURE_DIRECT_LINK
+/**
+ * pld_audio_smmu_map()- Map memory region into Audio SMMU CB
+ * @dev: pointer to device structure
+ * @paddr: physical address
+ * @iova: DMA address
+ * @size: memory region size
+ *
+ * Return: 0 on success else failure code
+ */
+int pld_audio_smmu_map(struct device *dev, phys_addr_t paddr, dma_addr_t iova,
+		       size_t size);
+
+/**
+ * pld_audio_smmu_unmap()- Remove memory region mapping from Audio SMMU CB
+ * @dev: pointer to device structure
+ * @iova: DMA address
+ * @size: memory region size
+ *
+ * Return: None
+ */
+void pld_audio_smmu_unmap(struct device *dev, dma_addr_t iova, size_t size);
+#else
+static inline
+int pld_audio_smmu_map(struct device *dev, phys_addr_t paddr, dma_addr_t iova,
+		       size_t size)
+{
+	return 0;
+}
+
+static inline
+void pld_audio_smmu_unmap(struct device *dev, dma_addr_t iova, size_t size)
+{
+}
+#endif
 #endif

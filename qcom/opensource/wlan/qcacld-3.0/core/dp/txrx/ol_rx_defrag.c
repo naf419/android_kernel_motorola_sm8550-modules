@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -148,7 +148,7 @@ static void ol_rx_frag_pull_hdr(htt_pdev_handle htt_pdev,
  * @msdu: msdu
  * @rx_desc_old_position: rx descriptor old position
  * @ind_old_position:index of old position
- * @rx_desc_len: rx desciptor length
+ * @rx_desc_len: rx descriptor length
  *
  * Return: None
  */
@@ -673,9 +673,9 @@ void ol_rx_defrag_waitlist_flush(struct ol_txrx_pdev_t *pdev)
 
 /**
  * ol_rx_frag_gcmp_decap() - Remove GCMP header from fragment
- * @pdev - data path pdev handle
- * @nbuf - network buffer
- * @hdrlen - MAC header len
+ * @pdev : data path pdev handle
+ * @nbuf : network buffer
+ * @hdrlen : MAC header len
  *
  * Return: OL_RX_DEFRAG_OK on success else failure code
  */
@@ -713,9 +713,9 @@ ol_rx_frag_gcmp_decap(ol_txrx_pdev_handle pdev,
 
 /**
  * ol_rx_frag_gcmp_demic() - Remove MIC info from GCMP fragment
- * @pdev - data path pdev handle
- * @nbuf - network buffer
- * @hdrlen - MAC header len
+ * @pdev : data path pdev handle
+ * @nbuf : network buffer
+ * @hdrlen : MAC header len
  *
  * Return: OL_RX_DEFRAG_OK on success else failure code
  */

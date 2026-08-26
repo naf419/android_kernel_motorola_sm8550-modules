@@ -145,39 +145,6 @@ int pld_set_mode(u8 mode)
 	return 0;
 }
 
-#ifdef FEATURE_WLAN_FULL_POWER_DOWN_SUPPORT
-int pld_set_suspend_mode(enum pld_suspend_mode mode)
-{
-	struct pld_context *pld_context;
-	int ret;
-
-	pld_context = pld_get_global_context();
-	if (!pld_context)
-		return -ENOMEM;
-
-	pld_context->suspend_mode = mode;
-
-	ret = pld_pcie_set_suspend_mode(mode);
-
-	return ret;
-}
-
-bool pld_is_full_power_down_enable(void)
-{
-	struct pld_context *pld_context;
-
-	pld_context = pld_get_global_context();
-	if (!pld_context)
-		goto out;
-
-	if (pld_context->suspend_mode == PLD_FULL_POWER_DOWN)
-		return true;
-
-out:
-	return false;
-}
-#endif
-
 /**
  * pld_get_global_context() - Get global context of PLD
  *
@@ -542,6 +509,21 @@ int pld_wlan_disable(struct device *dev, enum pld_driver_mode mode)
 	}
 
 	return ret;
+}
+
+/**
+ * pld_wlan_hw_enable() - Enable WLAN HW
+ *
+ * This function enables WLAN HW. If WLAN is secured disabled at boot all wlan
+ * boot time activities are deferred. This is used to run deferred activities
+ * after wlan is enabled.
+ *
+ * Return: 0 for success
+ *         Non zero failure code for errors
+ */
+int pld_wlan_hw_enable(void)
+{
+	return pld_pcie_wlan_hw_enable();
 }
 
 /**
@@ -1123,6 +1105,35 @@ int pld_request_bus_bandwidth(struct device *dev, int bandwidth)
 		break;
 	default:
 		ret = -EINVAL;
+		break;
+	}
+
+	return ret;
+}
+
+/**
+ * pld_is_direct_link_supported() - Get whether direct_link is supported
+ *                                  by FW or not
+ * @dev: device
+ *
+ * Return: true if supported
+ *         false on failure or if not supported
+ */
+bool pld_is_direct_link_supported(struct device *dev)
+{
+	bool ret = false;
+
+	switch (pld_get_bus_type(dev)) {
+	case PLD_BUS_TYPE_PCIE:
+		ret = pld_pcie_is_direct_link_supported(dev);
+		break;
+	case PLD_BUS_TYPE_PCIE_FW_SIM:
+	case PLD_BUS_TYPE_IPCI_FW_SIM:
+	case PLD_BUS_TYPE_SNOC_FW_SIM:
+	case PLD_BUS_TYPE_SNOC:
+	case PLD_BUS_TYPE_IPCI:
+	case PLD_BUS_TYPE_SDIO:
+	default:
 		break;
 	}
 
@@ -1736,62 +1747,6 @@ int pld_get_irq(struct device *dev, int ce_id)
 }
 
 /**
- * pld_lock_pm_sem() - Lock PM semaphore
- * @dev: device
- *
- * Return: void
- */
-void pld_lock_pm_sem(struct device *dev)
-{
-	switch (pld_get_bus_type(dev)) {
-	case PLD_BUS_TYPE_PCIE:
-		pld_pcie_lock_pm_sem(dev);
-		break;
-	case PLD_BUS_TYPE_PCIE_FW_SIM:
-	case PLD_BUS_TYPE_IPCI_FW_SIM:
-	case PLD_BUS_TYPE_SNOC_FW_SIM:
-	case PLD_BUS_TYPE_SNOC:
-	case PLD_BUS_TYPE_IPCI:
-		break;
-	case PLD_BUS_TYPE_SDIO:
-		break;
-	case PLD_BUS_TYPE_USB:
-		break;
-	default:
-		pr_err("Invalid device type\n");
-		break;
-	}
-}
-
-/**
- * pld_release_pm_sem() - Release PM semaphore
- * @dev: device
- *
- * Return: void
- */
-void pld_release_pm_sem(struct device *dev)
-{
-	switch (pld_get_bus_type(dev)) {
-	case PLD_BUS_TYPE_PCIE:
-		pld_pcie_release_pm_sem(dev);
-		break;
-	case PLD_BUS_TYPE_PCIE_FW_SIM:
-	case PLD_BUS_TYPE_IPCI_FW_SIM:
-	case PLD_BUS_TYPE_SNOC_FW_SIM:
-	case PLD_BUS_TYPE_SNOC:
-	case PLD_BUS_TYPE_IPCI:
-		break;
-	case PLD_BUS_TYPE_SDIO:
-		break;
-	case PLD_BUS_TYPE_USB:
-		break;
-	default:
-		pr_err("Invalid device type\n");
-		break;
-	}
-}
-
-/**
  * pld_lock_reg_window() - Lock register window spinlock
  * @dev: device pointer
  * @flags: variable pointer to save CPU states
@@ -1896,7 +1851,7 @@ int pld_power_on(struct device *dev)
 	switch (pld_get_bus_type(dev)) {
 	case PLD_BUS_TYPE_PCIE:
 		/* cnss platform driver handles PCIe SoC
-		 * power on/off seqeunce so let CNSS driver
+		 * power on/off sequence so let CNSS driver
 		 * handle the power on sequence for PCIe SoC
 		 */
 		break;
@@ -1932,7 +1887,7 @@ int pld_power_off(struct device *dev)
 	switch (pld_get_bus_type(dev)) {
 	case PLD_BUS_TYPE_PCIE:
 		/* cnss platform driver handles PCIe SoC
-		 * power on/off seqeunce so let CNSS driver
+		 * power on/off sequence so let CNSS driver
 		 * handle the power off sequence for PCIe SoC
 		 */
 		break;
@@ -2118,6 +2073,17 @@ void *pld_smmu_get_mapping(struct device *dev)
 	}
 
 	return ptr;
+}
+#endif
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+struct kobject *pld_get_wifi_kobj(struct device *dev)
+{
+	struct kobject *wifi_kobj = NULL;
+
+	wifi_kobj = pld_pcie_get_wifi_kobj(dev);
+
+	return wifi_kobj;
 }
 #endif
 
@@ -3239,7 +3205,10 @@ int pld_thermal_register(struct device *dev,
 	case PLD_BUS_TYPE_SDIO:
 	case PLD_BUS_TYPE_USB:
 	case PLD_BUS_TYPE_SNOC:
+		break;
 	case PLD_BUS_TYPE_PCIE:
+		errno = pld_pci_thermal_register(dev, max_state, mon_id);
+		break;
 	case PLD_BUS_TYPE_PCIE_FW_SIM:
 		break;
 	case PLD_BUS_TYPE_IPCI_FW_SIM:
@@ -3268,7 +3237,10 @@ void pld_thermal_unregister(struct device *dev, int mon_id)
 	case PLD_BUS_TYPE_SDIO:
 	case PLD_BUS_TYPE_USB:
 	case PLD_BUS_TYPE_SNOC:
+		break;
 	case PLD_BUS_TYPE_PCIE:
+		pld_pci_thermal_unregister(dev, mon_id);
+		break;
 	case PLD_BUS_TYPE_PCIE_FW_SIM:
 		break;
 	case PLD_BUS_TYPE_IPCI_FW_SIM:
@@ -3324,6 +3296,8 @@ const char *pld_bus_width_type_to_str(enum pld_bus_width_type level)
 		return "MEDIUM";
 	case PLD_BUS_WIDTH_HIGH:
 		return "HIGH";
+	case PLD_BUS_WIDTH_MID_HIGH:
+		return "MID_HIGH";
 	case PLD_BUS_WIDTH_VERY_HIGH:
 		return "VERY_HIGH";
 	case PLD_BUS_WIDTH_ULTRA_HIGH:
@@ -3349,7 +3323,10 @@ int pld_get_thermal_state(struct device *dev, unsigned long *thermal_state,
 	case PLD_BUS_TYPE_SDIO:
 	case PLD_BUS_TYPE_USB:
 	case PLD_BUS_TYPE_SNOC:
+		break;
 	case PLD_BUS_TYPE_PCIE:
+		errno = pld_pci_get_thermal_state(dev, thermal_state, mon_id);
+		break;
 	case PLD_BUS_TYPE_PCIE_FW_SIM:
 		break;
 	case PLD_BUS_TYPE_IPCI_FW_SIM:
@@ -3367,6 +3344,78 @@ int pld_get_thermal_state(struct device *dev, unsigned long *thermal_state,
 	}
 
 	return errno;
+}
+
+#ifdef CNSS_UTILS_VENDOR_UNSAFE_CHAN_API_SUPPORT
+int pld_get_wlan_unsafe_channel_sap(
+	struct device *dev, struct pld_ch_avoid_ind_type *ch_avoid_ranges)
+{
+	struct cnss_ch_avoid_ind_type cnss_ch_avoid;
+	int ret;
+	int i;
+
+	if (!ch_avoid_ranges)
+		return -EINVAL;
+	cnss_ch_avoid.ch_avoid_range_cnt = 0;
+	ret = cnss_utils_get_wlan_unsafe_channel_sap(dev, &cnss_ch_avoid);
+	if (ret)
+		return ret;
+
+	for (i = 0;
+	     i < PLD_CH_AVOID_MAX_RANGE &&
+	     i < cnss_ch_avoid.ch_avoid_range_cnt; i++) {
+		ch_avoid_ranges->avoid_freq_range[i].start_freq =
+			cnss_ch_avoid.avoid_freq_range[i].start_freq;
+		ch_avoid_ranges->avoid_freq_range[i].end_freq =
+			cnss_ch_avoid.avoid_freq_range[i].end_freq;
+	}
+	ch_avoid_ranges->ch_avoid_range_cnt = i;
+	if (i < cnss_ch_avoid.ch_avoid_range_cnt)
+		pr_err("unexpected cnss ch_avoid_range_cnt %d",
+		       cnss_ch_avoid.ch_avoid_range_cnt);
+
+	return 0;
+}
+#endif
+
+void pld_set_tsf_sync_period(struct device *dev, u32 val)
+{
+	switch (pld_get_bus_type(dev)) {
+	case PLD_BUS_TYPE_PCIE:
+		pld_pcie_set_tsf_sync_period(dev, val);
+		break;
+	case PLD_BUS_TYPE_PCIE_FW_SIM:
+	case PLD_BUS_TYPE_IPCI_FW_SIM:
+	case PLD_BUS_TYPE_SNOC_FW_SIM:
+	case PLD_BUS_TYPE_SNOC:
+	case PLD_BUS_TYPE_IPCI:
+	case PLD_BUS_TYPE_SDIO:
+	case PLD_BUS_TYPE_USB:
+		break;
+	default:
+		pr_err("Invalid device type\n");
+		break;
+	}
+}
+
+void pld_reset_tsf_sync_period(struct device *dev)
+{
+	switch (pld_get_bus_type(dev)) {
+	case PLD_BUS_TYPE_PCIE:
+		pld_pcie_reset_tsf_sync_period(dev);
+		break;
+	case PLD_BUS_TYPE_PCIE_FW_SIM:
+	case PLD_BUS_TYPE_IPCI_FW_SIM:
+	case PLD_BUS_TYPE_SNOC_FW_SIM:
+	case PLD_BUS_TYPE_SNOC:
+	case PLD_BUS_TYPE_IPCI:
+	case PLD_BUS_TYPE_SDIO:
+	case PLD_BUS_TYPE_USB:
+		break;
+	default:
+		pr_err("Invalid device type\n");
+		break;
+	}
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
@@ -3405,38 +3454,6 @@ int pld_is_ipa_offload_disabled(struct device *dev)
 	}
 
 	return test_bit(PLD_IPA_DISABLED, &dev_cfg);
-}
-#endif
-
-#ifdef CNSS_UTILS_VENDOR_UNSAFE_CHAN_API_SUPPORT
-int pld_get_wlan_unsafe_channel_sap(
-	struct device *dev, struct pld_ch_avoid_ind_type *ch_avoid_ranges)
-{
-	struct cnss_ch_avoid_ind_type cnss_ch_avoid;
-	int ret;
-	int i;
-
-	if (!ch_avoid_ranges)
-		return -EINVAL;
-	cnss_ch_avoid.ch_avoid_range_cnt = 0;
-	ret = cnss_utils_get_wlan_unsafe_channel_sap(dev, &cnss_ch_avoid);
-	if (ret)
-		return ret;
-
-	for (i = 0;
-	     i < PLD_CH_AVOID_MAX_RANGE &&
-	     i < cnss_ch_avoid.ch_avoid_range_cnt; i++) {
-		ch_avoid_ranges->avoid_freq_range[i].start_freq =
-			cnss_ch_avoid.avoid_freq_range[i].start_freq;
-		ch_avoid_ranges->avoid_freq_range[i].end_freq =
-			cnss_ch_avoid.avoid_freq_range[i].end_freq;
-	}
-	ch_avoid_ranges->ch_avoid_range_cnt = i;
-	if (i < cnss_ch_avoid.ch_avoid_range_cnt)
-		pr_err("unexpected cnss ch_avoid_range_cnt %d",
-		       cnss_ch_avoid.ch_avoid_range_cnt);
-
-	return 0;
 }
 #endif
 
@@ -3479,3 +3496,49 @@ int pld_get_audio_wlan_timestamp(struct device *dev,
 	return ret;
 }
 #endif /* FEATURE_WLAN_TIME_SYNC_FTM */
+
+bool pld_is_one_msi(struct device *dev)
+{
+	bool ret = false;
+	enum pld_bus_type type = pld_get_bus_type(dev);
+
+	switch (type) {
+	case PLD_BUS_TYPE_PCIE:
+		ret = pld_pcie_is_one_msi(dev);
+		break;
+	default:
+		break;
+	}
+
+	return ret;
+}
+
+#ifdef FEATURE_DIRECT_LINK
+int pld_audio_smmu_map(struct device *dev, phys_addr_t paddr, dma_addr_t iova,
+		       size_t size)
+{
+	int ret;
+
+	switch (pld_get_bus_type(dev)) {
+	case PLD_BUS_TYPE_PCIE:
+		ret = pld_pcie_audio_smmu_map(dev, paddr, iova, size);
+		break;
+	default:
+		ret = -EINVAL;
+		break;
+	}
+
+	return ret;
+}
+
+void pld_audio_smmu_unmap(struct device *dev, dma_addr_t iova, size_t size)
+{
+	switch (pld_get_bus_type(dev)) {
+	case PLD_BUS_TYPE_PCIE:
+		pld_pcie_audio_smmu_unmap(dev, iova, size);
+		break;
+	default:
+		break;
+	}
+}
+#endif

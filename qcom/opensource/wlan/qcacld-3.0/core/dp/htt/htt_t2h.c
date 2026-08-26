@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -18,9 +18,10 @@
  */
 
 /**
- * @file htt_t2h.c
- * @brief Provide functions to process target->host HTT messages.
- * @details
+ *  DOC: htt_t2h.c
+ *
+ *  brief Provide functions to process target->host HTT messages.
+ *  details
  *  This file contains functions related to target->host HTT messages.
  *  There are two categories of functions:
  *  1.  A function that receives a HTT message from HTC, and dispatches it
@@ -703,7 +704,7 @@ static void htt_t2h_lp_msg_handler(void *context, qdf_nbuf_t htt_t2h_msg,
 		default:
 		{
 			qdf_print("unhandled error type %d",
-				  HTT_RX_OFLD_PKT_ERR_MSG_SUB_TYPE_GET(*msg_word));
+			  HTT_RX_OFLD_PKT_ERR_MSG_SUB_TYPE_GET(*msg_word));
 			break;
 		}
 		}
@@ -737,10 +738,10 @@ static void htt_t2h_lp_msg_handler(void *context, qdf_nbuf_t htt_t2h_msg,
 #define HTT_TX_COMPL_HEAD_SZ			4
 #define HTT_TX_COMPL_BYTES_PER_MSDU_ID		2
 
-/**
+/*
  * Generic Target to host Msg/event  handler  for low priority messages
  * Low priority message are handler in a different handler called from
- * this function . So that the most likely succes path like Rx and
+ * this function . So that the most likely success path like Rx and
  * Tx comp   has little code   foot print
  */
 void htt_t2h_msg_handler(void *context, HTC_PACKET *pkt)

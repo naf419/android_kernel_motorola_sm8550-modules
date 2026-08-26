@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -83,6 +83,13 @@ lim_process_deauth_frame(struct mac_context *mac, uint8_t *pRxPacketInfo,
 	}
 
 	if (LIM_IS_STA_ROLE(pe_session) &&
+	    wlan_drop_mgmt_frame_on_link_removal(pe_session->vdev)) {
+		pe_debug("Received deauth Frame when link removed on vdev %d",
+			 wlan_vdev_get_id(pe_session->vdev));
+		return;
+	}
+
+	if (LIM_IS_STA_ROLE(pe_session) &&
 	    !(lim_is_sb_disconnect_allowed(pe_session) ||
 	      (pe_session->limMlmState == eLIM_MLM_WT_SAE_AUTH_STATE &&
 	       pe_session->limSmeState == eLIM_SME_WT_AUTH_STATE))) {
@@ -155,9 +162,9 @@ lim_process_deauth_frame(struct mac_context *mac, uint8_t *pRxPacketInfo,
 			pe_session->limSmeState,
 			GET_LIM_SYSTEM_ROLE(pe_session));
 
-	wlan_connectivity_mgmt_event((struct wlan_frame_hdr *)pHdr,
+	wlan_connectivity_mgmt_event(mac->psoc, (struct wlan_frame_hdr *)pHdr,
 				     pe_session->vdev_id, reasonCode,
-				     0, frame_rssi, 0, 0, 0,
+				     0, frame_rssi, 0, 0, 0, 0,
 				     WLAN_DEAUTH_RX);
 	lim_diag_event_report(mac, WLAN_PE_DIAG_DEAUTH_FRAME_EVENT,
 		pe_session, 0, reasonCode);
@@ -324,7 +331,7 @@ lim_process_deauth_frame(struct mac_context *mac, uint8_t *pRxPacketInfo,
 
 #ifdef WLAN_FEATURE_SAE
 /*
- * lim_process_sae_auth_msg() - Process auth msg after recieving deauth
+ * lim_process_sae_auth_msg() - Process auth msg after receiving deauth
  * @mac_ctx: Global MAC context
  * @pe_session: PE session entry pointer
  * @addr: peer address/ source address
@@ -342,7 +349,7 @@ static void lim_process_sae_auth_msg(struct mac_context *mac_ctx,
 		return;
 
 	sae_msg->vdev_id = pe_session->vdev_id;
-	sae_msg->sae_status = IEEE80211_STATUS_UNSPECIFIED;
+	sae_msg->sae_status = STATUS_UNSPECIFIED_FAILURE;
 	sae_msg->result_code = eSIR_SME_AUTH_REFUSED;
 	qdf_mem_copy(sae_msg->peer_mac_addr, addr, QDF_MAC_ADDR_SIZE);
 	lim_process_sae_msg(mac_ctx, sae_msg);
@@ -446,7 +453,7 @@ void lim_perform_deauth(struct mac_context *mac_ctx, struct pe_session *pe_sessi
 				 pe_session->peSessionId,
 				 pe_session->limMlmState));
 
-			/* Deactive Association response timeout */
+			/* Deactivate Association response timeout */
 			lim_deactivate_and_change_timer(mac_ctx,
 					eLIM_ASSOC_FAIL_TIMER);
 

@@ -31,6 +31,7 @@ static const uint8_t arp_mask[] = {0xff, 0xff};
 static const uint8_t ns_ptrn[] = {0x86, 0xDD};
 static const uint8_t discvr_ptrn[] = {0xe0, 0x00, 0x00, 0xf8};
 static const uint8_t discvr_mask[] = {0xf0, 0x00, 0x00, 0xf8};
+static const uint8_t arp_offset = 12;
 
 void pmo_register_wow_wakeup_events(struct wlan_objmgr_vdev *vdev)
 {
@@ -115,9 +116,9 @@ void pmo_register_wow_wakeup_events(struct wlan_objmgr_vdev *vdev)
 static QDF_STATUS pmo_configure_wow_ap(struct wlan_objmgr_vdev *vdev)
 {
 	QDF_STATUS ret;
-	uint8_t arp_offset = 20;
 	uint8_t mac_mask[QDF_MAC_ADDR_SIZE];
 	struct pmo_vdev_priv_obj *vdev_ctx;
+	struct qdf_mac_addr bridgeaddr;
 
 	vdev_ctx = pmo_vdev_get_priv(vdev);
 
@@ -137,15 +138,28 @@ static QDF_STATUS pmo_configure_wow_ap(struct wlan_objmgr_vdev *vdev)
 		return ret;
 	}
 
-	/*
-	 * Setup all ARP pkt pattern. This is dummy pattern hence the length
-	 * is zero. Pattern ID should be unique per vdev.
-	 */
+	/* Setup Bridge MAC address */
+	pmo_get_vdev_bridge_addr(vdev, &bridgeaddr);
+	if (!qdf_is_macaddr_zero(&bridgeaddr)) {
+		ret = pmo_tgt_send_wow_patterns_to_fw(vdev,
+			pmo_get_and_increment_wow_default_ptrn(vdev_ctx),
+			bridgeaddr.bytes, QDF_MAC_ADDR_SIZE, 0, mac_mask,
+			QDF_MAC_ADDR_SIZE, false);
+		if (ret != QDF_STATUS_SUCCESS) {
+			pmo_err("Failed to add Bridge MAC address");
+			return ret;
+		}
+	}
+
+	/* Setup ARP pkt pattern */
 	ret = pmo_tgt_send_wow_patterns_to_fw(vdev,
 			pmo_get_and_increment_wow_default_ptrn(vdev_ctx),
-			arp_ptrn, 0, arp_offset, arp_mask, 0, false);
-	if (ret != QDF_STATUS_SUCCESS)
-		pmo_err("Failed to add WOW ARP pattern ret %d", ret);
+			arp_ptrn, sizeof(arp_ptrn), arp_offset, arp_mask,
+			sizeof(arp_mask), false);
+	if (ret != QDF_STATUS_SUCCESS) {
+		pmo_err("Failed to add WOW ARP pattern");
+			return ret;
+	}
 
 	return ret;
 }
@@ -251,11 +265,10 @@ static QDF_STATUS pmo_configure_ssdp(struct wlan_objmgr_vdev *vdev)
  */
 static QDF_STATUS pmo_configure_wow_sta(struct wlan_objmgr_vdev *vdev)
 {
-	uint8_t arp_offset = 12;
 	uint8_t mac_mask[QDF_MAC_ADDR_SIZE];
 	QDF_STATUS ret = QDF_STATUS_SUCCESS;
 	struct pmo_vdev_priv_obj *vdev_ctx;
-	struct qdf_mac_addr *mld_addr;
+	struct qdf_mac_addr *ucast_addr;
 
 	vdev_ctx = pmo_vdev_get_priv(vdev);
 
@@ -265,29 +278,21 @@ static QDF_STATUS pmo_configure_wow_sta(struct wlan_objmgr_vdev *vdev)
 	 * WoW pattern ID should be unique for each vdev
 	 * Different WoW patterns can use same pattern ID
 	 */
-	ret = pmo_tgt_send_wow_patterns_to_fw(vdev,
-			pmo_get_and_increment_wow_default_ptrn(vdev_ctx),
-			wlan_vdev_mlme_get_macaddr(vdev),
-			QDF_MAC_ADDR_SIZE, 0, mac_mask,
-			QDF_MAC_ADDR_SIZE, false);
-	if (ret != QDF_STATUS_SUCCESS) {
-		pmo_err("Failed to add WOW unicast pattern ret %d", ret);
-		return ret;
+
+	/* On ML VDEV, configure WoW pattern with MLD address only */
+	ucast_addr = (struct qdf_mac_addr *)wlan_vdev_mlme_get_mldaddr(vdev);
+	if (qdf_is_macaddr_zero(ucast_addr)) {
+		ucast_addr =
+			(struct qdf_mac_addr *)wlan_vdev_mlme_get_macaddr(vdev);
 	}
 
-	mld_addr = (struct qdf_mac_addr *)wlan_vdev_mlme_get_mldaddr(vdev);
-	if (!qdf_is_macaddr_zero(mld_addr)) {
-		ret = pmo_tgt_send_wow_patterns_to_fw(
-			vdev,
+	ret = pmo_tgt_send_wow_patterns_to_fw(vdev,
 			pmo_get_and_increment_wow_default_ptrn(vdev_ctx),
-			(uint8_t *)mld_addr,
-			QDF_MAC_ADDR_SIZE, 0, mac_mask,
-			QDF_MAC_ADDR_SIZE, false);
-		if (QDF_IS_STATUS_ERROR(ret)) {
-			pmo_err("Failed to add WOW MLD unicast pattern ret %d",
-				ret);
-			return ret;
-		}
+			(uint8_t *)ucast_addr, QDF_MAC_ADDR_SIZE, 0,
+			mac_mask, QDF_MAC_ADDR_SIZE, false);
+	if (QDF_IS_STATUS_ERROR(ret)) {
+		pmo_err("Failed to add WOW unicast pattern ret %d", ret);
+		return ret;
 	}
 
 	ret = pmo_configure_ssdp(vdev);
@@ -401,7 +406,7 @@ set_action_id_drop_pattern_for_block_ack(uint32_t *action_category_map)
 
 /**
  * set_action_id_drop_pattern_for_spec_mgmt() - Set action id of action
- * frames for spectrum mgmt frames to be droppped in fw.
+ * frames for spectrum mgmt frames to be dropped in fw.
  *
  * @action_id_per_category: Pointer to action id bitmaps.
  */
@@ -414,7 +419,7 @@ static void set_action_id_drop_pattern_for_spec_mgmt(
 
 /**
  * set_action_id_drop_pattern_for_public_action() - Set action id of action
- * frames for public action frames to be droppped in fw.
+ * frames for public action frames to be dropped in fw.
  *
  * @action_id_per_category: Pointer to action id bitmaps.
  */

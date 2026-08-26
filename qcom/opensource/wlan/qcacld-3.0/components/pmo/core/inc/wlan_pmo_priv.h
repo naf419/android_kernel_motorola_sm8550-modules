@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2017-2019, 2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -71,10 +72,10 @@ struct pmo_psoc_priv_obj {
 /**
  * struct wlan_pmo_ctx -offload mgr context
  * @psoc_context:     psoc context
- * @pmo_suspend_handler: suspend handler table for all componenets
- * @pmo_suspend_handler_arg: suspend handler argument sfor all componenets
- * @pmo_resume_handler: resume handler table for all componenets
- * @pmo_resume_handler_arg: resume handler argument for all componenets
+ * @pmo_suspend_handler: suspend handler table for all components
+ * @pmo_suspend_handler_arg: suspend handler argument sfor all components
+ * @pmo_resume_handler: resume handler table for all components
+ * @pmo_resume_handler_arg: resume handler argument for all components
  * @lock: lock for global pmo ctx
  */
 struct wlan_pmo_ctx {
@@ -115,6 +116,7 @@ struct wlan_pmo_ctx {
  * @dyn_arp_ns_offload_disable: true when arp/ns offload is disable
  * @dyn_arp_ns_offload_rt_lock: wake lock which prevent runtime pm happen if
  *                              arp/ns offload is disable
+ * @bridgeaddr: Bridge MAC address
  */
 struct pmo_vdev_priv_obj {
 	struct pmo_psoc_priv_obj *pmo_psoc_ctx;
@@ -143,6 +145,7 @@ struct pmo_vdev_priv_obj {
 	bool dyn_arp_ns_offload_disable;
 	qdf_runtime_lock_t dyn_arp_ns_offload_rt_lock;
 #endif
+	uint8_t bridgeaddr[QDF_MAC_ADDR_SIZE];
 };
 
 #endif /* WLAN_POWER_MANAGEMENT_OFFLOAD */

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021, 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -21,6 +21,9 @@
 #include <ce_main.h>
 #include "qdf_module.h"
 #include "qdf_net_if.h"
+#include <pld_common.h>
+#include "qdf_ssr_driver_dump.h"
+
 /* mapping NAPI budget 0 to internal budget 0
  * NAPI budget 1 to internal budget [1,scaler -1]
  * NAPI budget 2 to internal budget [scaler, 2 * scaler - 1], etc
@@ -34,6 +37,23 @@ static struct hif_exec_context *hif_exec_tasklet_create(void);
 
 #ifdef WLAN_FEATURE_DP_EVENT_HISTORY
 struct hif_event_history hif_event_desc_history[HIF_NUM_INT_CONTEXTS];
+uint32_t hif_event_hist_max = HIF_EVENT_HIST_MAX;
+
+void hif_desc_history_log_register(void)
+{
+	qdf_ssr_driver_dump_register_region("hif_event_history",
+					    hif_event_desc_history,
+					    sizeof(hif_event_desc_history));
+	qdf_ssr_driver_dump_register_region("hif_event_hist_max",
+					    &hif_event_hist_max,
+					    sizeof(hif_event_hist_max));
+}
+
+void hif_desc_history_log_unregister(void)
+{
+	qdf_ssr_driver_dump_unregister_region("hif_event_hist_max");
+	qdf_ssr_driver_dump_unregister_region("hif_event_history");
+}
 
 static inline
 int hif_get_next_record_index(qdf_atomic_t *table_index,
@@ -508,9 +528,11 @@ static void hif_exec_tasklet_fn(unsigned long data)
 			(struct hif_exec_context *)data;
 	struct hif_softc *scn = HIF_GET_SOFTC(hif_ext_group->hif);
 	unsigned int work_done;
+	int cpu = smp_processor_id();
 
 	work_done =
-		hif_ext_group->handler(hif_ext_group->context, HIF_MAX_BUDGET);
+		hif_ext_group->handler(hif_ext_group->context, HIF_MAX_BUDGET,
+				       cpu);
 
 	if (hif_ext_group->work_complete(hif_ext_group, work_done)) {
 		qdf_atomic_dec(&(scn->active_grp_tasklet_cnt));
@@ -599,6 +621,32 @@ hif_is_force_napi_complete_required(struct hif_exec_context *hif_ext_group)
 #endif
 
 /**
+ * hif_irq_disabled_time_limit_reached() - determine if irq disabled limit
+ * reached for single MSI
+ * @hif_ext_group: hif exec context
+ *
+ * Return: true if reached, else false.
+ */
+static bool
+hif_irq_disabled_time_limit_reached(struct hif_exec_context *hif_ext_group)
+{
+	unsigned long long irq_disabled_duration_ns;
+
+	if (hif_ext_group->type != HIF_EXEC_NAPI_TYPE)
+		return false;
+
+	irq_disabled_duration_ns = qdf_time_sched_clock() -
+					hif_ext_group->irq_disabled_start_time;
+	if (irq_disabled_duration_ns >= IRQ_DISABLED_MAX_DURATION_NS) {
+		hif_record_event(hif_ext_group->hif, hif_ext_group->grp_id,
+				 0, 0, 0, HIF_EVENT_IRQ_DISABLE_EXPIRED);
+		return true;
+	}
+
+	return false;
+}
+
+/**
  * hif_exec_poll() - napi poll
  * napi: napi struct
  * budget: budget for napi
@@ -630,7 +678,7 @@ static int hif_exec_poll(struct napi_struct *napi, int budget)
 	hif_latency_profile_measure(hif_ext_group);
 
 	work_done = hif_ext_group->handler(hif_ext_group->context,
-					   normalized_budget);
+					   normalized_budget, cpu);
 
 	actual_dones = work_done;
 
@@ -641,7 +689,9 @@ static int hif_exec_poll(struct napi_struct *napi, int budget)
 	}
 
 	if (qdf_unlikely(force_complete) ||
-	    (!hif_ext_group->force_break && work_done < normalized_budget)) {
+	    (!hif_ext_group->force_break && work_done < normalized_budget) ||
+	    ((pld_is_one_msi(scn->qdf_dev->dev) &&
+	    hif_irq_disabled_time_limit_reached(hif_ext_group)))) {
 		hif_record_event(hif_ext_group->hif, hif_ext_group->grp_id,
 				 0, 0, 0, HIF_EVENT_BH_COMPLETE);
 		napi_complete(napi);
@@ -690,7 +740,7 @@ static void hif_exec_napi_kill(struct hif_exec_context *ctx)
 	int irq_ind;
 
 	if (ctx->inited) {
-		napi_disable(&n_ctx->napi);
+		qdf_napi_disable(&n_ctx->napi);
 		ctx->inited = 0;
 	}
 
@@ -698,7 +748,7 @@ static void hif_exec_napi_kill(struct hif_exec_context *ctx)
 		hif_irq_affinity_remove(ctx->os_irq[irq_ind]);
 
 	hif_core_ctl_set_boost(false);
-	netif_napi_del(&(n_ctx->napi));
+	qdf_netif_napi_del(&(n_ctx->napi));
 }
 
 struct hif_execution_ops napi_sched_ops = {
@@ -723,9 +773,9 @@ static struct hif_exec_context *hif_exec_napi_create(uint32_t scale)
 	ctx->exec_ctx.inited = true;
 	ctx->exec_ctx.scale_bin_shift = scale;
 	qdf_net_if_create_dummy_if((struct qdf_net_if *)&ctx->netdev);
-	netif_napi_add_ni(&(ctx->netdev), &(ctx->napi), hif_exec_poll,
-		       QCA_NAPI_BUDGET);
-	napi_enable(&ctx->napi);
+	qdf_netif_napi_add(&(ctx->netdev), &(ctx->napi), hif_exec_poll,
+			   QCA_NAPI_BUDGET);
+	qdf_napi_enable(&ctx->napi);
 
 	return &ctx->exec_ctx;
 }
@@ -811,6 +861,18 @@ int32_t hif_get_int_ctx_irq_num(struct hif_opaque_softc *softc,
 }
 
 qdf_export_symbol(hif_get_int_ctx_irq_num);
+
+#ifdef HIF_CPU_PERF_AFFINE_MASK
+void hif_config_irq_set_perf_affinity_hint(
+	struct hif_opaque_softc *hif_ctx)
+{
+	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
+
+	hif_config_irq_affinity(scn);
+}
+
+qdf_export_symbol(hif_config_irq_set_perf_affinity_hint);
+#endif
 
 QDF_STATUS hif_configure_ext_group_interrupts(struct hif_opaque_softc *hif_ctx)
 {
@@ -909,7 +971,7 @@ hif_check_and_trigger_sys_resume(struct hif_softc *scn, int irq)
  * @irq: irq number of the interrupt
  * @context: the associated hif_exec_group context
  *
- * This callback function takes care of dissabling the associated interrupts
+ * This callback function takes care of disabling the associated interrupts
  * and scheduling the expected bottom half for the exec_context.
  * This callback function also helps keep track of the count running contexts.
  */
@@ -925,6 +987,10 @@ irqreturn_t hif_ext_group_interrupt_handler(int irq, void *context)
 				 0, 0, 0, HIF_EVENT_IRQ_TRIGGER);
 
 		hif_ext_group->irq_disable(hif_ext_group);
+
+		if (pld_is_one_msi(scn->qdf_dev->dev))
+			hif_ext_group->irq_disabled_start_time =
+							qdf_time_sched_clock();
 		/*
 		 * if private ioctl has issued fake suspend command to put
 		 * FW in D0-WOW state then here is our chance to bring FW out
@@ -1115,3 +1181,116 @@ void hif_deregister_exec_group(struct hif_opaque_softc *hif_ctx,
 	}
 }
 qdf_export_symbol(hif_deregister_exec_group);
+
+#ifdef DP_UMAC_HW_RESET_SUPPORT
+/**
+ * hif_umac_reset_handler_tasklet() - Tasklet for UMAC HW reset interrupt
+ * @data: UMAC HW reset HIF context
+ *
+ * return: void
+ */
+static void hif_umac_reset_handler_tasklet(unsigned long data)
+{
+	struct hif_umac_reset_ctx *umac_reset_ctx =
+		(struct hif_umac_reset_ctx *)data;
+
+	/* call the callback handler */
+	umac_reset_ctx->cb_handler(umac_reset_ctx->cb_ctx);
+}
+
+/**
+ * hif_umac_reset_irq_handler() - Interrupt service routine of UMAC HW reset
+ * @irq: irq coming from kernel
+ * @ctx: UMAC HW reset HIF context
+ *
+ * return: IRQ_HANDLED if success, else IRQ_NONE
+ */
+static irqreturn_t hif_umac_reset_irq_handler(int irq, void *ctx)
+{
+	struct hif_umac_reset_ctx *umac_reset_ctx = ctx;
+
+	/* Schedule the tasklet and exit */
+	tasklet_hi_schedule(&umac_reset_ctx->intr_tq);
+
+	return IRQ_HANDLED;
+}
+
+QDF_STATUS hif_register_umac_reset_handler(struct hif_opaque_softc *hif_scn,
+					   int (*handler)(void *cb_ctx),
+					   void *cb_ctx, int irq)
+{
+	struct hif_softc *hif_sc = HIF_GET_SOFTC(hif_scn);
+	struct hif_umac_reset_ctx *umac_reset_ctx;
+	int ret;
+
+	if (!hif_sc) {
+		hif_err("scn is null");
+		return QDF_STATUS_E_NULL_VALUE;
+	}
+
+	umac_reset_ctx = &hif_sc->umac_reset_ctx;
+
+	umac_reset_ctx->cb_handler = handler;
+	umac_reset_ctx->cb_ctx = cb_ctx;
+	umac_reset_ctx->os_irq = irq;
+
+	/* Init the tasklet */
+	tasklet_init(&umac_reset_ctx->intr_tq,
+		     hif_umac_reset_handler_tasklet,
+		     (unsigned long)umac_reset_ctx);
+
+	/* Register the interrupt handler */
+	ret  = pfrm_request_irq(hif_sc->qdf_dev->dev, irq,
+				hif_umac_reset_irq_handler,
+				IRQF_SHARED | IRQF_NO_SUSPEND,
+				"umac_hw_reset_irq",
+				umac_reset_ctx);
+	if (ret) {
+		hif_err("request_irq failed: %d", ret);
+		return qdf_status_from_os_return(ret);
+	}
+
+	umac_reset_ctx->irq_configured = true;
+
+	return QDF_STATUS_SUCCESS;
+}
+
+qdf_export_symbol(hif_register_umac_reset_handler);
+
+QDF_STATUS hif_unregister_umac_reset_handler(struct hif_opaque_softc *hif_scn)
+{
+	struct hif_softc *hif_sc = HIF_GET_SOFTC(hif_scn);
+	struct hif_umac_reset_ctx *umac_reset_ctx;
+	int ret;
+
+	if (!hif_sc) {
+		hif_err("scn is null");
+		return QDF_STATUS_E_NULL_VALUE;
+	}
+
+	umac_reset_ctx = &hif_sc->umac_reset_ctx;
+	if (!umac_reset_ctx->irq_configured) {
+		hif_err("unregister called without a prior IRQ configuration");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	ret  = pfrm_free_irq(hif_sc->qdf_dev->dev,
+			     umac_reset_ctx->os_irq,
+			     umac_reset_ctx);
+	if (ret) {
+		hif_err("free_irq failed: %d", ret);
+		return qdf_status_from_os_return(ret);
+	}
+	umac_reset_ctx->irq_configured = false;
+
+	tasklet_disable(&umac_reset_ctx->intr_tq);
+	tasklet_kill(&umac_reset_ctx->intr_tq);
+
+	umac_reset_ctx->cb_handler = NULL;
+	umac_reset_ctx->cb_ctx = NULL;
+
+	return QDF_STATUS_SUCCESS;
+}
+
+qdf_export_symbol(hif_unregister_umac_reset_handler);
+#endif

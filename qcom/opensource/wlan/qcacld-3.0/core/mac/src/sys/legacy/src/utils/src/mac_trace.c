@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -77,7 +78,6 @@ uint8_t *mac_trace_getcsr_roam_sub_state(uint16_t csr_roam_sub_state)
 		CASE_RETURN_STRING(eCSR_ROAM_SUBSTATE_START_BSS_REQ);
 		CASE_RETURN_STRING(eCSR_ROAM_SUBSTATE_DISASSOC_REQ);
 		CASE_RETURN_STRING(eCSR_ROAM_SUBSTATE_STOP_BSS_REQ);
-		CASE_RETURN_STRING(eCSR_ROAM_SUBSTATE_CONFIG);
 		CASE_RETURN_STRING(eCSR_ROAM_SUBSTATE_DEAUTH_REQ);
 		CASE_RETURN_STRING(eCSR_ROAM_SUBSTATE_WAIT_FOR_KEY);
 	default:
@@ -498,7 +498,6 @@ uint8_t *mac_trace_get_wma_msg_string(uint16_t wma_msg)
 		CASE_RETURN_STRING(WMA_TWT_NUDGE_DIALOG_REQUEST);
 #endif
 		CASE_RETURN_STRING(WMA_RX_SCAN_EVENT);
-		CASE_RETURN_STRING(WMA_RX_CHN_STATUS_EVENT);
 		CASE_RETURN_STRING(WMA_DEL_PERIODIC_TX_PTRN_IND);
 #ifdef FEATURE_WLAN_TDLS
 		CASE_RETURN_STRING(WMA_TDLS_SHOULD_DISCOVER_CMD);
@@ -551,6 +550,7 @@ uint8_t *mac_trace_get_wma_msg_string(uint16_t wma_msg)
 		CASE_RETURN_STRING(WMA_SET_THERMAL_THROTTLE_CFG);
 		CASE_RETURN_STRING(WMA_SET_THERMAL_MGMT);
 #endif /* FW_THERMAL_THROTTLE_SUPPORT */
+		CASE_RETURN_STRING(WMA_UPDATE_EDCA_PIFS_PARAM_IND);
 	default:
 		return (uint8_t *) "UNKNOWN";
 		break;
@@ -578,7 +578,6 @@ uint8_t *mac_trace_get_lim_msg_string(uint16_t lim_msg)
 		CASE_RETURN_STRING(SIR_LIM_ASSOC_FAIL_TIMEOUT);
 		CASE_RETURN_STRING(SIR_LIM_REASSOC_FAIL_TIMEOUT);
 		CASE_RETURN_STRING(SIR_LIM_HEART_BEAT_TIMEOUT);
-		CASE_RETURN_STRING(SIR_LIM_PROBE_HB_FAILURE_TIMEOUT);
 		CASE_RETURN_STRING(SIR_LIM_ADDTS_RSP_TIMEOUT);
 		CASE_RETURN_STRING(SIR_LIM_LINK_TEST_DURATION_TIMEOUT);
 		CASE_RETURN_STRING(SIR_LIM_CNF_WAIT_TIMEOUT);

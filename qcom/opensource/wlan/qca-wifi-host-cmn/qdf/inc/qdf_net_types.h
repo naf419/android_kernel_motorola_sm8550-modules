@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -275,13 +275,11 @@ typedef enum {
  * typedef qdf_nbuf_rx_cksum_t - receive checksum type
  * @l4_type: L4 type
  * @l4_result: L4 result
- * @csum_level: indicates number of checksum are calculated
  */
 typedef struct {
 	qdf_nbuf_l4_rx_cksum_type_t l4_type;
 	qdf_nbuf_l4_rx_cksum_result_t l4_result;
 	uint32_t val;
-	uint32_t csum_level;
 } qdf_nbuf_rx_cksum_t;
 
 #define QDF_ARP_REQ       1 /* ARP request */
@@ -531,12 +529,32 @@ typedef struct {
 } qdf_net_nd_msg_t;
 
 
+static inline
+__sum16 qdf_csum_tcpudp_magic(uint32_t ip_saddr, uint32_t ip_daddr,
+			      uint16_t adj_ip_len, uint8_t ip_proto,
+			      uint32_t sum)
+{
+	return __qdf_csum_tcpudp_magic(ip_saddr, ip_daddr,
+				       adj_ip_len, ip_proto, sum);
+}
+
+static inline
+uint16_t qdf_ip_fast_csum(qdf_net_iphdr_t *iph_head, uint8_t ip_hl)
+{
+	return __qdf_ip_fast_csum(iph_head, ip_hl);
+}
+
 static inline int32_t qdf_csum_ipv6(const in6_addr_t *saddr,
 				    const in6_addr_t *daddr,
 				    __u32 len, unsigned short proto,
 				    wsum_t sum)
 {
 	return (int32_t)__qdf_csum_ipv6(saddr, daddr, len, proto, sum);
+}
+
+static inline char *qdf_netdev_get_devname(qdf_netdev_t dev)
+{
+	return __qdf_netdev_get_devname(dev);
 }
 
 typedef struct {

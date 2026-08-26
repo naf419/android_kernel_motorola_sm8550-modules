@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -31,6 +31,8 @@
 #include <target_if_vdev_mgr_rx_ops.h>
 #include <target_if_vdev_mgr_tx_ops.h>
 #include "target_if_cm_roam_event.h"
+#include <target_if_psoc_wake_lock.h>
+#include "wlan_psoc_mlme_api.h"
 
 static struct wmi_unified
 *target_if_cm_roam_get_wmi_handle_from_vdev(struct wlan_objmgr_vdev *vdev)
@@ -109,13 +111,24 @@ static QDF_STATUS
 target_if_cm_roam_send_roam_sync_complete(struct wlan_objmgr_vdev *vdev)
 {
 	wmi_unified_t wmi_handle;
+	QDF_STATUS status;
+	struct wlan_objmgr_psoc *psoc;
+
+	psoc = wlan_vdev_get_psoc(vdev);
+	if (!psoc) {
+		target_if_err("psoc handle is NULL");
+		return QDF_STATUS_E_FAILURE;
+	}
 
 	wmi_handle = target_if_cm_roam_get_wmi_handle_from_vdev(vdev);
 	if (!wmi_handle)
 		return QDF_STATUS_E_FAILURE;
 
-	return wmi_unified_roam_synch_complete_cmd(wmi_handle,
-						   wlan_vdev_get_id(vdev));
+	status = wmi_unified_roam_synch_complete_cmd(wmi_handle,
+						     wlan_vdev_get_id(vdev));
+	target_if_allow_pm_after_roam_sync(psoc);
+
+	return status;
 }
 
 /**
@@ -171,6 +184,142 @@ target_if_cm_roam_rt_stats_config(struct wlan_objmgr_vdev *vdev,
 
 	return status;
 }
+
+/**
+ * target_if_cm_roam_mcc_disallow() - Send enable/disable roam mcc disallow
+ * commands to wmi
+ * @vdev: vdev object
+ * @vdev_id: vdev id
+ * @is_mcc_disallowed: is mcc disallowed
+ *
+ * Return: QDF_STATUS
+ */
+static QDF_STATUS
+target_if_cm_roam_mcc_disallow(struct wlan_objmgr_vdev *vdev,
+			       uint8_t vdev_id, uint8_t is_mcc_disallowed)
+{
+	QDF_STATUS status = QDF_STATUS_E_FAILURE;
+	wmi_unified_t wmi_handle;
+
+	wmi_handle = target_if_cm_roam_get_wmi_handle_from_vdev(vdev);
+	if (!wmi_handle)
+		return status;
+
+	status = target_if_roam_set_param(wmi_handle,
+					  vdev_id,
+					  WMI_ROAM_PARAM_ROAM_MCC_DISALLOW,
+					  is_mcc_disallowed);
+
+	if (QDF_IS_STATUS_ERROR(status))
+		target_if_err("Failed to set roam mcc disallow");
+
+	return status;
+}
+
+#ifdef FEATURE_RX_LINKSPEED_ROAM_TRIGGER
+/**
+ * target_if_cm_roam_linkspeed_state() - Send link speed state for roaming
+ * commands to wmi
+ * @vdev: vdev object
+ * @vdev_id: vdev id
+ * @is_linkspeed_good: true, don't need low rssi roaming
+ *
+ * Return: QDF_STATUS
+ */
+static QDF_STATUS
+target_if_cm_roam_linkspeed_state(struct wlan_objmgr_vdev *vdev,
+				  uint8_t vdev_id, bool is_linkspeed_good)
+{
+	QDF_STATUS status = QDF_STATUS_E_FAILURE;
+	wmi_unified_t wmi_handle;
+
+	wmi_handle = target_if_cm_roam_get_wmi_handle_from_vdev(vdev);
+	if (!wmi_handle)
+		return status;
+
+	status = target_if_roam_set_param(wmi_handle,
+					  vdev_id,
+					  WMI_ROAM_PARAM_LINKSPEED_STATE,
+					  is_linkspeed_good);
+
+	if (QDF_IS_STATUS_ERROR(status))
+		target_if_err("Failed to set WMI_ROAM_PARAM_LINKSPEED_STATE");
+
+	return status;
+}
+#else
+static inline QDF_STATUS
+target_if_cm_roam_linkspeed_state(struct wlan_objmgr_vdev *vdev,
+				  uint8_t vdev_id, bool is_linkspeed_good)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
+#ifdef WLAN_VENDOR_HANDOFF_CONTROL
+/**
+ * target_if_cm_roam_vendor_handoff_config() - Send vendor handoff config
+ * command to fw
+ * @vdev: vdev object
+ * @vdev_id: vdev id
+ * @param_id: param id
+ *
+ * Return: QDF_STATUS
+ */
+static QDF_STATUS
+target_if_cm_roam_vendor_handoff_config(struct wlan_objmgr_vdev *vdev,
+					uint8_t vdev_id, uint32_t param_id)
+{
+	wmi_unified_t wmi_handle;
+
+	wmi_handle = target_if_cm_roam_get_wmi_handle_from_vdev(vdev);
+	if (!wmi_handle)
+		return QDF_STATUS_E_FAILURE;
+
+	return wmi_unified_roam_vendor_handoff_req_cmd(wmi_handle,
+						       vdev_id, param_id);
+}
+
+/**
+ * target_if_cm_roam_register_vendor_handoff_ops() - Register tx ops to send
+ * vendor handoff config command to fw
+ * @tx_ops: structure of tx function pointers for roaming related commands
+ *
+ * Return: none
+ */
+static void target_if_cm_roam_register_vendor_handoff_ops(
+					struct wlan_cm_roam_tx_ops *tx_ops)
+{
+	tx_ops->send_roam_vendor_handoff_config =
+				target_if_cm_roam_vendor_handoff_config;
+}
+#else
+static inline void target_if_cm_roam_register_vendor_handoff_ops(
+					struct wlan_cm_roam_tx_ops *tx_ops)
+{
+}
+#endif
+
+#ifdef FEATURE_RX_LINKSPEED_ROAM_TRIGGER
+/**
+ * target_if_cm_roam_register_linkspeed_state() - Register tx ops to send
+ * roam link speed state command to fw
+ * @tx_ops: structure of tx function pointers for roaming related commands
+ *
+ * Return: none
+ */
+static inline void
+target_if_cm_roam_register_linkspeed_state(struct wlan_cm_roam_tx_ops *tx_ops)
+{
+	tx_ops->send_roam_linkspeed_state =
+				target_if_cm_roam_linkspeed_state;
+}
+#else
+static inline void
+target_if_cm_roam_register_linkspeed_state(struct wlan_cm_roam_tx_ops *tx_ops)
+{
+}
+#endif
 
 /**
  * target_if_cm_roam_ho_delay_config() - Send roam HO delay value to wmi
@@ -305,56 +454,6 @@ target_if_cm_roam_rssi_diff_6ghz(struct wlan_objmgr_vdev *vdev,
 	return status;
 }
 
-static QDF_STATUS
-target_if_cm_roam_scan_offload_rssi_thresh(
-				wmi_unified_t wmi_handle,
-				struct wlan_roam_offload_scan_rssi_params *req);
-
-/**
- * target_if_cm_roam_scan_offload_rssi_params() - Set the RSSI parameters
- * for roam offload scan
- * @vdev: vdev object
- * @roam_rssi_params: structure containing parameters for roam offload scan
- * based on RSSI
- *
- * Return: QDF_STATUS
- */
-static QDF_STATUS
-target_if_cm_roam_scan_offload_rssi_params(
-		struct wlan_objmgr_vdev *vdev,
-		struct wlan_roam_offload_scan_rssi_params *roam_rssi_params)
-{
-	QDF_STATUS status = QDF_STATUS_E_FAILURE;
-	wmi_unified_t wmi_handle;
-
-	wmi_handle = target_if_cm_roam_get_wmi_handle_from_vdev(vdev);
-	if (!wmi_handle)
-		return status;
-
-	status = target_if_cm_roam_scan_offload_rssi_thresh(wmi_handle,
-							    roam_rssi_params);
-
-	return status;
-}
-
-static void
-target_if_check_hi_rssi_5ghz_support(
-		wmi_unified_t wmi_handle,
-		struct wlan_roam_offload_scan_rssi_params *roam_rssi_params)
-{
-	if ((roam_rssi_params->flags &
-	     ROAM_SCAN_RSSI_THRESHOLD_FLAG_ROAM_HI_RSSI_EN_ON_5G) &&
-	    wmi_service_enabled(wmi_handle,
-				wmi_service_5ghz_hi_rssi_roam_support)) {
-		target_if_debug("FW supports Hi RSSI roam in 5 GHz");
-		roam_rssi_params->flags |=
-			WMI_ROAM_SCAN_RSSI_THRESHOLD_FLAG_ROAM_HI_RSSI_EN_ON_5G;
-	} else {
-		roam_rssi_params->flags &=
-			~ROAM_SCAN_RSSI_THRESHOLD_FLAG_ROAM_HI_RSSI_EN_ON_5G;
-	}
-}
-
 static void
 target_if_cm_roam_register_lfr3_ops(struct wlan_cm_roam_tx_ops *tx_ops)
 {
@@ -363,12 +462,13 @@ target_if_cm_roam_register_lfr3_ops(struct wlan_cm_roam_tx_ops *tx_ops)
 	tx_ops->send_roam_sync_complete_cmd = target_if_cm_roam_send_roam_sync_complete;
 	tx_ops->send_roam_rt_stats_config = target_if_cm_roam_rt_stats_config;
 	tx_ops->send_roam_ho_delay_config = target_if_cm_roam_ho_delay_config;
+	tx_ops->send_roam_mcc_disallow = target_if_cm_roam_mcc_disallow;
 	tx_ops->send_exclude_rm_partial_scan_freq =
 				target_if_cm_exclude_rm_partial_scan_freq;
 	tx_ops->send_roam_full_scan_6ghz_on_disc =
 				target_if_cm_roam_full_scan_6ghz_on_disc;
-	tx_ops->send_roam_scan_offload_rssi_params =
-				target_if_cm_roam_scan_offload_rssi_params;
+	target_if_cm_roam_register_vendor_handoff_ops(tx_ops);
+	target_if_cm_roam_register_linkspeed_state(tx_ops);
 }
 #else
 static inline void
@@ -385,6 +485,13 @@ target_if_cm_roam_rt_stats_config(struct wlan_objmgr_vdev *vdev,
 static QDF_STATUS
 target_if_cm_roam_ho_delay_config(struct wlan_objmgr_vdev *vdev,
 				  uint8_t vdev_id, uint16_t roam_ho_delay)
+{
+	return QDF_STATUS_E_NOSUPPORT;
+}
+
+static QDF_STATUS
+target_if_cm_roam_mcc_disallow(struct wlan_objmgr_vdev *vdev,
+			       uint8_t vdev_id, uint8_t is_mcc_disallowed)
 {
 	return QDF_STATUS_E_NOSUPPORT;
 }
@@ -409,12 +516,6 @@ target_if_cm_roam_rssi_diff_6ghz(struct wlan_objmgr_vdev *vdev,
 {
 	return QDF_STATUS_E_NOSUPPORT;
 }
-
-static inline void
-target_if_check_hi_rssi_5ghz_support(
-		wmi_unified_t wmi_handle,
-		struct wlan_roam_offload_scan_rssi_params *roam_rssi_params)
-{}
 #endif
 
 /**
@@ -506,6 +607,42 @@ target_if_cm_roam_scan_bmiss_cnt(wmi_unified_t wmi_handle,
 			      status);
 		return status;
 	}
+
+	return status;
+}
+
+/**
+ * target_if_cm_roam_scan_bmiss_timeout() - set conbmiss timeout to fw
+ * @wmi_handle: wmi handle
+ * @req: bmiss timeout parameters
+ *
+ * Set bmiss timeout to fw.
+ *
+ * Return: QDF status
+ */
+static QDF_STATUS
+target_if_cm_roam_scan_bmiss_timeout(wmi_unified_t wmi_handle,
+				     struct wlan_roam_bmiss_timeout *req)
+{
+	QDF_STATUS status;
+	uint32_t vdev_id;
+	uint8_t bmiss_timeout_onwakeup;
+	uint8_t bmiss_timeout_onsleep;
+
+	vdev_id = req->vdev_id;
+	bmiss_timeout_onwakeup = req->bmiss_timeout_onwakeup;
+	bmiss_timeout_onsleep = req->bmiss_timeout_onsleep;
+
+	target_if_debug("vdev_id %d bmiss_timeout_onwakeup: %dsec, bmiss_timeout_onsleep: %dsec", vdev_id,
+			bmiss_timeout_onwakeup, bmiss_timeout_onsleep);
+
+	status = target_if_vdev_set_param(wmi_handle, vdev_id,
+					  WMI_VDEV_PARAM_FINAL_BMISS_TIME_SEC,
+					  bmiss_timeout_onwakeup);
+
+	status = target_if_vdev_set_param(wmi_handle, vdev_id,
+					  WMI_VDEV_PARAM_FINAL_BMISS_TIME_WOW_SEC,
+					  bmiss_timeout_onsleep);
 
 	return status;
 }
@@ -777,9 +914,6 @@ target_if_cm_roam_scan_offload_rssi_thresh(
 		}
 	}
 
-	if (req->hi_rssi_scan_rssi_delta)
-		target_if_check_hi_rssi_5ghz_support(wmi_handle, req);
-
 	target_if_debug("RSO_CFG: vdev %d: db2dbm enabled:%d, good_rssi_threshold:%d, early_stop_thresholds en:%d, min:%d, max:%d, roam_scan_rssi_thresh:%d, roam_rssi_thresh_diff:%d",
 			req->vdev_id, db2dbm_enabled, req->good_rssi_threshold,
 			req->early_stop_scan_enable,
@@ -951,7 +1085,7 @@ target_if_cm_roam_scan_filter(wmi_unified_t wmi_handle, uint8_t command,
 
 	if (command != ROAM_SCAN_OFFLOAD_STOP) {
 		switch (req->reason) {
-		case REASON_ROAM_SET_BLACKLIST_BSSID:
+		case REASON_ROAM_SET_DENYLIST_BSSID:
 		case REASON_ROAM_SET_SSID_ALLOWED:
 		case REASON_ROAM_SET_FAVORED_BSSID:
 			break;
@@ -1054,6 +1188,9 @@ target_if_cm_roam_bss_load_config(wmi_unified_t wmi_handle,
 	db2dbm_enabled = wmi_service_enabled(wmi_handle,
 					     wmi_service_hw_db2dbm_support);
 	if (!db2dbm_enabled) {
+		req->rssi_threshold_6ghz -= NOISE_FLOOR_DBM_DEFAULT;
+		req->rssi_threshold_6ghz &= 0x000000ff;
+
 		req->rssi_threshold_5ghz -= NOISE_FLOOR_DBM_DEFAULT;
 		req->rssi_threshold_5ghz &= 0x000000ff;
 
@@ -1173,6 +1310,96 @@ target_if_cm_roam_send_time_sync_cmd(wmi_unified_t wmi_handle)
 	return wmi_send_time_stamp_sync_cmd_tlv(wmi_handle);
 }
 
+#ifdef WLAN_FEATURE_11BE
+static QDF_STATUS
+target_if_cm_roam_oem_eht_mlo_bitmap(struct wlan_objmgr_vdev *vdev)
+{
+	QDF_STATUS status = QDF_STATUS_E_FAILURE;
+	wmi_unified_t wmi_handle;
+	uint32_t oem_eht_bitmap;
+	struct wlan_objmgr_psoc *psoc;
+
+	psoc = wlan_vdev_get_psoc(vdev);
+	if (!psoc) {
+		target_if_err("psoc handle is NULL");
+		return QDF_STATUS_E_NULL_VALUE;
+	}
+
+	wmi_handle = target_if_cm_roam_get_wmi_handle_from_vdev(vdev);
+	if (!wmi_handle)
+		return status;
+
+	status = wlan_mlme_get_oem_eht_mlo_config(psoc, &oem_eht_bitmap);
+	if (QDF_IS_STATUS_ERROR(status))
+		return status;
+
+	status = target_if_roam_set_param(wmi_handle,
+					  wlan_vdev_get_id(vdev),
+					  WMI_ROAM_PARAM_CRYPTO_EHT_CONFIG,
+					  oem_eht_bitmap);
+
+	if (QDF_IS_STATUS_ERROR(status))
+		target_if_err("Failed to set roam oem eht bitmap");
+
+	return status;
+}
+#else
+static inline QDF_STATUS
+target_if_cm_roam_oem_eht_mlo_bitmap(struct wlan_objmgr_vdev *vdev)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
+#ifdef WLAN_FEATURE_11BE_MLO
+/**
+ * target_if_cm_roam_send_start() - Send roam mlo related commands
+ * to wmi
+ * @vdev: vdev object
+ * @req: roam mlo config parameters
+ *
+ * This function is used to send roam mlo related commands to wmi
+ *
+ * Return: QDF_STATUS
+ */
+static QDF_STATUS
+target_if_cm_roam_send_mlo_config(struct wlan_objmgr_vdev *vdev,
+				  struct wlan_roam_mlo_config *req)
+{
+	QDF_STATUS status;
+	wmi_unified_t wmi_handle;
+
+	wmi_handle = target_if_cm_roam_get_wmi_handle_from_vdev(vdev);
+	if (!wmi_handle)
+		return QDF_STATUS_E_FAILURE;
+
+	status = wmi_unified_roam_mlo_config_cmd(wmi_handle, req);
+
+	if (status != QDF_STATUS_SUCCESS)
+		target_if_err("failed to send WMI_ROAM_MLO_CONFIG_CMDID command");
+
+	return status;
+}
+
+static void
+target_if_cm_roam_register_mlo_req_ops(struct wlan_cm_roam_tx_ops *tx_ops)
+{
+	tx_ops->send_roam_mlo_config = target_if_cm_roam_send_mlo_config;
+}
+#else
+static QDF_STATUS
+target_if_cm_roam_send_mlo_config(struct wlan_objmgr_vdev *vdev,
+				  struct wlan_roam_mlo_config *req)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static void
+target_if_cm_roam_register_mlo_req_ops(struct wlan_cm_roam_tx_ops *tx_ops)
+{
+}
+#endif
+
 /**
  * target_if_cm_roam_send_start() - Send roam start related commands
  * to wmi
@@ -1192,6 +1419,8 @@ target_if_cm_roam_send_start(struct wlan_objmgr_vdev *vdev,
 	struct wlan_objmgr_psoc *psoc;
 	uint8_t vdev_id;
 	bool bss_load_enabled;
+	bool eht_capab = false;
+	bool is_mcc_disallowed;
 
 	wmi_handle = target_if_cm_roam_get_wmi_handle_from_vdev(vdev);
 	if (!wmi_handle)
@@ -1211,6 +1440,12 @@ target_if_cm_roam_send_start(struct wlan_objmgr_vdev *vdev,
 						  &req->beacon_miss_cnt);
 	if (QDF_IS_STATUS_ERROR(status)) {
 		target_if_err("vdev set bmiss bcnt param failed");
+		goto end;
+	}
+	status = target_if_cm_roam_scan_bmiss_timeout(wmi_handle,
+						      &req->bmiss_timeout);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		target_if_err("vdev set bmiss timeout param failed");
 		goto end;
 	}
 
@@ -1313,6 +1548,9 @@ target_if_cm_roam_send_start(struct wlan_objmgr_vdev *vdev,
 
 	target_if_cm_roam_idle_params(wmi_handle, ROAM_SCAN_OFFLOAD_START,
 				      &req->idle_params);
+	wlan_psoc_mlme_get_11be_capab(psoc, &eht_capab);
+	if (eht_capab)
+		target_if_cm_roam_send_mlo_config(vdev, &req->roam_mlo_params);
 
 	vdev_id = wlan_vdev_get_id(vdev);
 	if (req->wlan_roam_rt_stats_config)
@@ -1331,10 +1569,14 @@ target_if_cm_roam_send_start(struct wlan_objmgr_vdev *vdev,
 		target_if_cm_roam_full_scan_6ghz_on_disc(
 				vdev, req->wlan_roam_full_scan_6ghz_on_disc);
 
+	is_mcc_disallowed = !wlan_cm_same_band_sta_allowed(psoc);
+	target_if_cm_roam_mcc_disallow(vdev, vdev_id, is_mcc_disallowed);
+
 	if (req->wlan_roam_rssi_diff_6ghz)
 		target_if_cm_roam_rssi_diff_6ghz(vdev,
 						 req->wlan_roam_rssi_diff_6ghz);
 
+	status = target_if_cm_roam_oem_eht_mlo_bitmap(vdev);
 	/* add other wmi commands */
 end:
 	return status;
@@ -1396,6 +1638,12 @@ target_if_stop_rso_stop_timer(struct roam_offload_roam_event *roam_event)
 			 roam_event->vdev_id,
 			 wlan_psoc_get_id(roam_event->psoc));
 		return QDF_STATUS_E_INVAL;
+	}
+
+	if (!qdf_atomic_test_bit(RSO_STOP_RESPONSE_BIT,
+				 &vdev_rsp->rsp_status)) {
+		mlme_debug("rso stop timer is not started");
+		return QDF_STATUS_SUCCESS;
 	}
 
 	if ((roam_event->reason == ROAM_REASON_RSO_STATUS &&
@@ -1613,6 +1861,7 @@ target_if_cm_roam_send_update_config(struct wlan_objmgr_vdev *vdev,
 	wmi_unified_t wmi_handle;
 	struct wlan_objmgr_psoc *psoc;
 	uint8_t vdev_id;
+	bool is_mcc_disallowed;
 
 	wmi_handle = target_if_cm_roam_get_wmi_handle_from_vdev(vdev);
 	if (!wmi_handle)
@@ -1622,6 +1871,13 @@ target_if_cm_roam_send_update_config(struct wlan_objmgr_vdev *vdev,
 						  &req->beacon_miss_cnt);
 	if (QDF_IS_STATUS_ERROR(status)) {
 		target_if_err("vdev set bmiss bcnt param failed");
+		goto end;
+	}
+
+	status = target_if_cm_roam_scan_bmiss_timeout(wmi_handle,
+						      &req->bmiss_timeout);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		target_if_err("vdev set bmiss timeout param failed");
 		goto end;
 	}
 
@@ -1714,9 +1970,15 @@ target_if_cm_roam_send_update_config(struct wlan_objmgr_vdev *vdev,
 			target_if_cm_roam_full_scan_6ghz_on_disc(
 				vdev, req->wlan_roam_full_scan_6ghz_on_disc);
 
+		is_mcc_disallowed = !wlan_cm_same_band_sta_allowed(psoc);
+		target_if_cm_roam_mcc_disallow(vdev, vdev_id,
+					       is_mcc_disallowed);
+
 		if (req->wlan_roam_rssi_diff_6ghz)
 			target_if_cm_roam_rssi_diff_6ghz(
 					vdev, req->wlan_roam_rssi_diff_6ghz);
+
+		status = target_if_cm_roam_oem_eht_mlo_bitmap(vdev);
 	}
 end:
 	return status;
@@ -1814,10 +2076,10 @@ end:
 }
 
 /**
- * target_if_cm_roam_register_rso_req_ops() - Register rso req tx ops fucntions
+ * target_if_cm_roam_register_rso_req_ops() - Register rso req tx ops functions
  * @tx_ops: tx ops
  *
- * This function is used to register rso req tx ops fucntions
+ * This function is used to register rso req tx ops functions
  *
  * Return: none
  */
@@ -1833,6 +2095,7 @@ target_if_cm_roam_register_rso_req_ops(struct wlan_cm_roam_tx_ops *tx_ops)
 	tx_ops->send_roam_triggers = target_if_cm_roam_triggers;
 	tx_ops->send_roam_disable_config =
 					target_if_cm_roam_send_disable_config;
+	target_if_cm_roam_register_mlo_req_ops(tx_ops);
 }
 
 QDF_STATUS target_if_cm_roam_register_tx_ops(struct wlan_cm_roam_tx_ops *tx_ops)

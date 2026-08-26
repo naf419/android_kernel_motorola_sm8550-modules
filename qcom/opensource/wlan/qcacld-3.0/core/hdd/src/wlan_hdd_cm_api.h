@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -32,7 +32,7 @@
 /**
  * wlan_hdd_cm_connect() - cfg80211 connect api
  * @wiphy: Pointer to wiphy
- * @dev: Pointer to network device
+ * @ndev: Pointer to network device
  * @req: Pointer to cfg80211 connect request
  *
  * This function is used to issue connect request to connection manager
@@ -52,7 +52,7 @@ int wlan_hdd_cm_connect(struct wiphy *wiphy,
  *        supplicant initiated disconnect or during vdev delete/change interface
  *        sync should be true.
  *
- * This function is used to issue disconnect request to conection manager
+ * This function is used to issue disconnect request to connection manager
  *
  * Return: QDF_STATUS
  */
@@ -66,7 +66,7 @@ QDF_STATUS wlan_hdd_cm_issue_disconnect(struct hdd_adapter *adapter,
  * @dev: Pointer to network device
  * @reason: Disconnect reason code
  *
- * This function is used to issue disconnect request to conection manager
+ * This function is used to issue disconnect request to connection manager
  *
  * Return: 0 for success, non-zero for failure
  */
@@ -84,6 +84,57 @@ QDF_STATUS hdd_cm_netif_queue_control(struct wlan_objmgr_vdev *vdev,
 QDF_STATUS hdd_cm_connect_complete(struct wlan_objmgr_vdev *vdev,
 				   struct wlan_cm_connect_resp *rsp,
 				   enum osif_cb_type type);
+
+/**
+ * hdd_cm_send_vdev_keys() - send vdev keys
+ * @vdev: Pointer to vdev
+ * @key_index: key index value
+ * @pairwise: pairwise boolean value
+ * @cipher_type: cipher type enum value
+ *
+ * This function is used to send vdev keys
+ *
+ * Context: Any context.
+ * Return: QDF_STATUS
+ */
+QDF_STATUS hdd_cm_send_vdev_keys(struct wlan_objmgr_vdev *vdev,
+				 u8 key_index, bool pairwise,
+				 enum wlan_crypto_cipher_type cipher_type);
+
+#ifdef WLAN_VENDOR_HANDOFF_CONTROL
+/**
+ * hdd_cm_get_vendor_handoff_params() - to get vendor handoff params from fw
+ * @psoc: Pointer to psoc object
+ * @vendor_handoff_context: Pointer to vendor handoff event rsp
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+hdd_cm_get_vendor_handoff_params(struct wlan_objmgr_psoc *psoc,
+				 void *vendor_handoff_context);
+
+/**
+ * hdd_cm_get_handoff_param() - send get vendor handoff param request to fw
+ * @psoc: psoc common object
+ * @hdd_adapter: adapter context
+ * @vdev_id: vdev id
+ * @param_id: Param ID from enum WMI_ROAM_GET_VENDOR_CONTROL_PARAM_ID
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS hdd_cm_get_handoff_param(struct wlan_objmgr_psoc *psoc,
+				    struct hdd_adapter *hdd_adapter,
+				    uint8_t vdev_id, uint32_t param_id);
+#else
+static inline QDF_STATUS
+hdd_cm_get_handoff_param(struct wlan_objmgr_psoc *psoc,
+			 struct hdd_adapter *hdd_adapter,
+			 uint8_t vdev_id, uint32_t param_value)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
 /**
  * hdd_cm_napi_serialize_control() - NAPI serialize hdd cb
  * @action: serialize or de-serialize NAPI activities
@@ -93,27 +144,6 @@ QDF_STATUS hdd_cm_connect_complete(struct wlan_objmgr_vdev *vdev,
  * Return: qdf status
  */
 QDF_STATUS hdd_cm_napi_serialize_control(bool action);
-
-#ifdef WLAN_BOOST_CPU_FREQ_IN_ROAM
-/**
- * hdd_cm_perfd_set_cpufreq() - API to set CPU min freq
- * @action: set or reset the CPU freq
- *
- * This function sets/resets the CPU min frequency
- * by sending netlink msg to cnss-daemon, which will
- * communicate to perf daemon to set/reset CPU freq.
- *
- * Return: qdf status
- */
-
-QDF_STATUS hdd_cm_perfd_set_cpufreq(bool action);
-#else
-static inline
-QDF_STATUS hdd_cm_perfd_set_cpufreq(bool action)
-{
-	return QDF_STATUS_SUCCESS;
-}
-#endif
 
 #ifdef WLAN_FEATURE_FILS_SK
 /**
@@ -318,14 +348,6 @@ bool hdd_cm_is_connecting(struct hdd_adapter *adapter);
 bool hdd_cm_is_disconnected(struct hdd_adapter *adapter);
 
 /**
- * hdd_cm_is_disconnecting() - Function to check disconnection in progress
- * @adapter: pointer to the adapter structure
- *
- * Return: true if disconnecting, false otherwise
- */
-bool hdd_cm_is_disconnecting(struct hdd_adapter *adapter);
-
-/**
  * hdd_cm_is_vdev_roaming() - Function to check roaming in progress
  * @adapter: pointer to the adapter structure
  *
@@ -333,4 +355,16 @@ bool hdd_cm_is_disconnecting(struct hdd_adapter *adapter);
  */
 bool hdd_cm_is_vdev_roaming(struct hdd_adapter *adapter);
 
+/**
+ * hdd_cm_get_scan_ie_params() - to get scan ie params
+ * @vdev: Pointer to vdev object
+ * @scan_ie: pointer to scan ie element struct
+ * @dot11mode_filter: Pointer to dot11mode_filter enum
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+hdd_cm_get_scan_ie_params(struct wlan_objmgr_vdev *vdev,
+			  struct element_info *scan_ie,
+			  enum dot11_mode_filter *dot11mode_filter);
 #endif /* __WLAN_HDD_CM_API_H */

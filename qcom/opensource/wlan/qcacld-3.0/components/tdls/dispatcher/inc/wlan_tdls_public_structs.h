@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -19,7 +20,7 @@
 /**
  * DOC: wlan_tdls_public_structs.h
  *
- * TDLS public structure definations
+ * TDLS public structure definitions
  */
 
 #ifndef _WLAN_TDLS_STRUCTS_H_
@@ -49,6 +50,8 @@
 #define WLAN_TDLS_PREFERRED_OFF_CHANNEL_NUM_MIN      1
 #define WLAN_TDLS_PREFERRED_OFF_CHANNEL_NUM_MAX      165
 #define WLAN_TDLS_PREFERRED_OFF_CHANNEL_NUM_DEF      36
+#define WLAN_TDLS_PREFERRED_OFF_CHANNEL_FRQ_DEF     5180
+
 
 #define AC_PRIORITY_NUM                 4
 
@@ -257,7 +260,7 @@ enum tdls_command_type {
  * @TDLS_EVENT_RX_MGMT: rx discovery response frame
  * @TDLS_EVENT_ADD_PEER: add peer or update peer
  * @TDLS_EVENT_DEL_PEER: delete peer
- * @TDLS_EVENT_DISCOVERY_REQ: dicovery request
+ * @TDLS_EVENT_DISCOVERY_REQ: discovery request
  * @TDLS_EVENT_TEARDOWN_REQ: teardown request
  * @TDLS_EVENT_SETUP_REQ: setup request
  * @TDLS_EVENT_TEARDOWN_LINKS_DONE: teardown completion event
@@ -467,6 +470,7 @@ enum tdls_feature_bit {
  * @tdls_uapsd_ptr_timeout: tdls peer response timeout
  * @tdls_feature_flags: tdls feature flags
  * @tdls_pre_off_chan_num: tdls off channel number
+ * @tdls_pre_off_chan_freq_6g: tdls pref off channel freq for 6g band
  * @tdls_pre_off_chan_bw: tdls off channel bandwidth
  * @tdls_peer_kickout_threshold: sta kickout threshold for tdls peer
  * @tdls_discovery_wake_timeout: tdls discovery wake timeout
@@ -499,6 +503,7 @@ struct tdls_user_config {
 	uint32_t tdls_uapsd_ptr_timeout;
 	uint32_t tdls_feature_flags;
 	uint32_t tdls_pre_off_chan_num;
+	uint32_t tdls_pre_off_chan_freq_6g;
 	uint32_t tdls_pre_off_chan_bw;
 	uint32_t tdls_peer_kickout_threshold;
 	uint32_t tdls_discovery_wake_timeout;
@@ -652,6 +657,18 @@ typedef QDF_STATUS (*tdls_vdev_init_cb)(struct wlan_objmgr_vdev *vdev);
 typedef void (*tdls_vdev_deinit_cb)(struct wlan_objmgr_vdev *vdev);
 
 /**
+ * tdls_osif_cb() - Callbacks for updating osif params.
+ * @tdls_osif_conn_update: Update osif params when TDLS peer is connected
+ * @tdls_osif_disconn_update: Update osif params when TDLS peer is disconnected
+ *
+ * These callbacks will be used for updating osif params.
+ */
+struct tdls_osif_cb {
+	void (*tdls_osif_conn_update)(struct wlan_objmgr_vdev *vdev);
+	void (*tdls_osif_disconn_update)(struct wlan_objmgr_vdev *vdev);
+};
+
+/**
  * struct tdls_start_params - tdls start params
  * @config: tdls user config
  * @tdls_send_mgmt_req: pass eWNI_SME_TDLS_SEND_MGMT_REQ value
@@ -667,6 +684,7 @@ typedef void (*tdls_vdev_deinit_cb)(struct wlan_objmgr_vdev *vdev);
  * @tdls_dp_vdev_update: update vdev flags in datapath
  * @tdls_osif_init_cb: callback to initialize the tdls priv
  * @tdls_osif_deinit_cb: callback to deinitialize the tdls priv
+ * @tdls_osif_cb: callback to update osif params
  */
 struct tdls_start_params {
 	struct tdls_user_config config;
@@ -687,6 +705,7 @@ struct tdls_start_params {
 	tdls_dp_vdev_update_flags_callback tdls_dp_vdev_update;
 	tdls_vdev_init_cb tdls_osif_init_cb;
 	tdls_vdev_deinit_cb tdls_osif_deinit_cb;
+	struct tdls_osif_cb tdls_osif_update_cb;
 };
 
 /**
@@ -817,7 +836,7 @@ struct tdls_update_peer_params {
 	uint8_t uapsd_queues;
 	uint8_t max_sp;
 	uint8_t supported_channels_len;
-	uint8_t supported_channels[WLAN_MAC_MAX_SUPP_CHANNELS];
+	qdf_freq_t supported_chan_freq[WLAN_MAC_MAX_SUPP_CHANNELS];
 	uint8_t supported_oper_classes_len;
 	uint8_t supported_oper_classes[WLAN_MAX_SUPP_OPER_CLASSES];
 	bool is_qos_wmm_sta;
@@ -844,6 +863,7 @@ struct tdls_oper_request {
  * @vdev: vdev object
  * @peer_addr: MAC address of the TDLS peer
  * @chan: channel
+ * @ch_freq: ch_freq
  * @max_latency: maximum latency
  * @op_class: operation class
  * @min_bandwidth: minimal bandwidth
@@ -853,6 +873,7 @@ struct tdls_oper_config_force_peer_request {
 	struct wlan_objmgr_vdev *vdev;
 	uint8_t peer_addr[QDF_MAC_ADDR_SIZE];
 	uint32_t chan;
+	qdf_freq_t ch_freq;
 	uint32_t max_latency;
 	uint32_t op_class;
 	uint32_t min_bandwidth;
@@ -901,14 +922,14 @@ struct tdls_info {
 
 /**
  * struct tdls_ch_params - channel parameters
- * @chan_id: ID of the channel
+ * @ch_freq: Channel frequency
  * @pwr: power level
  * @dfs_set: is dfs supported or not
  * @half_rate: is the channel operating at 10MHz
  * @quarter_rate: is the channel operating at 5MHz
  */
 struct tdls_ch_params {
-	uint8_t chan_id;
+	qdf_freq_t ch_freq;
 	uint8_t pwr;
 	bool dfs_set;
 	bool half_rate;
@@ -916,7 +937,7 @@ struct tdls_ch_params {
 };
 
 /**
- * struct tdls_peer_params - TDLS peer capablities parameters
+ * struct tdls_peer_params - TDLS peer capabilities parameters
  * @is_peer_responder: is peer responder or not
  * @peer_uapsd_queue: peer uapsd queue
  * @peer_max_sp: peer max SP value
@@ -970,7 +991,7 @@ struct tdls_peer_update_state {
  * struct tdls_channel_switch_params - channel switch parameter structure
  * @vdev_id: vdev ID
  * @peer_mac_addr: Peer mac address
- * @tdls_off_ch_bw_offset: Target off-channel bandwitdh offset
+ * @tdls_off_ch_bw_offset: Target off-channel bandwidth offset
  * @tdls_off_ch: Target Off Channel
  * @oper_class: Operating class for target channel
  * @is_responder: Responder or initiator
@@ -1042,7 +1063,7 @@ struct tdls_event_notify {
  * @peer_mac: peer's mac address
  * @frame_type: Type of TDLS mgmt frame to be sent
  * @dialog: dialog token used in the frame.
- * @status_code: status to be incuded in the frame
+ * @status_code: status to be included in the frame
  * @responder: Tdls request type
  * @peer_capability: peer cpabilities
  * @len: length of additional Ies
@@ -1296,7 +1317,7 @@ struct tdls_del_sta_rsp {
  * @session_id: session id
  * @req_type: type of action frame
  * @dialog: dialog token used in the frame.
- * @status_code: status to be incuded in the frame.
+ * @status_code: status to be included in the frame.
  * @responder: tdls request type
  * @peer_capability: peer capability information
  * @bssid: bssid
@@ -1393,4 +1414,19 @@ struct tdls_link_teardown {
 	struct wlan_objmgr_psoc *psoc;
 };
 
+#ifdef FEATURE_SET
+/**
+ * struct wlan_tdls_features - TDLS feature set struct
+ * @enable_tdls: enable/disable tdls
+ * @enable_tdls_offchannel: enable/disable tdls offchannel
+ * @max_tdls_peers: Max tdls Peers
+ * @enable_tdls_capability_enhance: enable tdls capability enhance
+ */
+struct wlan_tdls_features {
+	bool enable_tdls;
+	bool enable_tdls_offchannel;
+	uint8_t max_tdls_peers;
+	bool enable_tdls_capability_enhance;
+};
+#endif
 #endif

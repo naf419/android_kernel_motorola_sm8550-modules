@@ -316,7 +316,7 @@ int wlan_hdd_cfg80211_exttdls_get_status(struct wiphy *wiphy,
 /**
  * __wlan_hdd_cfg80211_exttdls_enable() - enable an externally controllable
  *                                      TDLS peer and set parameters
- * wiphy: wiphy
+ * @wiphy: pointer to wireless wiphy structure.
  * @wdev: wireless dev pointer
  * @data: netlink buffer with peer MAC address and configuration parameters
  * @data_len: size of data in bytes
@@ -367,7 +367,7 @@ int wlan_hdd_cfg80211_exttdls_enable(struct wiphy *wiphy,
 /**
  * __wlan_hdd_cfg80211_exttdls_disable() - disable an externally controllable
  *                                       TDLS peer
- * wiphy: wiphy
+ * @wiphy: wiphy
  * @wdev: wireless dev pointer
  * @data: netlink buffer with peer MAC address
  * @data_len: size of data in bytes
@@ -433,25 +433,21 @@ int wlan_hdd_cfg80211_exttdls_disable(struct wiphy *wiphy,
  */
 static int __wlan_hdd_cfg80211_tdls_mgmt(struct wiphy *wiphy,
 				struct net_device *dev, const uint8_t *peer,
+				uint8_t action_code, uint8_t dialog_token,
+				uint16_t status_code, uint32_t peer_capability,
+				bool initiator, const uint8_t *buf,
+				size_t len, int link_id)
+
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0))
+static int __wlan_hdd_cfg80211_tdls_mgmt(struct wiphy *wiphy,
+				struct net_device *dev,
+				const u8 *peer, int link_id,
 				u8 action_code, u8 dialog_token,
 				u16 status_code, u32 peer_capability,
-				bool initiator, const u8 *buf, size_t len,
-				int link_id)
-#else
-/**
- * __wlan_hdd_cfg80211_tdls_mgmt() - handle management actions on a given peer
- * @wiphy: wiphy
- * @dev: net device
- * @peer: MAC address of the TDLS peer
- * @action_code: action code
- * @dialog_token: dialog token
- * @status_code: status code
- * @buf: additional IE to include
- * @len: length of buf in bytes
- *
- * Return: 0 if success; negative errno otherwise
- */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 17, 0))
+				bool initiator, const u8 *buf,
+				size_t len)
+
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 17, 0))
 static int __wlan_hdd_cfg80211_tdls_mgmt(struct wiphy *wiphy,
 				struct net_device *dev, const uint8_t *peer,
 				uint8_t action_code, uint8_t dialog_token,
@@ -476,7 +472,6 @@ static int __wlan_hdd_cfg80211_tdls_mgmt(struct wiphy *wiphy,
 				uint8_t action_code, uint8_t dialog_token,
 				uint16_t status_code, const uint8_t *buf,
 				size_t len)
-#endif
 #endif
 {
 	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
@@ -557,6 +552,15 @@ int wlan_hdd_cfg80211_tdls_mgmt(struct wiphy *wiphy,
 					u8 dialog_token, u16 status_code,
 					u32 peer_capability, bool initiator,
 					const u8 *buf, size_t len, int link_id)
+
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0))
+int wlan_hdd_cfg80211_tdls_mgmt(struct wiphy *wiphy,
+					struct net_device *dev,
+					const u8 *peer, int link_id,
+					u8 action_code, u8 dialog_token,
+					u16 status_code, u32 peer_capability,
+					bool initiator, const u8 *buf,
+					size_t len)
 #elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 17, 0)) || defined(WITH_BACKPORTS)
 int wlan_hdd_cfg80211_tdls_mgmt(struct wiphy *wiphy,
 					struct net_device *dev,
@@ -599,6 +603,11 @@ int wlan_hdd_cfg80211_tdls_mgmt(struct wiphy *wiphy,
 					      dialog_token, status_code,
 					      peer_capability, initiator,
 					      buf, len, link_id);
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0))
+	errno = __wlan_hdd_cfg80211_tdls_mgmt(wiphy, dev, peer, link_id,
+					      action_code, dialog_token,
+					      status_code, peer_capability,
+					      initiator, buf, len);
 #elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 17, 0)) || defined(WITH_BACKPORTS)
 	errno = __wlan_hdd_cfg80211_tdls_mgmt(wiphy, dev, peer, action_code,
 					      dialog_token, status_code,
@@ -621,6 +630,113 @@ int wlan_hdd_cfg80211_tdls_mgmt(struct wiphy *wiphy,
 	osif_vdev_sync_op_stop(vdev_sync);
 
 	return errno;
+}
+
+static bool
+hdd_is_sta_legacy(struct hdd_adapter *adapter)
+{
+	struct hdd_station_ctx *sta_ctx;
+
+	sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
+	if (!sta_ctx)
+		return false;
+
+	if ((sta_ctx->conn_info.dot11mode == eCSR_CFG_DOT11_MODE_AUTO) ||
+	    (sta_ctx->conn_info.dot11mode == eCSR_CFG_DOT11_MODE_11N) ||
+	    (sta_ctx->conn_info.dot11mode == eCSR_CFG_DOT11_MODE_11AC) ||
+	    (sta_ctx->conn_info.dot11mode == eCSR_CFG_DOT11_MODE_11N_ONLY) ||
+	    (sta_ctx->conn_info.dot11mode == eCSR_CFG_DOT11_MODE_11AC_ONLY) ||
+	    (sta_ctx->conn_info.dot11mode == eCSR_CFG_DOT11_MODE_11AX) ||
+	    (sta_ctx->conn_info.dot11mode == eCSR_CFG_DOT11_MODE_11AX_ONLY))
+		return false;
+
+	return true;
+}
+
+uint16_t
+hdd_get_tdls_connected_peer_count(struct hdd_adapter *adapter)
+{
+	struct wlan_objmgr_vdev *vdev;
+	uint16_t peer_count;
+
+	vdev = hdd_objmgr_get_vdev_by_user(adapter, WLAN_OSIF_TDLS_ID);
+
+	peer_count = ucfg_get_tdls_conn_peer_count(vdev);
+	wlan_objmgr_vdev_release_ref(vdev, WLAN_OSIF_TDLS_ID);
+
+	return peer_count;
+}
+
+void
+hdd_check_and_set_tdls_conn_params(struct wlan_objmgr_vdev *vdev)
+{
+	uint8_t vdev_id;
+	enum hdd_dot11_mode selfdot11mode;
+	struct hdd_adapter *adapter;
+	struct wlan_objmgr_psoc *psoc;
+	struct hdd_context *hdd_ctx;
+
+	psoc = wlan_vdev_get_psoc(vdev);
+	if (!psoc)
+		return;
+
+	vdev_id = wlan_vdev_get_id(vdev);
+	adapter = wlan_hdd_get_adapter_from_vdev(psoc, vdev_id);
+	if (!adapter)
+		return;
+
+	/*
+	 * Only need to set this if STA link is in legacy mode
+	 */
+	if (!hdd_is_sta_legacy(adapter))
+		return;
+
+	hdd_ctx = WLAN_HDD_GET_CTX(adapter);
+	if (!hdd_ctx)
+		return;
+
+	selfdot11mode = hdd_ctx->config->dot11Mode;
+	/*
+	 * When STA connection is made in legacy mode (11a, 11b and 11g) and
+	 * selfdot11Mode is either 11ax, 11ac or 11n, TDLS connection can be
+	 * made upto supporting selfdot11mode. Since, TDLS shares same netdev
+	 * that of STA, checksum/TSO will be disabled during STA connection.
+	 * For better TDLS throughput, enable checksum/TSO which were already
+	 * disabled during STA connection.
+	 */
+	if (selfdot11mode == eHDD_DOT11_MODE_AUTO ||
+	    selfdot11mode == eHDD_DOT11_MODE_11ax ||
+	    selfdot11mode == eHDD_DOT11_MODE_11ax_ONLY ||
+	    selfdot11mode == eHDD_DOT11_MODE_11ac_ONLY ||
+	    selfdot11mode == eHDD_DOT11_MODE_11ac ||
+	    selfdot11mode == eHDD_DOT11_MODE_11n ||
+	    selfdot11mode == eHDD_DOT11_MODE_11n_ONLY)
+		hdd_cm_netif_queue_enable(adapter);
+}
+
+void
+hdd_check_and_set_tdls_disconn_params(struct wlan_objmgr_vdev *vdev)
+{
+	struct hdd_adapter *adapter;
+	uint8_t vdev_id;
+	struct wlan_objmgr_psoc *psoc;
+
+	psoc = wlan_vdev_get_psoc(vdev);
+	if (!psoc)
+		return;
+
+	vdev_id = wlan_vdev_get_id(vdev);
+	adapter = wlan_hdd_get_adapter_from_vdev(psoc, vdev_id);
+	if (!adapter)
+		return;
+
+	/*
+	 * Only need to set this if STA link is in legacy mode
+	 */
+	if (!hdd_is_sta_legacy(adapter))
+		return;
+
+	hdd_cm_netif_queue_enable(adapter);
 }
 
 /**
@@ -822,8 +938,9 @@ int hdd_set_tdls_scan_type(struct hdd_context *hdd_ctx, int val)
 /**
  * wlan_hdd_tdls_antenna_switch() - Dynamic TDLS antenna  switch 1x1 <-> 2x2
  * antenna mode in standalone station
- * @hdd_ctx: Pointer to hdd contex
+ * @hdd_ctx: Pointer to hdd context
  * @adapter: Pointer to hdd adapter
+ * @mode: enum antenna_mode
  *
  * Return: 0 if success else non zero
  */

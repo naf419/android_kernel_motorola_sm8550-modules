@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2019,2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -159,4 +159,18 @@ void qdf_flush_workqueue(qdf_handle_t hdl, qdf_workqueue_t *wqueue)
 }
 
 qdf_export_symbol(qdf_flush_workqueue);
+
+void qdf_local_bh_disable(void)
+{
+	__qdf_local_bh_disable();
+}
+
+qdf_export_symbol(qdf_local_bh_disable);
+
+void qdf_local_bh_enable(void)
+{
+	__qdf_local_bh_enable();
+}
+
+qdf_export_symbol(qdf_local_bh_enable);
 #endif

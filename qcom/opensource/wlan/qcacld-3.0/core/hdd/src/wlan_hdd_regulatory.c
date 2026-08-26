@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -37,6 +37,8 @@
 #include "sap_api.h"
 #include "wlan_hdd_hostapd.h"
 #include "osif_psoc_sync.h"
+#include "wlan_osif_features.h"
+#include "wlan_p2p_ucfg_api.h"
 
 #define REG_RULE_2412_2462    REG_RULE(2412-10, 2462+10, 40, 0, 20, 0)
 
@@ -254,6 +256,38 @@ void hdd_update_coex_unsafe_chan_reg_disable(
 }
 #endif
 
+#if defined(CONFIG_AFC_SUPPORT) && defined(CONFIG_BAND_6GHZ)
+static inline
+void hdd_update_afc_config(struct hdd_context *hdd_ctx,
+			   struct reg_config_vars *config_vars)
+{
+	bool enable_6ghz_sp_pwrmode_supp = false;
+	bool afc_disable_timer_check = false;
+	bool afc_disable_request_id_check = false;
+	bool is_afc_reg_noaction = false;
+
+	ucfg_mlme_get_enable_6ghz_sp_mode_support(hdd_ctx->psoc,
+						  &enable_6ghz_sp_pwrmode_supp);
+	config_vars->enable_6ghz_sp_pwrmode_supp = enable_6ghz_sp_pwrmode_supp;
+	ucfg_mlme_get_afc_disable_timer_check(hdd_ctx->psoc,
+					      &afc_disable_timer_check);
+	config_vars->afc_disable_timer_check = afc_disable_timer_check;
+	ucfg_mlme_get_afc_disable_request_id_check(
+				hdd_ctx->psoc, &afc_disable_request_id_check);
+	config_vars->afc_disable_request_id_check =
+				afc_disable_request_id_check;
+	ucfg_mlme_get_afc_reg_noaction(hdd_ctx->psoc,
+				       &is_afc_reg_noaction);
+	config_vars->is_afc_reg_noaction = is_afc_reg_noaction;
+}
+#else
+static inline
+void hdd_update_afc_config(struct hdd_context *hdd_ctx,
+			   struct reg_config_vars *config_vars)
+{
+}
+#endif
+
 static void reg_program_config_vars(struct hdd_context *hdd_ctx,
 				    struct reg_config_vars *config_vars)
 {
@@ -321,8 +355,11 @@ static void reg_program_config_vars(struct hdd_context *hdd_ctx,
 						enable_5dot9_ghz_chan;
 	hdd_update_coex_unsafe_chan_nb_user_prefer(hdd_ctx, config_vars);
 	hdd_update_coex_unsafe_chan_reg_disable(hdd_ctx, config_vars);
+	hdd_update_afc_config(hdd_ctx, config_vars);
 	config_vars->sta_sap_scc_on_indoor_channel =
 		ucfg_policy_mgr_get_sta_sap_scc_on_indoor_chnl(hdd_ctx->psoc);
+	config_vars->p2p_indoor_ch_support =
+		ucfg_p2p_get_indoor_ch_support(hdd_ctx->psoc);
 }
 
 /**
@@ -472,7 +509,8 @@ static void hdd_modify_wiphy(struct wiphy  *wiphy,
 
 /**
  * hdd_set_dfs_region() - set the dfs_region
- * @dfs_region: the dfs_region to set
+ * @hdd_ctx: HDD context
+ * @dfs_reg: the dfs_region to set
  *
  * Return: void
  */
@@ -667,8 +705,11 @@ static int hdd_regulatory_init_no_offload(struct hdd_context *hdd_ctx,
 
 /**
  * hdd_modify_indoor_channel_state_flags() - modify wiphy flags and cds state
+ * @hdd_ctx: HDD context
  * @wiphy_chan: wiphy channel number
  * @cds_chan: cds channel structure
+ * @chan_enum: enumerated value of the channel
+ * @chan_num: channel number
  * @disable: Disable/enable the flags
  *
  * Modify wiphy flags and cds state if channel is indoor.
@@ -850,6 +891,8 @@ int hdd_reg_set_country(struct hdd_context *hdd_ctx, char *country_code)
 		qdf_mutex_release(&hdd_ctx->regulatory_status_lock);
 	}
 
+	hdd_reg_wait_for_country_change(hdd_ctx);
+
 	return qdf_status_to_os_return(status);
 }
 
@@ -897,7 +940,15 @@ int hdd_reg_set_band(struct net_device *dev, uint32_t band_bitmap)
 		return -EIO;
 	}
 
-	if (current_band == band_bitmap) {
+	/*
+	 * If SET_FCC_CHANNEL 0 command is received first then 6 GHz band would
+	 * be disabled and band_capability would be set to 3 but existing 6 GHz
+	 * STA and P2P client connections won't be disconnected.
+	 * If set band comes again for 6 GHz band disabled and band_bitmap is
+	 * equal to band_capability, proceed to disable 6 GHz band completely.
+	 */
+	if (current_band == band_bitmap &&
+	    !ucfg_reg_get_keep_6ghz_sta_cli_connection(hdd_ctx->pdev)) {
 		hdd_debug("band is the same so not updating");
 		return 0;
 	}
@@ -965,6 +1016,7 @@ static void hdd_restore_custom_reg_settings(struct wiphy *wiphy,
 
 /**
  * hdd_restore_reg_flags() - restore regulatory flags
+ * @wiphy: device wiphy
  * @flags: regulatory flags
  *
  * Return: void
@@ -1236,8 +1288,9 @@ static void fill_wiphy_band_channels(struct wiphy *wiphy,
 #ifdef FEATURE_WLAN_CH_AVOID
 /**
  * hdd_ch_avoid_ind() - Avoid notified channels from FW handler
- * @adapter:	HDD adapter pointer
- * @indParam:	Channel avoid notification parameter
+ * @hdd_ctxt: HDD context
+ * @unsafe_chan_list: Channels that are unsafe
+ * @avoid_freq_list: Frequencies to avoid
  *
  * Avoid channel notification from FW handler.
  * FW will send un-safe channel list to avoid over wrapping.
@@ -1374,6 +1427,7 @@ static enum nl80211_dfs_regions dfs_reg_to_nl80211_dfs_regions(
 
 /**
  * hdd_set_dfs_pri_multiplier() - Set dfs_pri_multiplier for ETSI region
+ * @hdd_ctx: HDD context
  * @dfs_region: DFS region
  *
  * Return: none
@@ -1597,8 +1651,10 @@ static void hdd_country_change_update_sta(struct hdd_context *hdd_ctx)
 		width_changed = false;
 		oper_freq = hdd_get_adapter_home_channel(adapter);
 		if (oper_freq)
-			freq_changed = wlan_reg_is_disable_for_freq(pdev,
-								    oper_freq);
+			freq_changed = wlan_reg_is_disable_for_pwrmode(
+							pdev,
+							oper_freq,
+							REG_CURRENT_PWR_MODE);
 		else
 			freq_changed = false;
 
@@ -1621,15 +1677,23 @@ static void hdd_country_change_update_sta(struct hdd_context *hdd_ctx)
 								    adapter,
 								    oper_freq);
 
-			if (hdd_is_vdev_in_conn_state(adapter) &&
-			    (phy_changed || freq_changed || width_changed)) {
-				hdd_debug("changed: phy %d, freq %d, width %d",
-					  phy_changed, freq_changed,
-					  width_changed);
-				wlan_hdd_cm_issue_disconnect(adapter,
+			if (hdd_is_vdev_in_conn_state(adapter)) {
+				if (phy_changed || freq_changed ||
+				    width_changed) {
+					hdd_debug("changed: phy %d, freq %d, width %d",
+						  phy_changed, freq_changed,
+						  width_changed);
+					wlan_hdd_cm_issue_disconnect(
+							adapter,
 							REASON_UNSPEC_FAILURE,
 							false);
-				sta_ctx->reg_phymode = csr_phy_mode;
+					sta_ctx->reg_phymode = csr_phy_mode;
+				} else {
+					hdd_debug("Remain on current channel but update tx power");
+					wlan_reg_update_tx_power_on_ctry_change(
+							pdev,
+							adapter->vdev_id);
+				}
 			}
 			break;
 		default:
@@ -1765,6 +1829,10 @@ static void hdd_country_change_update_sap(struct hdd_context *hdd_ctx)
 			else
 				policy_mgr_check_sap_restart(hdd_ctx->psoc,
 							     adapter->vdev_id);
+			hdd_debug("Update tx power due to ctry change");
+			wlan_reg_update_tx_power_on_ctry_change(
+							pdev,
+							adapter->vdev_id);
 			break;
 		default:
 			break;
@@ -1784,12 +1852,33 @@ static void __hdd_country_change_work_handle(struct hdd_context *hdd_ctx)
 	sme_generic_change_country_code(hdd_ctx->mac_handle,
 					hdd_ctx->reg.alpha2);
 
-	qdf_event_set(&hdd_ctx->regulatory_update_event);
+	qdf_event_set_all(&hdd_ctx->regulatory_update_event);
 	qdf_mutex_acquire(&hdd_ctx->regulatory_status_lock);
 	hdd_ctx->is_regulatory_update_in_progress = false;
 	qdf_mutex_release(&hdd_ctx->regulatory_status_lock);
 
 	hdd_country_change_update_sap(hdd_ctx);
+}
+
+/**
+ * hdd_handle_country_change_work_error() - handle country code change error
+ * @hdd_ctx: Global HDD context
+ * @errno: country code change error number
+ *
+ * This function handles error code in country code change worker
+ *
+ * Return: none
+ */
+static void hdd_handle_country_change_work_error(struct hdd_context *hdd_ctx,
+						 int errno)
+{
+	if (errno == -EAGAIN) {
+		qdf_sleep(COUNTRY_CHANGE_WORK_RESCHED_WAIT_TIME);
+		hdd_debug("rescheduling country change work");
+		qdf_sched_work(0, &hdd_ctx->country_change_work);
+	} else {
+		hdd_err("can not handle country change %d", errno);
+	}
 }
 
 /**
@@ -1809,21 +1898,16 @@ static void hdd_country_change_work_handle(void *arg)
 
 	errno = wlan_hdd_validate_context(hdd_ctx);
 	if (errno)
-		return;
+		return hdd_handle_country_change_work_error(hdd_ctx, errno);
 
 	errno = osif_psoc_sync_op_start(wiphy_dev(hdd_ctx->wiphy), &psoc_sync);
+	if (errno)
+		return hdd_handle_country_change_work_error(hdd_ctx, errno);
 
-	if (errno == -EAGAIN) {
-		qdf_sleep(COUNTRY_CHANGE_WORK_RESCHED_WAIT_TIME);
-		hdd_debug("rescheduling country change work");
-		qdf_sched_work(0, &hdd_ctx->country_change_work);
-		return;
-	} else if (errno) {
-		hdd_err("can not handle country change %d", errno);
-		return;
-	}
-
-	__hdd_country_change_work_handle(hdd_ctx);
+	if (hdd_ctx->driver_status != DRIVER_MODULES_ENABLED)
+		hdd_err("Driver disabled, ignore country code change");
+	else
+		__hdd_country_change_work_handle(hdd_ctx);
 
 	osif_psoc_sync_op_stop(psoc_sync);
 }
@@ -1839,16 +1923,27 @@ static void hdd_regulatory_dyn_cbk(struct wlan_objmgr_psoc *psoc,
 	struct hdd_context *hdd_ctx;
 	enum country_src cc_src;
 	uint8_t alpha2[REG_ALPHA2_LEN + 1];
+	bool nb_flag;
+	bool reg_flag;
 
 	pdev_priv = wlan_pdev_get_ospriv(pdev);
 	wiphy = pdev_priv->wiphy;
 	hdd_ctx = wiphy_priv(wiphy);
+
+	nb_flag = ucfg_mlme_get_coex_unsafe_chan_nb_user_prefer_for_sap(
+								hdd_ctx->psoc);
+	reg_flag = ucfg_mlme_get_coex_unsafe_chan_reg_disable(hdd_ctx->psoc);
+
+	if (avoid_freq_ind && nb_flag && reg_flag)
+		goto sync_chanlist;
 
 	if (avoid_freq_ind) {
 		hdd_ch_avoid_ind(hdd_ctx, &avoid_freq_ind->chan_list,
 				 &avoid_freq_ind->freq_list);
 		return;
 	}
+
+sync_chanlist:
 
 	hdd_debug("process channel list update from regulatory");
 	hdd_regulatory_chanlist_dump(chan_list);
@@ -1906,8 +2001,7 @@ int hdd_regulatory_init(struct hdd_context *hdd_ctx, struct wiphy *wiphy)
 {
 	bool offload_enabled;
 	struct regulatory_channel *cur_chan_list;
-	enum country_src cc_src;
-	uint8_t alpha2[REG_ALPHA2_LEN + 1];
+	int ret;
 
 	cur_chan_list = qdf_mem_malloc(sizeof(*cur_chan_list) * NUM_CHANNELS);
 	if (!cur_chan_list) {
@@ -1919,6 +2013,12 @@ int hdd_regulatory_init(struct hdd_context *hdd_ctx, struct wiphy *wiphy)
 	ucfg_reg_register_chan_change_callback(hdd_ctx->psoc,
 					       hdd_regulatory_dyn_cbk,
 					       NULL);
+
+	ret = hdd_update_country_code(hdd_ctx);
+	if (ret) {
+		hdd_err("Failed to update country code; errno:%d", ret);
+		return -EINVAL;
+	}
 
 	wiphy->regulatory_flags |= REGULATORY_WIPHY_SELF_MANAGED;
 	/* Check the kernel version for upstream commit aced43ce780dc5 that
@@ -1932,21 +2032,17 @@ int hdd_regulatory_init(struct hdd_context *hdd_ctx, struct wiphy *wiphy)
 	wiphy->reg_notifier = hdd_reg_notifier;
 	offload_enabled = ucfg_reg_is_regdb_offloaded(hdd_ctx->psoc);
 	hdd_debug("regulatory offload_enabled %d", offload_enabled);
-	if (offload_enabled) {
+	if (offload_enabled)
 		hdd_ctx->reg_offload = true;
-		ucfg_reg_get_current_chan_list(hdd_ctx->pdev,
-					       cur_chan_list);
-		hdd_regulatory_chanlist_dump(cur_chan_list);
-		fill_wiphy_band_channels(wiphy, cur_chan_list,
-					 NL80211_BAND_2GHZ);
-		fill_wiphy_band_channels(wiphy, cur_chan_list,
-					 NL80211_BAND_5GHZ);
-		fill_wiphy_6ghz_band_channels(wiphy, cur_chan_list);
-		cc_src = ucfg_reg_get_cc_and_src(hdd_ctx->psoc, alpha2);
-		qdf_mem_copy(hdd_ctx->reg.alpha2, alpha2, REG_ALPHA2_LEN + 1);
-	} else {
+	else
 		hdd_ctx->reg_offload = false;
-	}
+
+	ucfg_reg_get_current_chan_list(hdd_ctx->pdev, cur_chan_list);
+	hdd_regulatory_chanlist_dump(cur_chan_list);
+	fill_wiphy_band_channels(wiphy, cur_chan_list, NL80211_BAND_2GHZ);
+	fill_wiphy_band_channels(wiphy, cur_chan_list, NL80211_BAND_5GHZ);
+	fill_wiphy_6ghz_band_channels(wiphy, cur_chan_list);
+	qdf_mem_zero(hdd_ctx->reg.alpha2, REG_ALPHA2_LEN + 1);
 
 	qdf_mem_free(cur_chan_list);
 	return 0;

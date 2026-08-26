@@ -51,6 +51,155 @@
 #include "hdd_dp_cfg.h"
 #include <wma_api.h>
 #include "wlan_hdd_object_manager.h"
+#include "wlan_dp_ucfg_api.h"
+#include "wlan_cmn.h"
+
+#ifdef MOTO_UTAGS_MAC
+#include <linux/of.h>
+#include <linux/of_address.h>
+#include <crypto/md5.h>
+#include <crypto/hash.h>
+
+#define WIFI_MAC_BOOTARG "wifimacaddr="
+#define DEVICE_SERIALNO_BOOTARG "androidboot.serialno="
+#define MACSTRLEN 12
+
+struct sdesc {
+   struct shash_desc shash;
+   char ctx[];
+};
+
+QDF_STATUS hdd_update_mac_serial(struct hdd_context *hdd_ctx)
+{
+    QDF_STATUS qdf_status = QDF_STATUS_SUCCESS;
+
+    int len = 0;
+    int serialnoLen = 0;
+
+    char *buffer = NULL;
+    char *bufferPtr = NULL;
+    char *computedMac = NULL;
+    const char *cmd_line = NULL;
+    tSirMacAddr mac_addr;
+
+    struct device_node *chosen_node = NULL;
+    computedMac = (char*)qdf_mem_malloc(QDF_MAC_ADDR_SIZE);
+
+    chosen_node = of_find_node_by_name(NULL, "chosen");
+    hdd_err("%s: get chosen node \n", __func__);
+
+    if (!chosen_node)
+    {
+        hdd_err("%s: get chosen node read failed \n", __func__);
+        goto config_exit;
+    } else {
+        cmd_line = of_get_property(chosen_node, "bootargs", &len);
+        if (!cmd_line || len <= 0) {
+            hdd_err("%s: get the barcode bootargs failed \n", __func__);
+            qdf_status = QDF_STATUS_E_FAILURE;
+            goto config_exit;
+        } else {
+            buffer = strstr(cmd_line, DEVICE_SERIALNO_BOOTARG);
+            if (buffer == NULL) {
+                hdd_err("%s: " DEVICE_SERIALNO_BOOTARG" not present cmd line argc",
+                                                                    __func__);
+                qdf_status = QDF_STATUS_E_FAILURE;
+                goto config_exit;
+            } else {
+                buffer += strlen(DEVICE_SERIALNO_BOOTARG);
+                bufferPtr = buffer;
+                while (*bufferPtr != ' ') {
+                    bufferPtr++;
+                    serialnoLen = serialnoLen + 1;
+                }
+            }
+        }
+    }
+    /*Data have been read from boot serial no     */
+    /*Now generate random unique the 6 byte string */
+    if (hdd_generate_random_mac_from_serialno(buffer, serialnoLen,
+                computedMac) != QDF_STATUS_SUCCESS) {
+        qdf_status = QDF_STATUS_E_FAILURE;
+        goto config_exit;
+    }
+    qdf_mem_copy(&hdd_ctx->provisioned_mac_addr[0].bytes[0],
+                       (uint8_t *)computedMac, QDF_MAC_ADDR_SIZE);
+    qdf_mem_copy(&mac_addr, &hdd_ctx->provisioned_mac_addr[0].bytes[0],
+		    sizeof(tSirMacAddr));
+    hdd_ctx->num_provisioned_addr = 1; // Only one address was generated
+    hdd_populate_random_mac_addr(hdd_ctx, QDF_MAX_CONCURRENCY_PERSONA - 1);
+    sme_set_custom_mac_addr(mac_addr);
+config_exit:
+    qdf_mem_free(computedMac);
+    return qdf_status;
+}
+
+QDF_STATUS hdd_generate_random_mac_from_serialno(char *serialNo, int serialnoLen,
+                                                                  char *macAddr)
+{
+    unsigned int size;
+    struct crypto_shash *md5;
+    struct sdesc *sdescmd5;
+    char *hashBuf = NULL;
+
+    QDF_STATUS cryptoStatus = QDF_STATUS_SUCCESS;
+    hashBuf = (char*)qdf_mem_malloc(16);
+
+    /*Motorola OUI*/
+    macAddr[0] = 0x38;
+    macAddr[1] = 0x80;
+    macAddr[2] = 0xDF;
+
+    md5 = crypto_alloc_shash("md5", 0, 0);
+    if (IS_ERR(md5)) {
+        cryptoStatus = QDF_STATUS_E_FAILURE;
+        hdd_err("%s: Crypto md5 allocation error \n", __func__);
+        qdf_mem_free(hashBuf);
+        return QDF_STATUS_E_FAILURE;
+    }
+
+    size = sizeof(struct shash_desc) + crypto_shash_descsize(md5);
+
+    sdescmd5 = kmalloc(size, GFP_KERNEL);
+    if (!sdescmd5) {
+        cryptoStatus = QDF_STATUS_E_FAILURE;
+        hdd_err("%s: Memory allocation error \n", __func__);
+        goto crypto_hash_err;
+    }
+
+    sdescmd5->shash.tfm = md5;
+    //sdescmd5->shash.flags = 0x0;
+
+    if (crypto_shash_init(&sdescmd5->shash)) {
+        cryptoStatus = QDF_STATUS_E_FAILURE;
+        goto crypto_hash_err;
+    }
+
+    if (crypto_shash_update(&sdescmd5->shash, serialNo, serialnoLen)) {
+        cryptoStatus = QDF_STATUS_E_FAILURE;
+        goto crypto_hash_err;
+    }
+
+    if (crypto_shash_final(&sdescmd5->shash, &hashBuf[0])) {
+        cryptoStatus = QDF_STATUS_E_FAILURE;
+        goto crypto_hash_err;
+    }
+
+    macAddr[3] = hashBuf[0];
+    macAddr[4] = hashBuf[1];
+    macAddr[5] = hashBuf[2];
+
+    hdd_err("%02X:%02X:%02X:%02X:%02X:%02X is the new MAC generated from serial number \n", macAddr[0],
+                                             macAddr[1], macAddr[2], macAddr[3],
+                                                        macAddr[4], macAddr[5]);
+    crypto_hash_err:
+    qdf_mem_free(hashBuf);
+    crypto_free_shash(md5);
+    kfree(sdescmd5);
+
+    return cryptoStatus;
+}
+#else
 
 #ifndef WLAN_MAC_ADDR_UPDATE_DISABLE
 /**
@@ -129,6 +278,8 @@ static char *i_trim(char *str)
 
 	return str;
 }
+#endif
+#endif
 
 /** struct hdd_cfg_entry - ini configuration entry
  * @name: name of the entry
@@ -209,6 +360,7 @@ int hdd_firmware_request_nowarn(const struct firmware **fw,
  * Return: QDF_STATUS_SUCCESS if the MAC address is found from cfg file
  *      and overwritten, otherwise QDF_STATUS_E_INVAL
  */
+#ifndef MOTO_UTAGS_MAC
 QDF_STATUS hdd_update_mac_config(struct hdd_context *hdd_ctx)
 {
 	int status, i = 0;
@@ -218,7 +370,7 @@ QDF_STATUS hdd_update_mac_config(struct hdd_context *hdd_ctx)
 	char *name, *value;
 	int max_mac_addr = QDF_MAX_CONCURRENCY_PERSONA;
 	struct hdd_cfg_entry mac_table[QDF_MAX_CONCURRENCY_PERSONA];
-	tSirMacAddr custom_mac_addr;
+	struct qdf_mac_addr custom_mac_addr;
 
 	QDF_STATUS qdf_status = QDF_STATUS_SUCCESS;
 
@@ -310,15 +462,15 @@ QDF_STATUS hdd_update_mac_config(struct hdd_context *hdd_ctx)
 	hdd_populate_random_mac_addr(hdd_ctx, max_mac_addr - i);
 
 	if (hdd_ctx->num_provisioned_addr)
-		qdf_mem_copy(&custom_mac_addr,
+		qdf_mem_copy(custom_mac_addr.bytes,
 			     &hdd_ctx->provisioned_mac_addr[0].bytes[0],
-			     sizeof(tSirMacAddr));
+			     sizeof(custom_mac_addr));
 	else
-		qdf_mem_copy(&custom_mac_addr,
+		qdf_mem_copy(custom_mac_addr.bytes,
 			     &hdd_ctx->derived_mac_addr[0].bytes[0],
-			     sizeof(tSirMacAddr));
+			     sizeof(custom_mac_addr));
 
-	sme_set_custom_mac_addr(custom_mac_addr);
+	qdf_status = sme_set_custom_mac_addr(custom_mac_addr.bytes);
 
 config_exit:
 	qdf_mem_free(temp);
@@ -328,8 +480,92 @@ config_exit:
 #else
 QDF_STATUS hdd_update_mac_config(struct hdd_context *hdd_ctx)
 {
-	return QDF_STATUS_E_NOSUPPORT;
+	int len = 0;
+	int i = 0;
+	int intf = 0;
+	char *bufferPtr = NULL;
+	char name[QDF_MAX_CONCURRENCY_PERSONA][16] = {{0}};
+	char buffer_temp[QDF_MAX_CONCURRENCY_PERSONA][MACSTRLEN+1] = {{0}};
+	const char *cmd_line = NULL;
+	struct device_node *chosen_node = NULL;
+	char *buffer = NULL;
+
+	struct hdd_cfg_entry macTable[QDF_MAX_CONCURRENCY_PERSONA];
+	tSirMacAddr customMacAddr;
+
+	QDF_STATUS qdf_status = QDF_STATUS_SUCCESS;
+
+	memset(macTable, 0, sizeof(macTable));
+
+	/*Implemenation of QCOM is to read the MAC address from the predefined*/
+	/*location where WLAN MMAC File have the MAC Address                  */
+	/* Read MACs from bootparams. */
+	chosen_node = of_find_node_by_name(NULL, "chosen");
+	hdd_err("%s: get chosen node \n", __func__);
+	if (!chosen_node)
+	{
+		hdd_err("%s: get chosen node read failed \n", __func__);
+		goto config_exit;
+	} else {
+		cmd_line = of_get_property(chosen_node, "bootargs", &len);
+
+		if (!cmd_line || len <= 0) {
+			hdd_err("%s: get wlan MACs bootargs failed \n", __func__);
+			qdf_status = QDF_STATUS_E_FAILURE;
+			goto config_exit;
+		} else {
+			buffer = strstr(cmd_line, WIFI_MAC_BOOTARG);
+			if (buffer == NULL) {
+				hdd_err("%s: " WIFI_MAC_BOOTARG " bootarg cmd line is null", __func__);
+				qdf_status = QDF_STATUS_E_FAILURE;
+				goto config_exit;
+			} else {
+				buffer += strlen(WIFI_MAC_BOOTARG);
+				bufferPtr = buffer;
+			}
+		}
+	}
+	/* Mac address data format used by qcom:
+	* Intf0MacAddress=00AA00BB00CC
+	* Intf1MacAddress=00AA00BB00CD
+	* xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+	* To support utags only have one mac address 
+	* Intf0MacAddress is used for the device mac address(provisioned mac address).
+	* Populate the derived mac addresses based on the provisioned mac address.
+	* Set the provisioned mac address as the custom mac address.
+	*/
+	while (*bufferPtr != '\0' && *bufferPtr != ' ') {
+		if (*bufferPtr != ':' && *bufferPtr != ',') {
+			buffer_temp[intf][i++] = *bufferPtr;
+			if (i == MACSTRLEN) {
+				buffer_temp[intf][i] = '\0';
+				sprintf(name[intf], "Intf%dMacAddress", intf);
+				macTable[intf].name = name[intf];
+				macTable[intf].value = buffer_temp[intf];
+				i = 0;
+				intf++;
+				hdd_ctx->num_provisioned_addr++;
+				if (intf >= QDF_MAX_CONCURRENCY_PERSONA)
+					break;
+			}
+		}
+		bufferPtr++;
+	}
+
+	for (i = 0; i < intf; i++)
+		hdd_err("Mac address table from utag: [%s][%s]", macTable[i].name, macTable[i].value);
+
+	update_mac_from_string(hdd_ctx, &macTable[0], intf);
+	hdd_populate_random_mac_addr(hdd_ctx, QDF_MAX_CONCURRENCY_PERSONA - intf);
+	qdf_mem_copy(&customMacAddr, &hdd_ctx->provisioned_mac_addr[0].bytes[0],
+			sizeof(tSirMacAddr));
+	sme_set_custom_mac_addr(customMacAddr);
+
+config_exit:
+
+	return qdf_status;
 }
+
 #endif
 
 /**
@@ -385,7 +621,7 @@ static void hdd_disable_runtime_pm(struct hdd_config *cfg_ini)
 
 /**
  * hdd_restore_runtime_pm() - Restore runtime_pm configuration.
- * @cfg_ini: Handle to struct hdd_config
+ * @hdd_ctx: HDD context
  *
  * Return: None
  */
@@ -419,7 +655,7 @@ static void hdd_disable_auto_shutdown(struct hdd_config *cfg_ini)
 
 /**
  * hdd_restore_auto_shutdown() - Restore auto_shutdown configuration.
- * @cfg_ini: Handle to struct hdd_config
+ * @hdd_ctx: HDD context
  *
  * Return: None
  */
@@ -599,13 +835,13 @@ static void hdd_set_oem_6g_supported(struct hdd_context *hdd_ctx)
 	ucfg_wifi_pos_set_oem_6g_supported(hdd_ctx->psoc,
 					   set_wifi_pos_6g_disabled);
 	hdd_debug("oem 6g support is - %s",
-		  set_wifi_pos_6g_disabled ? "Disbaled" : "Enabled");
+		  set_wifi_pos_6g_disabled ? "Disabled" : "Enabled");
 }
 
 /**
- * hdd_convert_string_to_u8_array() - used to convert string into u8 array
+ * hdd_convert_string_to_array() - used to convert string into u8 array
  * @str: String to be converted
- * @hex_array: Array where converted value is stored
+ * @array: Array where converted value is stored
  * @len: Length of the populated array
  * @array_max_len: Maximum length of the array
  * @to_hex: true, if conversion required for hex string
@@ -718,7 +954,7 @@ bool hdd_update_config_cfg(struct hdd_context *hdd_ctx)
 
 	/*
 	 * During the initialization both 2G and 5G capabilities should be same.
-	 * So read 5G HT capablity and update 2G and 5G capablities.
+	 * So read 5G HT capability and update 2G and 5G capabilities.
 	 */
 
 	if (0 != hdd_update_he_cap_in_cfg(hdd_ctx)) {
@@ -927,6 +1163,7 @@ QDF_STATUS hdd_set_sme_config(struct hdd_context *hdd_ctx)
 	mac_handle_t mac_handle = hdd_ctx->mac_handle;
 	bool roam_scan_enabled;
 	bool enable_dfs_scan = true;
+	bool disconnect_nud;
 	uint32_t channel_bonding_mode;
 
 #ifdef FEATURE_WLAN_ESE
@@ -1008,8 +1245,8 @@ QDF_STATUS hdd_set_sme_config(struct hdd_context *hdd_ctx)
 		STA_ROAM_POLICY_DFS_ENABLED;
 	mlme_obj->cfg.lfr.rso_user_config.policy_params.skip_unsafe_channels = 0;
 
-	if (config->enable_nud_tracking == DISCONNECT_AFTER_ROAM_FAIL)
-		mlme_obj->cfg.lfr.disconnect_on_nud_roam_invoke_fail = true;
+	disconnect_nud = ucfg_dp_is_disconect_after_roam_fail(hdd_ctx->psoc);
+	mlme_obj->cfg.lfr.disconnect_on_nud_roam_invoke_fail = disconnect_nud;
 
 	status = hdd_set_sme_cfgs_related_to_mlme(hdd_ctx, sme_config);
 	if (!QDF_IS_STATUS_SUCCESS(status))
@@ -1062,6 +1299,7 @@ void hdd_cfg_print_global_config(struct hdd_context *hdd_ctx)
 /**
  * hdd_get_pmkid_modes() - returns PMKID mode bits
  * @hdd_ctx: the pointer to hdd context
+ * @pmkid_modes: struct to update with current PMKID modes
  *
  * Return: value of pmkid_modes
  */
@@ -1100,6 +1338,7 @@ hdd_set_nss_params(struct hdd_adapter *adapter,
 	struct wlan_mlme_nss_chains user_cfg;
 	mac_handle_t mac_handle;
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
+	struct wlan_objmgr_vdev *vdev;
 
 	qdf_mem_zero(&user_cfg, sizeof(user_cfg));
 
@@ -1108,6 +1347,29 @@ hdd_set_nss_params(struct hdd_adapter *adapter,
 		hdd_err("NULL MAC handle");
 		return QDF_STATUS_E_INVAL;
 	}
+
+	vdev = wlan_objmgr_get_vdev_by_id_from_pdev(hdd_ctx->pdev,
+						    adapter->vdev_id,
+						    WLAN_HDD_ID_OBJ_MGR);
+	if (!vdev) {
+		hdd_err("vdev is NULL %d", adapter->vdev_id);
+		return QDF_STATUS_E_INVAL;
+	}
+
+	/* For STA tx/rx nss value is updated at the time of connection,
+	 * for SAP case nss values will not get update, so can skip check
+	 * for SAP/P2P_GO mode.
+	 */
+	if (adapter->device_mode != QDF_SAP_MODE &&
+	    adapter->device_mode != QDF_P2P_GO_MODE &&
+	    (tx_nss > wlan_vdev_mlme_get_nss(vdev) ||
+	    rx_nss > wlan_vdev_mlme_get_nss(vdev))) {
+		hdd_err("Given tx nss/rx nss is greater than intersected nss = %d",
+			wlan_vdev_mlme_get_nss(vdev));
+		wlan_objmgr_vdev_release_ref(vdev, WLAN_HDD_ID_OBJ_MGR);
+		return QDF_STATUS_E_FAILURE;
+	}
+	wlan_objmgr_vdev_release_ref(vdev, WLAN_HDD_ID_OBJ_MGR);
 
 	for (band = NSS_CHAINS_BAND_2GHZ; band < NSS_CHAINS_BAND_MAX; band++)
 		hdd_populate_vdev_nss(&user_cfg, tx_nss,
@@ -1127,6 +1389,40 @@ hdd_set_nss_params(struct hdd_adapter *adapter,
 	return QDF_STATUS_SUCCESS;
 }
 
+static void
+hdd_update_nss_in_vdev(struct hdd_adapter *adapter, mac_handle_t mac_handle,
+		       uint8_t tx_nss, uint8_t rx_nss)
+{
+	uint8_t band, max_supp_nss = MAX_VDEV_NSS;
+
+	for (band = NSS_CHAINS_BAND_2GHZ; band < NSS_CHAINS_BAND_MAX;
+	     band++) {
+		/* This API will change the global ini in mlme cfg */
+		sme_update_nss_in_mlme_cfg(mac_handle, rx_nss, tx_nss,
+					   adapter->device_mode, band);
+		/*
+		 * This API will change the vdev nss params in mac
+		 * context
+		 */
+		sme_update_vdev_type_nss(mac_handle, max_supp_nss,
+					 band);
+	}
+	/*
+	 * This API will change the ini and dynamic nss params in
+	 * mlme vdev priv obj.
+	 */
+	hdd_store_nss_chains_cfg_in_vdev(adapter);
+}
+
+static void hdd_set_sap_nss_params(struct hdd_context *hdd_ctx,
+				   struct hdd_adapter *adapter,
+				   mac_handle_t mac_handle,
+				   uint8_t tx_nss, uint8_t rx_nss)
+{
+	hdd_update_nss_in_vdev(adapter, mac_handle, tx_nss, rx_nss);
+	hdd_restart_sap(adapter);
+}
+
 QDF_STATUS hdd_update_nss(struct hdd_adapter *adapter, uint8_t tx_nss,
 			  uint8_t rx_nss)
 {
@@ -1141,7 +1437,7 @@ QDF_STATUS hdd_update_nss(struct hdd_adapter *adapter, uint8_t tx_nss,
 	uint8_t enable2x2;
 	mac_handle_t mac_handle;
 	bool bval = 0;
-	uint8_t band, max_supp_nss;
+	bool restart_sap = 0;
 
 	if ((tx_nss == 2 || rx_nss == 2) && (hdd_ctx->num_rf_chains != 2)) {
 		hdd_err("No support for 2 spatial streams");
@@ -1165,7 +1461,6 @@ QDF_STATUS hdd_update_nss(struct hdd_adapter *adapter, uint8_t tx_nss,
 		hdd_err("NULL MAC handle");
 		return QDF_STATUS_E_INVAL;
 	}
-	max_supp_nss = MAX_VDEV_NSS;
 
 	/*
 	 * If FW is supporting the dynamic nss update, this command is meant to
@@ -1173,6 +1468,23 @@ QDF_STATUS hdd_update_nss(struct hdd_adapter *adapter, uint8_t tx_nss,
 	 * and not the global param enable2x2
 	 */
 	if (hdd_ctx->dynamic_nss_chains_support) {
+		ucfg_mlme_get_restart_sap_on_dynamic_nss_chains_cfg(
+								hdd_ctx->psoc,
+								&restart_sap);
+		if ((adapter->device_mode == QDF_SAP_MODE ||
+		     adapter->device_mode == QDF_P2P_GO_MODE) && restart_sap) {
+			if ((tx_nss == 2 && rx_nss == 2) ||
+			    (tx_nss == 1 && rx_nss == 1)) {
+				hdd_set_sap_nss_params(hdd_ctx, adapter,
+						       mac_handle, tx_nss,
+						       rx_nss);
+				return QDF_STATUS_SUCCESS;
+			}
+			hdd_err("tx_nss %d rx_nss %d not supported ",
+				tx_nss, rx_nss);
+			return QDF_STATUS_E_FAILURE;
+		}
+
 		if (hdd_is_vdev_in_conn_state(adapter))
 			return hdd_set_nss_params(adapter, tx_nss, rx_nss);
 		hdd_debug("Vdev %d in disconnect state, changing ini nss params",
@@ -1182,23 +1494,9 @@ QDF_STATUS hdd_update_nss(struct hdd_adapter *adapter, uint8_t tx_nss,
 			return QDF_STATUS_SUCCESS;
 		}
 
-		for (band = NSS_CHAINS_BAND_2GHZ; band < NSS_CHAINS_BAND_MAX;
-		     band++) {
-			/* This API will change the global ini in mlme cfg */
-			sme_update_nss_in_mlme_cfg(mac_handle, rx_nss, tx_nss,
-						   adapter->device_mode, band);
-			/*
-			 * This API will change the vdev nss params in mac
-			 * context
-			 */
-			sme_update_vdev_type_nss(mac_handle, max_supp_nss,
-						 band);
-		}
-		/*
-		 * This API will change the ini and dynamic nss params in
-		 * mlme vdev priv obj.
-		 */
-		hdd_store_nss_chains_cfg_in_vdev(adapter);
+		hdd_update_nss_in_vdev(adapter, mac_handle, tx_nss, rx_nss);
+		sme_set_nss_capability(mac_handle, adapter->vdev_id, rx_nss,
+				       adapter->device_mode);
 
 		return QDF_STATUS_SUCCESS;
 	}
@@ -1307,7 +1605,8 @@ skip_ht_cap_update:
 		status = false;
 		hdd_err("Could not get MCS SET from CFG");
 	}
-	sme_update_he_cap_nss(mac_handle, adapter->vdev_id, rx_nss);
+	sme_set_nss_capability(mac_handle, adapter->vdev_id, rx_nss,
+			       adapter->device_mode);
 #undef WLAN_HDD_RX_MCS_ALL_NSTREAM_RATES
 
 	if (QDF_STATUS_SUCCESS != sme_update_nss(mac_handle, rx_nss))
@@ -1529,15 +1828,16 @@ static QDF_STATUS hdd_get_sap_rx_nss(struct hdd_adapter *adapter,
 }
 
 /**
- * hdd_get_sta_tx_nss() - get the sta tx nss
+ * hdd_get_sta_rx_nss() - get the sta rx nss
  * @hdd_ctx: Pointer to hdd context
  * @adapter: Pointer to adapter
  * @vdev: Pointer to vdev
- * @tx_nss: pointer to tx_nss
+ * @rx_nss: pointer to rx_nss
  *
- * get the STA tx nss
+ * get the STA rx nss
  *
- * Return: None
+ * Return: QDF_STATUS_SUCCESS if the RX NSS is returned, otherwise a suitable
+ *         QDF_STATUS_E_* error code
  */
 static QDF_STATUS hdd_get_sta_rx_nss(struct hdd_adapter *adapter,
 				     struct hdd_context *hdd_ctx,
@@ -2101,6 +2401,45 @@ int hdd_set_rx_stbc(struct hdd_adapter *adapter, int value)
 	return ret;
 }
 
+/**
+ * hdd_convert_chwidth_to_phy_chwidth() - convert channel width of type enum
+ * eSirMacHTChannelWidth to enum phy_ch_width
+ * @chwidth: channel width of type enum eSirMacHTChannelWidth
+ *
+ * Return: channel width of type enum phy_ch_width
+ */
+static enum phy_ch_width
+hdd_convert_chwidth_to_phy_chwidth(enum eSirMacHTChannelWidth chwidth)
+{
+	enum phy_ch_width ch_width = CH_WIDTH_INVALID;
+
+	switch (chwidth) {
+	case eHT_CHANNEL_WIDTH_20MHZ:
+		ch_width = CH_WIDTH_20MHZ;
+		break;
+	case eHT_CHANNEL_WIDTH_40MHZ:
+		ch_width = CH_WIDTH_40MHZ;
+		break;
+	case eHT_CHANNEL_WIDTH_80MHZ:
+		ch_width = CH_WIDTH_80MHZ;
+		break;
+	case eHT_CHANNEL_WIDTH_160MHZ:
+		ch_width = CH_WIDTH_160MHZ;
+		break;
+	case eHT_CHANNEL_WIDTH_80P80MHZ:
+		ch_width = CH_WIDTH_80P80MHZ;
+		break;
+	case eHT_CHANNEL_WIDTH_320MHZ:
+		ch_width = CH_WIDTH_320MHZ;
+		break;
+	default:
+		hdd_debug("Invalid channel width %d", chwidth);
+		break;
+	}
+
+	return ch_width;
+}
+
 int hdd_update_channel_width(struct hdd_adapter *adapter,
 			     enum eSirMacHTChannelWidth chwidth,
 			     uint32_t bonding_mode)
@@ -2108,11 +2447,25 @@ int hdd_update_channel_width(struct hdd_adapter *adapter,
 	struct hdd_context *hdd_ctx;
 	struct sme_config_params *sme_config;
 	int ret;
+	enum phy_ch_width ch_width = CH_WIDTH_INVALID;
+	QDF_STATUS status;
 
 	hdd_ctx = WLAN_HDD_GET_CTX(adapter);
 	if (!hdd_ctx) {
 		hdd_err("hdd_ctx failure");
 		return -EINVAL;
+	}
+
+	if (ucfg_mlme_is_chwidth_with_notify_supported(hdd_ctx->psoc) &&
+	    hdd_cm_is_vdev_connected(adapter)) {
+		ch_width = hdd_convert_chwidth_to_phy_chwidth(chwidth);
+		hdd_debug("vdev %d : process update ch width request to %d",
+			  adapter->vdev_id, ch_width);
+		status =
+		    ucfg_mlme_send_ch_width_update_with_notify(hdd_ctx->psoc,
+					adapter->vdev_id, ch_width);
+		if (QDF_IS_STATUS_ERROR(status))
+			return -EIO;
 	}
 
 	sme_config = qdf_mem_malloc(sizeof(*sme_config));
@@ -2128,6 +2481,8 @@ int hdd_update_channel_width(struct hdd_adapter *adapter,
 	sme_config->csr_config.channelBondingMode5GHz = bonding_mode;
 	sme_config->csr_config.channelBondingMode24GHz = bonding_mode;
 	sme_update_config(hdd_ctx->mac_handle, sme_config);
+	sme_set_he_bw_cap(hdd_ctx->mac_handle, adapter->vdev_id, chwidth);
+	sme_set_eht_bw_cap(hdd_ctx->mac_handle, adapter->vdev_id, chwidth);
 
 free_config:
 	qdf_mem_free(sme_config);

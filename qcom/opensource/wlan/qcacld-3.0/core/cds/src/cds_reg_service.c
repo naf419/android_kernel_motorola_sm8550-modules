@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -43,7 +43,8 @@ uint32_t cds_get_vendor_reg_flags(struct wlan_objmgr_pdev *pdev,
 	struct ch_params ch_params;
 	qdf_freq_t sec_freq;
 
-	state = wlan_reg_get_channel_state_for_freq(pdev, freq);
+	state = wlan_reg_get_channel_state_for_pwrmode(pdev, freq,
+						       REG_CURRENT_PWR_MODE);
 	if (state == CHANNEL_STATE_INVALID)
 		return flags;
 	if (state == CHANNEL_STATE_DFS) {
@@ -93,7 +94,9 @@ uint32_t cds_get_vendor_reg_flags(struct wlan_objmgr_pdev *pdev,
 	case CH_WIDTH_40MHZ:
 		qdf_mem_zero(&ch_params, sizeof(ch_params));
 		ch_params.ch_width = bandwidth;
-		wlan_reg_set_channel_params_for_freq(pdev, freq, 0, &ch_params);
+		wlan_reg_set_channel_params_for_pwrmode(pdev, freq, 0,
+							&ch_params,
+							REG_CURRENT_PWR_MODE);
 
 		if (ch_params.sec_ch_offset == LOW_PRIMARY_CH)
 			sec_freq = freq + 20;

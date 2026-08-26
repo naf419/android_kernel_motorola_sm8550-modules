@@ -13,6 +13,8 @@ M ?= $(shell pwd)
 
 ifeq ($(WLAN_ROOT),)
 WLAN_CHIPSET := qca_cld3
+LOCAL_DEV_NAME := $(patsubst .%,%,\
+	$(lastword $(strip $(subst /, ,$(M)))))
 
 KBUILD_OPTIONS += \
     WLAN_ROOT=$(KERNEL_SRC)/$(M) \
@@ -28,8 +30,12 @@ KBUILD_OPTIONS += \
     CONFIG_WCNSS_MEM_PRE_ALLOC=m \
     CONFIG_CNSS_UTILS=m \
     CONFIG_CNSS_HW_SECURE_DISABLE=y \
+    CONFIG_BUS_AUTO_SUSPEND=y \
     BOARD_PLATFORM=$(TARGET_BOARD_PLATFORM) \
-    MODNAME=$(WLAN_CHIPSET)_wlan \
+    WLAN_PROFILE=$(LOCAL_DEV_NAME) \
+    DYNAMIC_SINGLE_CHIP=$(LOCAL_DEV_NAME) \
+    MODNAME=$(WLAN_CHIPSET)_$(LOCAL_DEV_NAME) \
+    DEVNAME=$(LOCAL_DEV_NAME) \
     WLAN_CTRL_NAME=wlan
 endif
 

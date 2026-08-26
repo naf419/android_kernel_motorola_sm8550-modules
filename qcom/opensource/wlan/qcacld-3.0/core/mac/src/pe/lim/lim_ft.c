@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -395,7 +395,7 @@ static uint8_t lim_convert_phymode_to_dot11mode(enum wlan_phymode phymode)
  * @bcn: beacon structure
  * @band: reg_wifi_band
  *
- * The function is to calculate dot11 mode in case fw doen't send phy mode.
+ * The function is to calculate dot11 mode in case fw doesn't send phy mode.
  *
  * Return: dot11mode.
  */
@@ -528,9 +528,9 @@ void lim_fill_ft_session(struct mac_context *mac,
 	int8_t localPowerConstraint;
 	int8_t regMax;
 	tSchBeaconStruct *pBeaconStruct;
-	ePhyChanBondState cbEnabledMode;
+	uint8_t cb_mode;
 	struct vdev_mlme_obj *mlme_obj;
-	bool is_pwr_constraint = false;
+	bool is_pwr_constraint;
 
 	pBeaconStruct = qdf_mem_malloc(sizeof(tSchBeaconStruct));
 	if (!pBeaconStruct)
@@ -609,14 +609,12 @@ void lim_fill_ft_session(struct mac_context *mac,
 
 	ft_session->nss = ft_session ->vdev_nss;
 
-	if (ft_session->limRFBand == REG_BAND_2G) {
-		cbEnabledMode = mac->roam.configParam.channelBondingMode24GHz;
-	} else {
-		cbEnabledMode = mac->roam.configParam.channelBondingMode5GHz;
-	}
+	cb_mode = lim_get_cb_mode_for_freq(mac, ft_session,
+					   ft_session->curr_op_freq);
+
 	ft_session->htSupportedChannelWidthSet =
 	    (pBeaconStruct->HTInfo.present) ?
-	    (cbEnabledMode && pBeaconStruct->HTInfo.recommendedTxWidthSet &&
+	    (cb_mode && pBeaconStruct->HTInfo.recommendedTxWidthSet &&
 	     pBeaconStruct->HTCaps.supportedChannelWidthSet) : 0;
 	ft_session->htRecommendedTxWidthSet =
 		ft_session->htSupportedChannelWidthSet;
@@ -675,7 +673,7 @@ void lim_fill_ft_session(struct mac_context *mac,
 	}
 
 	sir_copy_mac_addr(ft_session->self_mac_addr,
-			  pe_session->self_mac_addr);
+			  wlan_vdev_mlme_get_macaddr(pe_session->vdev));
 	sir_copy_mac_addr(ft_session->limReAssocbssId,
 			  pbssDescription->bssId);
 	sir_copy_mac_addr(ft_session->prev_ap_bssid, pe_session->bssId);
@@ -720,8 +718,6 @@ void lim_fill_ft_session(struct mac_context *mac,
 		&localPowerConstraint, ft_session, &is_pwr_constraint);
 	if (is_pwr_constraint)
 		localPowerConstraint = regMax - localPowerConstraint;
-
-	mlme_obj->reg_tpc_obj.is_power_constraint_abs = !is_pwr_constraint;
 
 	ft_session->limReassocBssQosCaps =
 		ft_session->limCurrentBssQosCaps;

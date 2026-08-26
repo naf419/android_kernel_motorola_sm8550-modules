@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -44,7 +44,7 @@
 #include "lim_session_utils.h"
 
 #include "cds_utils.h"
-#include "wlan_blm_api.h"
+#include "wlan_dlm_api.h"
 #if defined(CONNECTIVITY_PKTLOG) || !defined(REMOVE_PKT_LOG)
 #include "pktlog_ac.h"
 #else
@@ -88,6 +88,9 @@
 #endif
 #include "wlan_cm_roam_api.h"
 #include "wlan_cm_api.h"
+
+/* Max debug string size for WMM in bytes */
+#define WMA_WMM_DEBUG_STRING_SIZE    512
 
 /**
  * wma_send_bcn_buf_ll() - prepare and send beacon buffer to fw for LL
@@ -823,10 +826,14 @@ void wma_set_sta_keep_alive(tp_wma_handle wma, uint8_t vdev_id,
 	params.timeperiod = timeperiod;
 	if (intr) {
 		if (intr->bss_max_idle_period) {
-			params.timeperiod = intr->bss_max_idle_period;
+			if (intr->bss_max_idle_period < timeperiod)
+				params.timeperiod = intr->bss_max_idle_period;
+
 			if (method == WMI_KEEP_ALIVE_NULL_PKT)
 				params.method = WMI_KEEP_ALIVE_MGMT_FRAME;
 		}
+
+		wlan_mlme_set_keepalive_period(intr->vdev, params.timeperiod);
 	}
 
 	if (hostv4addr)
@@ -1171,11 +1178,23 @@ wma_host_to_fw_phymode_11be(enum wlan_phymode host_phymode)
 		return WMI_HOST_MODE_UNKNOWN;
 	}
 }
+
+static void wma_populate_peer_puncture(struct peer_assoc_params *peer,
+				       struct wlan_channel *des_chan)
+{
+	peer->puncture_bitmap = des_chan->puncture_bitmap;
+	wma_debug("Peer EHT puncture bitmap %d", peer->puncture_bitmap);
+}
 #else
 static WMI_HOST_WLAN_PHY_MODE
 wma_host_to_fw_phymode_11be(enum wlan_phymode host_phymode)
 {
 	return WMI_HOST_MODE_UNKNOWN;
+}
+
+static void wma_populate_peer_puncture(struct peer_assoc_params *peer,
+				       struct wlan_channel *des_chan)
+{
 }
 #endif
 
@@ -1326,16 +1345,45 @@ static void wma_objmgr_set_peer_mlme_type(tp_wma_handle wma,
 }
 
 #ifdef WLAN_FEATURE_11BE_MLO
+
+#define MIN_TIMEOUT_VAL 0
+#define MAX_TIMEOUT_VAL 11
+
+#define TIMEOUT_TO_US 6
+
+/*
+ * wma_convert_trans_timeout_us() - API to convert
+ * emlsr transition timeout to microseconds. Refer Table 9-401h
+ * of IEEE802.11be specification
+ * @timeout: EMLSR transition timeout
+ *
+ * Return: Timeout value in microseconds
+ */
+static inline uint32_t
+wma_convert_trans_timeout_us(uint16_t timeout)
+{
+	uint32_t us = 0;
+
+	if (timeout > MIN_TIMEOUT_VAL && timeout < MAX_TIMEOUT_VAL) {
+		/* timeout = 1 is for 128us*/
+		us = (1 << (timeout + TIMEOUT_TO_US));
+	}
+
+	return us;
+}
+
 /**
  * wma_set_mlo_capability() - set MLO caps to the peer assoc request
  * @wma: wma handle
  * @vdev: vdev object
+ * @params: Add sta params
  * @req: peer assoc request parameters
  *
  * Return: None
  */
 static void wma_set_mlo_capability(tp_wma_handle wma,
 				   struct wlan_objmgr_vdev *vdev,
+				   tpAddStaParams params,
 				   struct peer_assoc_params *req)
 {
 	uint8_t pdev_id;
@@ -1356,18 +1404,36 @@ static void wma_set_mlo_capability(tp_wma_handle wma,
 		req->mlo_params.mlo_assoc_link =
 					wlan_peer_mlme_is_assoc_peer(peer);
 		WLAN_ADDR_COPY(req->mlo_params.mld_mac, peer->mldaddr);
-		wma_debug("assoc_link %d " QDF_MAC_ADDR_FMT,
+		if (policy_mgr_ml_link_vdev_need_to_be_disabled(psoc, vdev))
+			req->mlo_params.mlo_force_link_inactive = 1;
+		wma_debug("assoc_link %d" QDF_MAC_ADDR_FMT ", force inactive %d",
 			  req->mlo_params.mlo_assoc_link,
-			  QDF_MAC_ADDR_REF(peer->mldaddr));
+			  QDF_MAC_ADDR_REF(peer->mldaddr),
+			  req->mlo_params.mlo_force_link_inactive);
+		req->mlo_params.emlsr_support = params->emlsr_support;
+		req->mlo_params.ieee_link_id = params->link_id;
+		if (req->mlo_params.emlsr_support) {
+			req->mlo_params.trans_timeout_us =
+			wma_convert_trans_timeout_us(params->emlsr_trans_timeout);
+		}
+		req->mlo_params.msd_cap_support = params->msd_caps_present;
+		req->mlo_params.medium_sync_duration =
+				params->msd_caps.med_sync_duration;
+		req->mlo_params.medium_sync_ofdm_ed_thresh =
+				params->msd_caps.med_sync_ofdm_ed_thresh;
+		req->mlo_params.medium_sync_max_txop_num =
+				params->msd_caps.med_sync_max_txop_num;
 	} else {
 		wma_debug("Peer MLO context is NULL");
 		req->mlo_params.mlo_enabled = false;
+		req->mlo_params.emlsr_support = false;
 	}
 	wlan_objmgr_peer_release_ref(peer, WLAN_LEGACY_WMA_ID);
 }
 #else
 static inline void wma_set_mlo_capability(tp_wma_handle wma,
 					  struct wlan_objmgr_vdev *vdev,
+					  tpAddStaParams params,
 					  struct peer_assoc_params *req)
 {
 }
@@ -1549,7 +1615,6 @@ QDF_STATUS wma_send_peer_assoc(tp_wma_handle wma,
 	}
 
 	if (params->ch_width) {
-		cmd->bw_40 = 1;
 		cmd->peer_rate_caps |= WMI_RC_CW40_FLAG;
 		if (params->fShortGI40Mhz)
 			cmd->peer_rate_caps |= WMI_RC_SGI_FLAG;
@@ -1557,14 +1622,23 @@ QDF_STATUS wma_send_peer_assoc(tp_wma_handle wma,
 		cmd->peer_rate_caps |= WMI_RC_SGI_FLAG;
 	}
 
-	if (params->ch_width == CH_WIDTH_80MHZ)
+	switch (params->ch_width) {
+	case CH_WIDTH_320MHZ:
+		wma_set_peer_assoc_params_bw_320(cmd, params->ch_width);
+		fallthrough;
+	case CH_WIDTH_80P80MHZ:
+	case CH_WIDTH_160MHZ:
+		cmd->bw_160 = 1;
+		fallthrough;
+	case CH_WIDTH_80MHZ:
 		cmd->bw_80 = 1;
-	else if (params->ch_width == CH_WIDTH_160MHZ)
-		cmd->bw_160 = 1;
-	else if (params->ch_width == CH_WIDTH_80P80MHZ)
-		cmd->bw_160 = 1;
-
-	wma_set_peer_assoc_params_bw_320(cmd, params->ch_width);
+		fallthrough;
+	case CH_WIDTH_40MHZ:
+		cmd->bw_40 = 1;
+		fallthrough;
+	default:
+		break;
+	}
 
 	cmd->peer_vht_caps = params->vht_caps;
 	if (params->p2pCapableSta) {
@@ -1711,7 +1785,7 @@ QDF_STATUS wma_send_peer_assoc(tp_wma_handle wma,
 		}
 	}
 
-	wma_set_mlo_capability(wma, intr->vdev, cmd);
+	wma_set_mlo_capability(wma, intr->vdev, params, cmd);
 
 	wma_debug("rx_max_rate %d, rx_mcs %x, tx_max_rate %d, tx_mcs: %x num rates %d need 4 way %d",
 		  cmd->rx_max_rate, cmd->rx_mcs_set, cmd->tx_max_rate,
@@ -1729,6 +1803,7 @@ QDF_STATUS wma_send_peer_assoc(tp_wma_handle wma,
 
 	wma_populate_peer_he_cap(cmd, params);
 	wma_populate_peer_eht_cap(cmd, params);
+	wma_populate_peer_puncture(cmd, des_chan);
 	if (!wma_is_vdev_in_ap_mode(wma, params->smesessionId))
 		intr->nss = cmd->peer_nss;
 	wma_objmgr_set_peer_mlme_nss(wma, cmd->peer_mac, cmd->peer_nss);
@@ -2040,12 +2115,18 @@ QDF_STATUS wma_process_update_edca_param_req(WMA_HANDLE handle,
 	uint8_t vdev_id;
 	QDF_STATUS status;
 	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
+	uint8_t *debug_str;
+	uint32_t len = 0;
 
 	vdev_id = edca_params->vdev_id;
 	if (!wma_is_vdev_valid(vdev_id)) {
 		wma_err("vdev id:%d is not active ", vdev_id);
 		goto fail;
 	}
+
+	debug_str = qdf_mem_malloc(WMA_WMM_DEBUG_STRING_SIZE);
+	if (!debug_str)
+		goto fail;
 
 	for (ac = 0; ac < QCA_WLAN_AC_ALL; ac++) {
 		switch (ac) {
@@ -2062,16 +2143,22 @@ QDF_STATUS wma_process_update_edca_param_req(WMA_HANDLE handle,
 			edca_record = &edca_params->acvo;
 			break;
 		default:
+			qdf_mem_free(debug_str);
 			goto fail;
 		}
 
 		wma_update_edca_params_for_ac(edca_record, &wmm_param[ac], ac,
-				edca_params->mu_edca_params);
+					      edca_params->mu_edca_params,
+					      debug_str,
+					      WMA_WMM_DEBUG_STRING_SIZE, &len);
 
 		ol_tx_wmm_param.ac[ac].aifs = wmm_param[ac].aifs;
 		ol_tx_wmm_param.ac[ac].cwmin = wmm_param[ac].cwmin;
 		ol_tx_wmm_param.ac[ac].cwmax = wmm_param[ac].cwmax;
 	}
+
+	wma_nofl_debug("WMM params: %s", debug_str);
+	qdf_mem_free(debug_str);
 
 	status = wmi_unified_process_update_edca_param(wma_handle->wmi_handle,
 						vdev_id,
@@ -2087,7 +2174,7 @@ QDF_STATUS wma_process_update_edca_param_req(WMA_HANDLE handle,
 	return QDF_STATUS_SUCCESS;
 
 fail:
-	wma_err("Failed to set WMM Paremeters");
+	wma_err("Failed to set WMM Parameters");
 	return QDF_STATUS_E_FAILURE;
 }
 
@@ -2432,7 +2519,7 @@ static int wma_p2p_go_set_beacon_ie(t_wma_handle *wma_handle,
  * @wma: wma handle
  * @probe_rsp_info: probe response info
  *
- * This funciton sends probe response template to fw which
+ * This function sends probe response template to fw which
  * firmware will use in case of probe response offload.
  *
  * Return: none
@@ -2494,6 +2581,8 @@ QDF_STATUS wma_set_ap_vdev_up(tp_wma_handle wma, uint8_t vdev_id)
 	}
 	wma_set_sap_keepalive(wma, vdev_id);
 	wma_set_vdev_mgmt_rate(wma, vdev_id);
+	wma_vdev_set_he_bss_params(wma, vdev_id, &mlme_obj->proto.he_ops_info);
+	wma_sr_update(wma, vdev_id, true);
 
 	return status;
 }
@@ -2503,7 +2592,7 @@ QDF_STATUS wma_set_ap_vdev_up(tp_wma_handle wma, uint8_t vdev_id)
  * @wma: wma handle
  * @bcn_info: beacon info
  *
- * This funciton store beacon template locally and
+ * This function store beacon template locally and
  * update keep alive parameters
  *
  * Return: none
@@ -3074,7 +3163,7 @@ QDF_STATUS wma_set_cts2self_for_p2p_go(void *wma_handle,
 {
 	int32_t ret;
 	tp_wma_handle wma = (tp_wma_handle)wma_handle;
-	struct pdev_params pdevparam;
+	struct pdev_params pdevparam = {};
 
 	pdevparam.param_id = WMI_PDEV_PARAM_CTS2SELF_FOR_P2P_GO_CONFIG;
 	pdevparam.param_value = cts2self_for_p2p_go;
@@ -3098,7 +3187,7 @@ QDF_STATUS wma_set_cts2self_for_p2p_go(void *wma_handle,
 /**
  * wma_set_htconfig() - set ht config parameters to target
  * @vdev_id: vdev id
- * @ht_capab: ht capablity
+ * @ht_capab: ht capability
  * @value: value of ht param
  *
  * Return: QDF status
@@ -3424,7 +3513,7 @@ int wma_process_rmf_frame(tp_wma_handle wma_handle,
 				return -EINVAL;
 			}
 		} else {
-			wma_err("Rx unprotected unicast mgmt frame");
+			wma_err_rl("Rx unprotected unicast mgmt frame");
 			rx_pkt->pkt_meta.dpuFeedback =
 				DPU_FEEDBACK_UNPROTECTED_ERROR;
 		}
@@ -3514,7 +3603,7 @@ wma_check_and_process_rmf_frame(tp_wma_handle wma_handle,
 }
 
 /**
- * wma_is_pkt_drop_candidate() - check if the mgmt frame should be droppped
+ * wma_is_pkt_drop_candidate() - check if the mgmt frame should be dropped
  * @wma_handle: wma handle
  * @peer_addr: peer MAC address
  * @bssid: BSSID Address
@@ -3523,7 +3612,7 @@ wma_check_and_process_rmf_frame(tp_wma_handle wma_handle,
  * This function is used to decide if a particular management frame should be
  * dropped to prevent DOS attack. Timestamp is used to decide the DOS attack.
  *
- * Return: true if the packet should be dropped and false oterwise
+ * Return: true if the packet should be dropped and false otherwise
  */
 static bool wma_is_pkt_drop_candidate(tp_wma_handle wma_handle,
 				      uint8_t *peer_addr, uint8_t *bssid,
@@ -3835,7 +3924,7 @@ static int wma_mgmt_rx_process(void *handle, uint8_t *data,
 	/*
 	 * Allocate the memory for this rx packet, add extra 100 bytes for:-
 	 *
-	 * 1.  Filling the missing RSN capabilites by some APs, which fill the
+	 * 1.  Filling the missing RSN capabilities by some APs, which fill the
 	 *     RSN IE length as extra 2 bytes but dont fill the IE data with
 	 *     capabilities, resulting in failure in unpack core due to length
 	 *     mismatch. Check sir_validate_and_rectify_ies for more info.
@@ -3932,13 +4021,15 @@ QDF_STATUS wma_de_register_mgmt_frm_client(void)
 QDF_STATUS wma_register_roaming_callbacks(
 	QDF_STATUS (*csr_roam_auth_event_handle_cb)(struct mac_context *mac,
 						    uint8_t vdev_id,
-						    struct qdf_mac_addr bssid),
+						    struct qdf_mac_addr bssid,
+						    uint32_t akm),
 	pe_roam_synch_fn_t pe_roam_synch_cb,
 	QDF_STATUS (*pe_disconnect_cb) (struct mac_context *mac,
 					uint8_t vdev_id,
 					uint8_t *deauth_disassoc_frame,
 					uint16_t deauth_disassoc_frame_len,
-					uint16_t reason_code))
+					uint16_t reason_code),
+	set_ies_fn_t pe_roam_set_ie_cb)
 {
 
 	tp_wma_handle wma = cds_get_context(QDF_MODULE_ID_WMA);
@@ -3949,6 +4040,7 @@ QDF_STATUS wma_register_roaming_callbacks(
 	wma->csr_roam_auth_event_handle_cb = csr_roam_auth_event_handle_cb;
 	wma->pe_roam_synch_cb = pe_roam_synch_cb;
 	wma->pe_disconnect_cb = pe_disconnect_cb;
+	wma->pe_roam_set_ie_cb = pe_roam_set_ie_cb;
 	wma_debug("Registered roam synch callbacks with WMA successfully");
 
 	return QDF_STATUS_SUCCESS;
@@ -4118,4 +4210,39 @@ QDF_STATUS wma_mgmt_frame_fill_peer_cb(struct wlan_objmgr_peer *peer,
 
 	return QDF_STATUS_SUCCESS;
 }
+
+QDF_STATUS
+wma_update_edca_pifs_param(WMA_HANDLE handle,
+			   struct edca_pifs_vparam *edca_pifs_param)
+{
+	tp_wma_handle wma_handle = (tp_wma_handle) handle;
+	QDF_STATUS status;
+
+	status = wmi_unified_update_edca_pifs_param(wma_handle->wmi_handle,
+						    edca_pifs_param);
+
+	if (QDF_IS_STATUS_ERROR(status))
+		wma_err("Failed to set EDCA/PIFS Parameters");
+
+	return status;
+}
 #endif
+
+QDF_STATUS
+cm_send_ies_for_roam_invoke(struct wlan_objmgr_vdev *vdev, uint16_t dot11_mode)
+{
+	tp_wma_handle wma = cds_get_context(QDF_MODULE_ID_WMA);
+	enum QDF_OPMODE op_mode;
+	QDF_STATUS status;
+	uint8_t vdev_id;
+
+	if (!wma)
+		return QDF_STATUS_E_FAILURE;
+
+	vdev_id = wlan_vdev_get_id(vdev);
+	op_mode = wlan_vdev_mlme_get_opmode(vdev);
+
+	status = wma->pe_roam_set_ie_cb(wma->mac_context, vdev_id, dot11_mode,
+					op_mode);
+	return status;
+}

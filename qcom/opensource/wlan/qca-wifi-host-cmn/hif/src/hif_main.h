@@ -92,11 +92,13 @@
 #define QCN9000_DEVICE_ID (0x1104)
 #define QCN9224_DEVICE_ID (0x1109)
 #define QCN6122_DEVICE_ID (0xFFFB)
+#define QCN9160_DEVICE_ID (0xFFF8)
 #define QCA6390_EMULATION_DEVICE_ID (0x0108)
 #define QCA6390_DEVICE_ID (0x1101)
 /* TODO: change IDs for HastingsPrime */
 #define QCA6490_EMULATION_DEVICE_ID (0x010a)
 #define QCA6490_DEVICE_ID (0x1103)
+#define MANGO_DEVICE_ID (0x110a)
 
 /* TODO: change IDs for Moselle */
 #define QCA6750_EMULATION_DEVICE_ID (0x010c)
@@ -110,9 +112,6 @@
 #define AR900B_DEVICE_ID    (0x0040)
 #define QCA9984_DEVICE_ID   (0x0046)
 #define QCA9888_DEVICE_ID   (0x0056)
-#ifndef IPQ4019_DEVICE_ID
-#define IPQ4019_DEVICE_ID   (0x12ef)
-#endif
 #define QCA8074_DEVICE_ID   (0xffff) /* Todo: replace this with
 					actual number once available.
 					currently defining this to 0xffff for
@@ -121,6 +120,7 @@
 #define QCA6018_DEVICE_ID (0xfffd) /* Todo: replace this with actual number */
 #define QCA5018_DEVICE_ID (0xfffc) /* Todo: replace this with actual number */
 #define QCA9574_DEVICE_ID (0xfffa)
+#define QCA5332_DEVICE_ID (0xfff9)
 /* Genoa */
 #define QCN7605_DEVICE_ID  (0x1102) /* Genoa PCIe device ID*/
 #define QCN7605_COMPOSITE  (0x9901)
@@ -164,16 +164,44 @@ struct hif_ce_stats {
 };
 
 #ifdef HIF_DETECTION_LATENCY_ENABLE
+/**
+ * struct hif_tasklet_running_info - running info of tasklet
+ * @sched_cpuid: id of cpu on which the tasklet was scheduled
+ * @sched_time: time when the tasklet was scheduled
+ * @exec_time: time when the tasklet was executed
+ */
+struct hif_tasklet_running_info {
+	int sched_cpuid;
+	qdf_time_t sched_time;
+	qdf_time_t exec_time;
+};
+
+#define HIF_TASKLET_IN_MONITOR CE_COUNT_MAX
+
 struct hif_latency_detect {
-	qdf_timer_t detect_latency_timer;
-	uint32_t detect_latency_timer_timeout;
+	qdf_timer_t timer;
+	uint32_t timeout;
 	bool is_timer_started;
 	bool enable_detection;
 	/* threshold when stall happens */
-	uint32_t detect_latency_threshold;
-	int ce2_tasklet_sched_cpuid;
-	qdf_time_t ce2_tasklet_sched_time;
-	qdf_time_t ce2_tasklet_exec_time;
+	uint32_t threshold;
+
+	/*
+	 * Bitmap to indicate the enablement of latency detection for
+	 * the tasklets. bit-X represents for tasklet of WLAN_CE_X,
+	 * latency detection is enabled on the corresponding tasklet
+	 * when a bit is set.
+	 * At the same time, this bitmap also indicates the validity of
+	 * elements in array 'tasklet_info', bit-X represents for index-X,
+	 * the corresponding element is valid when a bit is set.
+	 */
+	qdf_bitmap(tasklet_bmap, HIF_TASKLET_IN_MONITOR);
+
+	/*
+	 * Array to record running info of tasklets, info of tasklet
+	 * for WLAN_CE_X is stored at index-X.
+	 */
+	struct hif_tasklet_running_info tasklet_info[HIF_TASKLET_IN_MONITOR];
 	qdf_time_t credit_request_time;
 	qdf_time_t credit_report_time;
 };
@@ -186,7 +214,6 @@ struct hif_latency_detect {
 #if defined(HIF_CONFIG_SLUB_DEBUG_ON) || defined(HIF_CE_DEBUG_DATA_BUF)
 
 #define HIF_CE_MAX_LATEST_HIST 2
-#define HIF_CE_MAX_LATEST_EVTS 2
 
 struct latest_evt_history {
 	uint64_t irq_entry_ts;
@@ -208,7 +235,7 @@ struct ce_desc_hist {
 	uint32_t hist_index;
 	uint32_t hist_id;
 	void *hist_ev[CE_COUNT_MAX];
-	struct latest_evt_history latest_evts[HIF_CE_MAX_LATEST_HIST][HIF_CE_MAX_LATEST_EVTS];
+	struct latest_evt_history latest_evt[HIF_CE_MAX_LATEST_HIST];
 };
 
 void hif_record_latest_evt(struct ce_desc_hist *ce_hist,
@@ -221,11 +248,31 @@ void hif_record_latest_evt(struct ce_desc_hist *ce_hist,
  * struct hif_cfg() - store ini config parameters in hif layer
  * @ce_status_ring_timer_threshold: ce status ring timer threshold
  * @ce_status_ring_batch_count_threshold: ce status ring batch count threshold
+ * @disable_wake_irq: disable wake irq
  */
 struct hif_cfg {
 	uint16_t ce_status_ring_timer_threshold;
 	uint8_t ce_status_ring_batch_count_threshold;
+	bool disable_wake_irq;
 };
+
+#ifdef DP_UMAC_HW_RESET_SUPPORT
+/**
+ * struct hif_umac_reset_ctx - UMAC HW reset context at HIF layer
+ * @intr_tq: Tasklet structure
+ * @cb_handler: Callback handler
+ * @cb_ctx: Argument to be passed to @cb_handler
+ * @os_irq: Interrupt number for this IRQ
+ * @irq_configured: Whether the IRQ has been configured
+ */
+struct hif_umac_reset_ctx {
+	struct tasklet_struct intr_tq;
+	int (*cb_handler)(void *cb_ctx);
+	void *cb_ctx;
+	uint32_t os_irq;
+	bool irq_configured;
+};
+#endif
 
 struct hif_softc {
 	struct hif_opaque_softc osc;
@@ -233,6 +280,7 @@ struct hif_softc {
 	struct hif_target_info target_info;
 	void __iomem *mem;
 	void __iomem *mem_ce;
+	void __iomem *mem_cmem;
 	enum qdf_bus_type bus_type;
 	struct hif_bus_ops bus_ops;
 	void *ce_id_to_state[CE_COUNT_MAX];
@@ -289,7 +337,6 @@ struct hif_softc {
 	struct hif_ut_suspend_context ut_suspend_ctx;
 	uint32_t hif_attribute;
 	int wake_irq;
-	int disable_wake_irq;
 	hif_pm_wake_irq_type wake_irq_type;
 	void (*initial_wakeup_cb)(void *);
 	void *initial_wakeup_priv;
@@ -312,12 +359,14 @@ struct hif_softc {
 #ifdef IPA_OFFLOAD
 	qdf_shared_mem_t *ipa_ce_ring;
 #endif
+#ifdef IPA_OPT_WIFI_DP
+	qdf_atomic_t opt_wifi_dp_rtpm_cnt;
+#endif
 	struct hif_cfg ini_cfg;
 #ifdef HIF_CE_LOG_INFO
 	qdf_notif_block hif_recovery_notifier;
 #endif
-#if defined(HIF_CPU_PERF_AFFINE_MASK) || \
-    defined(FEATURE_ENABLE_CE_DP_IRQ_AFFINE)
+#ifdef HIF_CPU_PERF_AFFINE_MASK
 	/* The CPU hotplug event registration handle */
 	struct qdf_cpuhp_handler *cpuhp_event_handle;
 #endif
@@ -333,6 +382,9 @@ struct hif_softc {
 #ifdef HIF_DETECTION_LATENCY_ENABLE
 	struct hif_latency_detect latency_detect;
 #endif
+#ifdef FEATURE_RUNTIME_PM
+	qdf_runtime_lock_t prevent_linkdown_lock;
+#endif
 #ifdef SYSTEM_PM_CHECK
 	qdf_atomic_t sys_pm_state;
 #endif
@@ -344,6 +396,16 @@ struct hif_softc {
 	uint64_t cmem_start;
 	/* CMEM size target reserved */
 	uint64_t cmem_size;
+#ifdef DP_UMAC_HW_RESET_SUPPORT
+	struct hif_umac_reset_ctx umac_reset_ctx;
+#endif
+#ifdef FEATURE_DIRECT_LINK
+	struct qdf_mem_multi_page_t dl_recv_pages;
+	int dl_recv_pipe_num;
+#endif
+#ifdef WLAN_FEATURE_CE_RX_BUFFER_REUSE
+	struct wbuff_mod_handle *wbuff_handle;
+#endif
 };
 
 static inline
@@ -472,10 +534,6 @@ QDF_STATUS hif_bus_open(struct hif_softc *ol_sc,
 QDF_STATUS hif_enable_bus(struct hif_softc *ol_sc, struct device *dev,
 	void *bdev, const struct hif_bus_id *bid, enum hif_enable_type type);
 void hif_disable_bus(struct hif_softc *scn);
-#ifdef FEATURE_RUNTIME_PM
-struct hif_runtime_pm_ctx *hif_bus_get_rpm_ctx(struct hif_softc *hif_sc);
-struct device *hif_bus_get_dev(struct hif_softc *hif_sc);
-#endif
 void hif_bus_prevent_linkdown(struct hif_softc *scn, bool flag);
 int hif_bus_get_context_size(enum qdf_bus_type bus_type);
 void hif_read_phy_mem_base(struct hif_softc *scn, qdf_dma_addr_t *bar_value);
@@ -513,6 +571,35 @@ void hif_mem_free_consistent_unaligned(struct hif_softc *scn,
 				       qdf_dma_addr_t paddr,
 				       qdf_dma_context_t memctx,
 				       uint8_t is_mem_prealloc);
+
+/**
+ * hif_prealloc_get_multi_pages() - gets pre-alloc DP multi-pages memory
+ * @scn: HIF context
+ * @desc_type: descriptor type
+ * @elem_size: single element size
+ * @elem_num: total number of elements should be allocated
+ * @pages: multi page information storage
+ * @cacheable: coherent memory or cacheable memory
+ *
+ * Return: None
+ */
+void hif_prealloc_get_multi_pages(struct hif_softc *scn, uint32_t desc_type,
+				  qdf_size_t elem_size, uint16_t elem_num,
+				  struct qdf_mem_multi_page_t *pages,
+				  bool cacheable);
+
+/**
+ * hif_prealloc_put_multi_pages() - puts back pre-alloc DP multi-pages memory
+ * @scn: HIF context
+ * @desc_type: descriptor type
+ * @pages: multi page information storage
+ * @cacheable: coherent memory or cacheable memory
+ *
+ * Return: None
+ */
+void hif_prealloc_put_multi_pages(struct hif_softc *scn, uint32_t desc_type,
+				  struct qdf_mem_multi_page_t *pages,
+				  bool cacheable);
 #else
 static inline
 void *hif_mem_alloc_consistent_unaligned(struct hif_softc *scn,
@@ -537,6 +624,25 @@ void hif_mem_free_consistent_unaligned(struct hif_softc *scn,
 {
 	return qdf_mem_free_consistent(scn->qdf_dev, scn->qdf_dev->dev,
 				       size, vaddr, paddr, memctx);
+}
+
+static inline
+void hif_prealloc_get_multi_pages(struct hif_softc *scn, uint32_t desc_type,
+				  qdf_size_t elem_size, uint16_t elem_num,
+				  struct qdf_mem_multi_page_t *pages,
+				  bool cacheable)
+{
+	qdf_mem_multi_pages_alloc(scn->qdf_dev, pages,
+				  elem_size, elem_num, 0, cacheable);
+}
+
+static inline
+void hif_prealloc_put_multi_pages(struct hif_softc *scn, uint32_t desc_type,
+				  struct qdf_mem_multi_page_t *pages,
+				  bool cacheable)
+{
+	qdf_mem_multi_pages_free(scn->qdf_dev, pages, 0,
+				 cacheable);
 }
 #endif
 
@@ -583,4 +689,21 @@ static inline
 void hif_uninit_rri_on_ddr(struct hif_softc *scn) {}
 #endif
 void hif_cleanup_static_buf_to_target(struct hif_softc *scn);
+
+#ifdef FEATURE_RUNTIME_PM
+/**
+ * hif_runtime_prevent_linkdown() - prevent or allow a runtime pm from occurring
+ * @scn: hif context
+ * @is_get: prevent linkdown if true otherwise allow
+ *
+ * this api should only be called as part of bus prevent linkdown
+ */
+void hif_runtime_prevent_linkdown(struct hif_softc *scn, bool is_get);
+#else
+static inline
+void hif_runtime_prevent_linkdown(struct hif_softc *scn, bool is_get)
+{
+}
+#endif
+
 #endif /* __HIF_MAIN_H__ */

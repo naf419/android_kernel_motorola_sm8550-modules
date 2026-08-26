@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2013-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -17,9 +18,9 @@
  */
 
 /**
- * @file wlan_hdd_wowl.c
+ * DOC: wlan_hdd_wowl.c
  *
- * @brief wake up on WLAN API file
+ * wake up on WLAN API file
  */
 
 /* Include Files */
@@ -83,7 +84,10 @@ hdd_get_num_wow_filters(struct hdd_context *hdd_ctx, uint8_t *num_filters)
 	if (QDF_IS_STATUS_ERROR(status))
 		return status;
 
-	*num_filters = ucfg_pmo_get_num_wow_filters(hdd_ctx->psoc);
+	if (cds_get_conparam() == QDF_GLOBAL_FTM_MODE)
+		*num_filters =  0;
+	else
+		*num_filters = ucfg_pmo_get_num_wow_filters(hdd_ctx->psoc);
 
 	wlan_objmgr_psoc_release_ref(psoc, WLAN_HDD_ID_OBJ_MGR);
 
@@ -180,7 +184,7 @@ bool hdd_add_wowl_ptrn(struct hdd_adapter *adapter, const char *ptrn)
 			goto next_ptrn;
 		}
 
-		/* compute the end of pattern sring */
+		/* compute the end of pattern string */
 		offset = offset + 2 * wow_pattern.pattern_mask_size;
 		if (offset + 1 != len) {
 			/* offset begins with 0 */

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -18,7 +18,7 @@
  */
 
 /*
- * DOC: contains mlme structure definations
+ * DOC: contains mlme structure definitions
  */
 
 #ifndef _WLAN_MLME_STRUCT_H_
@@ -103,6 +103,11 @@
 
 /* Default beacon interval of 100 ms */
 #define CUSTOM_CONC_GO_BI 100
+
+#define HECAP_TXRX_MCS_NSS_IDX_80    (0)
+#define HECAP_TXRX_MCS_NSS_IDX_160   (1)
+#define HECAP_TXRX_MCS_NSS_IDX_80_80 (2)
+#define INVALID_MCS_NSS_INDEX         0xff
 
 enum diagwlan_status_eventsubtype {
 	DIAG_WLAN_STATUS_CONNECT = 0,
@@ -229,7 +234,6 @@ struct mlme_edca_ac_vo {
  * MLME_DOT11_MODE_11AX_ONLY: vdev just supports 11AX mode
  * MLME_DOT11_MODE_11BE: vdev supports 11BE mode, and modes above it
  * MLME_DOT11_MODE_11BE_ONLY: vdev just supports 11BE mode
- * MLME_DOT11_MODE_ABG: vdev supports just 11A, 11B and 11G modes
  */
 enum mlme_dot11_mode {
 	MLME_DOT11_MODE_ALL,
@@ -244,23 +248,7 @@ enum mlme_dot11_mode {
 	MLME_DOT11_MODE_11AX,
 	MLME_DOT11_MODE_11AX_ONLY,
 	MLME_DOT11_MODE_11BE,
-	MLME_DOT11_MODE_11BE_ONLY,
-	MLME_DOT11_MODE_ABG
-};
-
-/**
- * enum mlme_vdev_dot11_mode - Dot11 mode of the vdev
- * MLME_VDEV_DOT11_MODE_AUTO: vdev uses mlme_dot11_mode
- * MLME_VDEV_DOT11_MODE_11N: vdev supports 11N mode
- * MLME_VDEV_DOT11_MODE_11AC: vdev supports 11AC mode
- * MLME_VDEV_DOT11_MODE_11AX: vdev supports 11AX mode
- */
-enum mlme_vdev_dot11_mode {
-	MLME_VDEV_DOT11_MODE_AUTO,
-	MLME_VDEV_DOT11_MODE_11N,
-	MLME_VDEV_DOT11_MODE_11AC,
-	MLME_VDEV_DOT11_MODE_11AX,
-	MLME_VDEV_DOT11_MODE_11BE,
+	MLME_DOT11_MODE_11BE_ONLY
 };
 
 /**
@@ -355,6 +343,7 @@ enum mlme_ts_info_ack_policy {
  * @mlme_edca_ac_vi: value for edca_ac_vi
  * @mlme_edca_ac_bk: value for edca_ac_bk
  * @mlme_edca_ac_be: value for edca_ac_be
+ * @edca_param_type: Edca param type
  */
 struct wlan_mlme_edca_params {
 	struct mlme_cfg_str ani_acbk_l;
@@ -390,7 +379,20 @@ struct wlan_mlme_edca_params {
 	struct mlme_edca_ac_vi edca_ac_vi;
 	struct mlme_edca_ac_bk edca_ac_bk;
 	struct mlme_edca_ac_be edca_ac_be;
+
+	enum host_edca_param_type edca_param_type;
 };
+
+/* To configure EDCA/PIFS param for LL SAP */
+#define CFG_EDCA_PARAM_ACM         0
+#define CFG_EDCA_PARAM_AIFSN       2
+#define CFG_EDCA_PARAM_ACI         3
+#define CFG_EDCA_PARAM_CWMIN       2
+#define CFG_EDCA_PARAM_CWMAX       3
+#define CFG_EDCA_PARAM_TXOP        47
+#define CFG_PIFS_PARAM_SAP_OFFSET  0
+#define CFG_PIFS_PARAM_LEB_OFFSET  1
+#define CFG_PIFS_PARAM_REB_OFFSET  2
 
 #define WLAN_CFG_MFR_NAME_LEN (63)
 #define WLAN_CFG_MODEL_NUMBER_LEN (31)
@@ -736,6 +738,7 @@ struct wlan_mlme_wps_params {
  * @sap_sae_enabled: enable sae in sap mode
  * @is_sap_bcast_deauth_enabled: enable bcast deauth for sap
  * @is_6g_sap_fd_enabled: enable fils discovery on sap
+ * @disable_bcn_prot: disable beacon protection for sap
  */
 struct wlan_mlme_cfg_sap {
 	uint16_t beacon_interval;
@@ -771,6 +774,7 @@ struct wlan_mlme_cfg_sap {
 	bool sap_sae_enabled;
 	bool is_sap_bcast_deauth_enabled;
 	bool is_6g_sap_fd_enabled;
+	bool disable_bcn_prot;
 };
 
 /**
@@ -819,7 +823,7 @@ struct wlan_mlme_mbo {
  * @is_imps_enabled: flag to enable/disable IMPS
  * @is_bmps_enabled: flag to enable/disable BMPS
  * @auto_bmps_timer: auto BMPS timer value
- * @bmps_min_listen_interval: BMPS listen inteval minimum value
+ * @bmps_min_listen_interval: BMPS listen interval minimum value
  * @bmps_max_listen_interval: BMPS listen interval maximum value
  * @dtim_selection_diversity: dtim selection diversity value to be sent to fw
  */
@@ -1084,7 +1088,7 @@ struct wlan_mlme_chain_cfg {
  * @dual_sta_roam_fw_support: Firmware support for dual sta roaming feature
  * @ocv_support: FW supports OCV
  *
- * Add all the mlme-tgt related capablities here, and the public API would fill
+ * Add all the mlme-tgt related capabilities here, and the public API would fill
  * the related capability in the required mlme cfg structure.
  */
 struct mlme_tgt_caps {
@@ -1213,7 +1217,7 @@ struct wlan_mlme_sap_protection {
  * @rx_chain_mask_2g:   Tx chain mask for 2g
  * @tx_chain_mask_5g:   Tx chain mask for 5g
  * @rx_chain_mask_5g:   Rx chain mask for 5g
- * @enable_bt_chain_separation: Enable/Disable BT/WLAN Host chain seperation
+ * @enable_bt_chain_separation: Enable/Disable BT/WLAN Host chain separation
  */
 struct wlan_mlme_chainmask {
 	uint8_t txchainmask1x1;
@@ -1292,6 +1296,18 @@ enum mlme_cfg_frame_type {
 
 #define MAX_MGMT_HW_TX_RETRY_COUNT 127
 
+/**
+ * struct wlan_user_mcc_quota - User MCC quota configuration
+ * @op_mode: Mode for which MCC quota needs to be applied
+ * @quota: User MCC quota value
+ * @vdev_id: Intended VDEV id for the quota
+ */
+struct wlan_user_mcc_quota {
+	enum QDF_OPMODE op_mode;
+	uint8_t quota;
+	uint8_t vdev_id;
+};
+
 /* struct wlan_mlme_generic - Generic CFG config items
  *
  * @band_capability: HW Band Capability - Both or 2.4G only or 5G only
@@ -1344,8 +1360,15 @@ enum mlme_cfg_frame_type {
  * @tx_retry_multiplier: TX xretry extension parameter
  * @mgmt_hw_tx_retry_count: MGMT HW tx retry count for frames
  * @std_6ghz_conn_policy: 6GHz standard connection policy
+ * @disable_vlp_sta_conn_to_sp_ap: Disable VLP STA connection to SP AP
+ * @eht_mode: EHT mode of operation
+ * @t2lm_negotiation_support: T2LM negotiation supported enum value
+ * @enable_emlsr_mode: 11BE eMLSR mode support
+ * @oem_eht_mlo_crypto_bitmap: Bitmap of APs allowed by OEMs to connect
+ * in EHT/MLO.
  * @safe_mode_enable: safe mode to bypass some strict 6 GHz checks for
  * connection, bypass strict power levels
+ * @sr_enable_modes: modes for which SR(Spatial Reuse) is enabled
  */
 struct wlan_mlme_generic {
 	uint32_t band_capability;
@@ -1396,8 +1419,23 @@ struct wlan_mlme_generic {
 	uint8_t mgmt_hw_tx_retry_count[CFG_FRAME_TYPE_MAX];
 #ifdef CONFIG_BAND_6GHZ
 	bool std_6ghz_conn_policy;
+	bool disable_vlp_sta_conn_to_sp_ap;
+#endif
+#ifdef WLAN_FEATURE_11BE_MLO
+	enum wlan_eht_mode eht_mode;
+	bool enable_emlsr_mode;
+	enum t2lm_negotiation_support t2lm_negotiation_support;
+#endif
+#ifdef WLAN_FEATURE_11BE
+	uint32_t oem_eht_mlo_crypto_bitmap;
+#endif
+#ifdef WLAN_FEATURE_MCC_QUOTA
+	struct wlan_user_mcc_quota user_mcc_quota;
 #endif
 	bool safe_mode_enable;
+#if defined(WLAN_FEATURE_SR)
+	uint32_t sr_enable_modes;
+#endif
 };
 
 /*
@@ -1454,6 +1492,7 @@ struct acs_weight_range {
  * @num_weight_range: num of ranges provided by user
  * @force_sap_start: Force SAP start when no channel is found suitable
  * by ACS
+ * @acs_prefer_6ghz_psc: Select 6 GHz PSC channel as priority
  * @np_chan_weightage: Weightage to be given to non preferred channels.
  */
 struct wlan_mlme_acs {
@@ -1467,6 +1506,7 @@ struct wlan_mlme_acs {
 	struct acs_weight_range normalize_weight_range[MAX_ACS_WEIGHT_RANGE];
 	uint16_t num_weight_range;
 	bool force_sap_start;
+	bool acs_prefer_6ghz_psc;
 	uint32_t np_chan_weightage;
 };
 
@@ -1521,6 +1561,8 @@ struct wlan_mlme_cfg_twt {
  * @obss_detection_offload_enabled:       Enable OBSS detection offload
  * @obss_color_collision_offload_enabled: Enable obss color collision
  * @bss_color_collision_det_sta: STA BSS color collision detection offload
+ * @bss_color_collision_det_tgt_support: STA BSS color collision detection
+ * target support
  */
 struct wlan_mlme_obss_ht40 {
 	uint32_t active_dwelltime;
@@ -1534,6 +1576,27 @@ struct wlan_mlme_obss_ht40 {
 	bool obss_detection_offload_enabled;
 	bool obss_color_collision_offload_enabled;
 	bool bss_color_collision_det_sta;
+	bool bss_color_collision_det_tgt_support;
+};
+
+/**
+ * struct wlan_mlme_eml_cap - EML capabilities of MLD
+ * @emlsr_supp: eMLSR Support
+ * @emlsr_pad_delay: eMLSR Padding Delay
+ * @emlsr_trans_delay: eMLSR transition delay
+ * @emlmr_supp: eMLMR Support
+ * @emlmr_delay: eMLMR Delay
+ * @trans_timeout: Transition Timeout
+ * @reserved: Reserved
+ */
+struct wlan_mlme_eml_cap {
+	uint16_t emlsr_supp:1,
+		 emlsr_pad_delay:3,
+		 emlsr_trans_delay:3,
+		 emlmr_supp:1,
+		 emlmr_delay:3,
+		 trans_timeout:4,
+		 reserved:1;
 };
 
 /**
@@ -1563,6 +1626,8 @@ enum dot11p_mode {
  * @disable_rx_mrc:                  disable 2 rx chains, in rx nss 1 mode
  * @disable_tx_mrc:                  disable 2 tx chains, in tx nss 1 mode
  * @enable_dynamic_nss_chains_cfg:   enable the dynamic nss chain config to FW
+ * @restart_sap_on_dyn_nss_chains_cfg: restart SAP on dynamic NSS chains
+ * update
  */
 struct wlan_mlme_nss_chains {
 	uint32_t num_tx_chains[NSS_CHAINS_BAND_MAX];
@@ -1575,19 +1640,35 @@ struct wlan_mlme_nss_chains {
 	bool disable_rx_mrc[NSS_CHAINS_BAND_MAX];
 	bool disable_tx_mrc[NSS_CHAINS_BAND_MAX];
 	bool enable_dynamic_nss_chains_cfg;
+	bool restart_sap_on_dyn_nss_chains_cfg;
 };
 
 /**
  * enum station_keepalive_method - available keepalive methods for stations
+ * @MLME_STA_KEEPALIVE_MIN: ensure KEEPALIVE_NULL or ARP are not values of 0
  * @MLME_STA_KEEPALIVE_NULL_DATA: null data packet
  * @MLME_STA_KEEPALIVE_GRAT_ARP: gratuitous ARP packet
  * @MLME_STA_KEEPALIVE_COUNT: number of method options available
  */
 enum station_keepalive_method {
-	MLME_STA_KEEPALIVE_NULL_DATA,
-	MLME_STA_KEEPALIVE_GRAT_ARP,
+	MLME_STA_KEEPALIVE_MIN,
+	MLME_STA_KEEPALIVE_NULL_DATA = 1,
+	MLME_STA_KEEPALIVE_GRAT_ARP = 2,
 	/* keep at the end */
 	MLME_STA_KEEPALIVE_COUNT
+};
+
+/**
+ * enum station_prefer_bw - Station preferred bandwidth to connect AP
+ * @STA_PREFER_BW_DEFAULT: Station connects AP with its max bw capability.
+ * @STA_PREFER_BW_VHT80MHZ: Station connects in VHT 80MHz 2x2 when AP is in
+				160MHz 2x2
+ * @STA_PREFER_BW_80MHZ: Station connects in 80MHz when AP is in 160MHz
+ */
+enum station_prefer_bw {
+	STA_PREFER_BW_DEFAULT,
+	STA_PREFER_BW_VHT80MHZ,
+	STA_PREFER_BW_80MHZ
 };
 
 /**
@@ -1602,8 +1683,8 @@ enum station_keepalive_method {
  * @fils_max_chan_guard_time:       Set maximum channel guard time
  * @current_rssi:                   Current rssi
  * @deauth_retry_cnt:               Deauth retry count
- * @ignore_peer_erp_info:           Ignore peer infrormation
  * @sta_prefer_80mhz_over_160mhz:   Set Sta preference to connect in 80HZ/160HZ
+ * @ignore_peer_erp_info:           Ignore peer information
  * @enable_5g_ebt:                  Set default 5G early beacon termination
  * @deauth_before_connection:       Send deauth before connection or not
  * @enable_go_cts2self_for_sta:     Stop NOA and start using cts2self
@@ -1613,7 +1694,11 @@ enum station_keepalive_method {
  * @allow_tpc_from_ap:              Support for AP power constraint
  * @usr_disabled_roaming:           User config for roaming disable
  * @usr_scan_probe_unicast_ra:      User config unicast probe req in scan
- * @single_link_mlo_conn:           Single link mlo connection is configured
+ * @max_li_modulated_dtim_time_ms: Max modulated DTIM time in ms.
+ * @mlo_support_link_num:           max number of links that sta mlo supports
+ * @mlo_support_link_band:          band bitmap that sta mlo supports
+ * @mlo_max_simultaneous_links      number of simultaneous links
+ * @usr_disable_eht                 user disable the eht for STA
  */
 struct wlan_mlme_sta_cfg {
 	uint32_t sta_keep_alive_period;
@@ -1626,8 +1711,8 @@ struct wlan_mlme_sta_cfg {
 	uint8_t fils_max_chan_guard_time;
 	uint8_t current_rssi;
 	uint8_t deauth_retry_cnt;
+	uint8_t sta_prefer_80mhz_over_160mhz;
 	bool ignore_peer_erp_info;
-	bool sta_prefer_80mhz_over_160mhz;
 	bool enable_5g_ebt;
 	bool deauth_before_connection;
 	bool enable_go_cts2self_for_sta;
@@ -1640,8 +1725,14 @@ struct wlan_mlme_sta_cfg {
 #ifdef FEATURE_WLAN_DIAG_SUPPORT_CSR
 	host_event_wlan_status_payload_type event_payload;
 #endif
+	uint16_t max_li_modulated_dtim_time_ms;
 #ifdef WLAN_FEATURE_11BE_MLO
-	bool single_link_mlo_conn;
+	uint8_t mlo_support_link_num;
+	uint8_t mlo_support_link_band;
+	uint8_t mlo_max_simultaneous_links;
+#endif
+#ifdef WLAN_FEATURE_11BE
+	bool usr_disable_eht;
 #endif
 };
 
@@ -1679,6 +1770,9 @@ enum roaming_dfs_channel_type {
  * @threshold: Bss load threshold value above which roaming should start
  * @sample_time: Time duration in milliseconds for which the bss load value
  * should be monitored
+ * @rssi_threshold_6ghz: RSSI threshold of the current connected AP below which
+ * roam should be triggered if bss load threshold exceeds the configured value.
+ * This value is applicable only when we are connected in 6GHz band.
  * @rssi_threshold_5ghz: RSSI threshold of the current connected AP below which
  * roam should be triggered if bss load threshold exceeds the configured value.
  * This value is applicable only when we are connected in 5GHz band.
@@ -1690,6 +1784,7 @@ struct bss_load_trigger {
 	bool enabled;
 	uint32_t threshold;
 	uint32_t sample_time;
+	uint32_t rssi_threshold_6ghz;
 	int32_t rssi_threshold_5ghz;
 	int32_t rssi_threshold_24ghz;
 };
@@ -1703,6 +1798,7 @@ struct bss_load_trigger {
 #define AKM_SAE              3
 #define AKM_OWE              4
 #define AKM_SUITEB           5
+#define AKM_SAE_EXT          6
 
 #define LFR3_STA_ROAM_DISABLE_BY_P2P BIT(0)
 #define LFR3_STA_ROAM_DISABLE_BY_NAN BIT(1)
@@ -1717,7 +1813,8 @@ struct fw_scan_channels {
 	uint32_t freq[NUM_CHANNELS];
 };
 
-/*
+/**
+ * struct wlan_mlme_lfr_cfg - MLME LMAC fast roaming config
  * @mawc_roam_enabled:              Enable/Disable MAWC during roaming
  * @enable_fast_roam_in_concurrency:Enable LFR roaming on STA during concurrency
  * @vendor_btm_param:               Vendor WTC roam trigger parameters
@@ -1740,8 +1837,6 @@ struct fw_scan_channels {
  * vsie in Re(assoc) frame
  * @roam_trigger_bitmap:            Bitmap of roaming triggers.
  * @sta_roam_disable                STA roaming disabled by interfaces
- * @roam_high_rssi_delta: Delta change in high RSSI at which roam scan is
- * triggered in 2.4/5 GHz.
  * @early_stop_scan_enable:         Set early stop scan
  * @enable_5g_band_pref:            Enable preference for 5G from INI
  * @ese_enabled:                    Enable ESE feature
@@ -1838,6 +1933,10 @@ struct fw_scan_channels {
  * @sae_single_pmk_feature_enabled: Contains value of ini
  * sae_single_pmk_feature_enabled
  * @rso_user_config: RSO user config
+ * @beaconloss_timeout_onwakeup: time in sec to configure FW BMISS event
+ * during wakeup.
+ * @beaconloss_timeout_onsleep: time in sec to configure FW BMISS event
+ * during sleep.
  * @roam_ho_delay_config: Roam HO delay value
  * @exclude_rm_partial_scan_freq: Exclude the channels in roam full scan that
  * are already scanned as part of partial scan.
@@ -1865,7 +1964,6 @@ struct wlan_mlme_lfr_cfg {
 	bool enable_roam_reason_vsie;
 	uint32_t roam_trigger_bitmap;
 	uint32_t sta_roam_disable;
-	uint8_t roam_high_rssi_delta;
 #endif
 	bool early_stop_scan_enable;
 	bool enable_5g_band_pref;
@@ -1924,6 +2022,7 @@ struct wlan_mlme_lfr_cfg {
 	uint32_t roam_rescan_rssi_diff;
 	uint16_t neighbor_scan_min_chan_time;
 	uint16_t neighbor_scan_max_chan_time;
+	uint32_t passive_max_channel_time;
 	uint32_t neighbor_scan_results_refresh_period;
 	uint32_t empty_scan_refresh_period;
 	uint8_t roam_bmiss_first_bcnt;
@@ -1966,6 +2065,8 @@ struct wlan_mlme_lfr_cfg {
 #endif
 	struct rso_config_params rso_user_config;
 	bool enable_ft_over_ds;
+	uint8_t beaconloss_timeout_onwakeup;
+	uint8_t beaconloss_timeout_onsleep;
 	uint16_t roam_ho_delay_config;
 	uint8_t exclude_rm_partial_scan_freq;
 	uint8_t roam_full_scan_6ghz_on_disc;
@@ -2162,7 +2263,7 @@ struct  wlan_mlme_weight_config {
  * @bad_rssi_pcnt: Bad RSSI Percentage
  * @good_rssi_bucket_size: Good RSSI Bucket Size
  * @bad_rssi_bucket_size: Bad RSSI Bucket Size
- * @rssi_pref_5g_rssi_thresh: Preffered 5G RSSI threshold
+ * @rssi_pref_5g_rssi_thresh: Preferred 5G RSSI threshold
  */
 struct wlan_mlme_rssi_cfg_score  {
 	uint32_t best_rssi_threshold;
@@ -2279,7 +2380,6 @@ struct wlan_mlme_power {
  * @auth_rsp_timeout: authenticate response timeout
  * @assoc_failure_timeout: assoc failure timeout
  * @reassoc_failure_timeout: re-assoc failure timeout
- * @probe_after_hb_fail_timeout: Probe after HB fail timeout
  * @olbc_detect_timeout: OLBC detect timeout
  * @addts_rsp_timeout: ADDTS rsp timeout value
  * @heart_beat_threshold: Heart beat threshold
@@ -2296,7 +2396,6 @@ struct wlan_mlme_timeout {
 	uint32_t auth_rsp_timeout;
 	uint32_t assoc_failure_timeout;
 	uint32_t reassoc_failure_timeout;
-	uint32_t probe_after_hb_fail_timeout;
 	uint32_t olbc_detect_timeout;
 	uint32_t addts_rsp_timeout;
 	uint32_t heart_beat_threshold;
@@ -2364,6 +2463,7 @@ struct wlan_mlme_wifi_pos_cfg {
 };
 
 #define MLME_SET_BIT(value, bit_offset) ((value) |= (1 << (bit_offset)))
+#define MLME_CLEAR_BIT(value, bit_offset) ((value) &= ~(1 << (bit_offset)))
 
 /* Mask to check if BTM offload is enabled/disabled*/
 #define BTM_OFFLOAD_ENABLED_MASK    0x01
@@ -2486,6 +2586,10 @@ enum mlme_reg_srd_master_modes {
  * list command to FW till the current scan is complete.
  * @retain_nol_across_regdmn_update: Retain the NOL list across the regdomain.
  * @enable_nan_on_indoor_channels: Enable nan on Indoor channels
+ * @enable_6ghz_sp_pwrmode_supp: Enable 6 GHz SP mode support
+ * @afc_disable_timer_check: Disable AFC timer check
+ * @afc_disable_request_id_check: Disable AFC request id check
+ * @is_afc_reg_noaction: Whether no action to AFC power event
  * @coex_unsafe_chan_nb_user_prefer: Honor coex unsafe freq event from firmware
  * or not
  * @coex_unsafe_chan_reg_disable: To disable reg channels for received coex
@@ -2510,8 +2614,14 @@ struct wlan_mlme_reg {
 	bool enable_pending_chan_list_req;
 	bool retain_nol_across_regdmn_update;
 	bool enable_nan_on_indoor_channels;
+#if defined(CONFIG_AFC_SUPPORT) && defined(CONFIG_BAND_6GHZ)
+	bool enable_6ghz_sp_pwrmode_supp;
+	bool afc_disable_timer_check;
+	bool afc_disable_request_id_check;
+	bool is_afc_reg_noaction;
+#endif
 #ifdef FEATURE_WLAN_CH_AVOID_EXT
-	bool coex_unsafe_chan_nb_user_prefer;
+	uint32_t coex_unsafe_chan_nb_user_prefer;
 	bool coex_unsafe_chan_reg_disable;
 #endif
 };
@@ -2588,6 +2698,9 @@ struct wlan_mlme_iot {
  * @trig_min_rssi: Expected minimum RSSI value of candidate AP for
  * various roam triggers
  * @iot: IOT related CFG items
+ * @connection_roaming_ini_flag: To indicate whether connection_roaming related
+ * ini file is present or not.
+ * @eml_cap: EML capability subfield present in ML IE common info
  */
 struct wlan_mlme_cfg {
 	struct wlan_mlme_chainmask chainmask_cfg;
@@ -2636,6 +2749,8 @@ struct wlan_mlme_cfg {
 	struct roam_trigger_min_rssi trig_min_rssi[NUM_OF_ROAM_MIN_RSSI];
 	struct wlan_mlme_ratemask ratemask_cfg;
 	struct wlan_mlme_iot iot;
+	bool connection_roaming_ini_flag;
+	struct wlan_mlme_eml_cap eml_cap;
 };
 
 enum pkt_origin {
@@ -2708,4 +2823,62 @@ struct wlan_change_bi {
 	uint8_t session_id;
 };
 
+#ifdef FEATURE_SET
+/**
+ * struct wlan_mlme_features - Mlme feature set structure
+ * @enable_wifi_optimizer: indicates wifi optimizer is enabled or disabled
+ * @roaming_high_cu_roam_trigger: Roaming high CPU trigger enabled or disabled
+ * @roaming_emergency_trigger: Roaming emergency trigger enabled or disabled
+ * @roaming_btm_trihgger: Roaming btm trigger enabled or disabled
+ * @roaming_idle_trigger: Roaming idle trigger enabled or disabled
+ * @roaming_wtc_trigger: Roaming wtc trigger enabled or disabled
+ * @roaming_btcoex_trigger: Roaming btcoex trigger enabled or disabled
+ * @roaming_btw_wpa_wpa2: Roaming btw wpa wpa2 enabled or disabled
+ * @roaming_manage_chan_list_api: Roaming manage chan list api enabled or
+ * disabled
+ * @roaming_adaptive_11r: Roaming adaptive 11r enabled or disabled
+ * @roaming_ctrl_api_get_set: Roaming ctrl api get set enabled or disabled
+ * @roaming_ctrl_api_reassoc: Roaming ctrl api reassoc enabled or disabled
+ * @roaming_ctrl_get_cu: Roaming ctrl get cu enabled or disabled
+ * @vendor_req_1_version: Vendor requirement version 1
+ * @vendor_req_2_version: Vendor requirement version 2
+ * @sta_dual_p2p_support: STA + dual p2p support enabled or not
+ * @enable2x2: Enable 2x2
+ */
+struct wlan_mlme_features {
+	bool enable_wifi_optimizer;
+	uint8_t sap_max_num_clients;
+	bool roaming_high_cu_roam_trigger;
+	bool roaming_emergency_trigger;
+	bool roaming_btm_trihgger;
+	bool roaming_idle_trigger;
+	bool roaming_wtc_trigger;
+	bool roaming_btcoex_trigger;
+	bool roaming_btw_wpa_wpa2;
+	bool roaming_manage_chan_list_api;
+	bool roaming_adaptive_11r;
+	bool roaming_ctrl_api_get_set;
+	bool roaming_ctrl_api_reassoc;
+	bool roaming_ctrl_get_cu;
+	WMI_HOST_VENDOR1_REQ1_VERSION vendor_req_1_version;
+	WMI_HOST_VENDOR1_REQ2_VERSION vendor_req_2_version;
+	bool sta_dual_p2p_support;
+	bool enable2x2;
+};
+#endif
+
+/**
+ * host_concurrent_ap_policy - Host concurrent AP policy value
+ * @HOST_CONCURRENT_AP_POLICY_UNSPECIFIED: Unspecified concurrent policy value
+ * @HOST_CONCURRENT_AP_POLICY_GAMING_AUDIO: Gaming audio concurrent policy value
+ * @HOST_CONCURRENT_AP_POLICY_LOSSLESS_AUDIO_STREAMING: Lossless audio
+ * concurrent streaming policy value
+ * @HOST_CONCURRENT_AP_POLICY_XR: Concurrent policy to meet AR/VR requirements.
+ */
+enum host_concurrent_ap_policy {
+	HOST_CONCURRENT_AP_POLICY_UNSPECIFIED = 0,
+	HOST_CONCURRENT_AP_POLICY_GAMING_AUDIO = 1,
+	HOST_CONCURRENT_AP_POLICY_LOSSLESS_AUDIO_STREAMING = 2,
+	HOST_CONCURRENT_AP_POLICY_XR = 3
+};
 #endif

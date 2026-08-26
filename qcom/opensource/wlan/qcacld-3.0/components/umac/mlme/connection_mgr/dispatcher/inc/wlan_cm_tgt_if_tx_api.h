@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -27,6 +27,28 @@
 #include "wlan_cm_roam_public_struct.h"
 
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
+#ifdef WLAN_FEATURE_11BE_MLO
+/**
+ * wlan_cm_tgt_send_roam_mlo_config()  - Send roam mlo config to firmware
+ * @psoc:    psoc pointer
+ * @vdev_id: vdev id
+ * @req: roam mlo config parameter
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS wlan_cm_tgt_send_roam_mlo_config(struct wlan_objmgr_psoc *psoc,
+					    uint8_t vdev_id,
+					    struct wlan_roam_mlo_config *req);
+#else
+static inline
+QDF_STATUS wlan_cm_tgt_send_roam_mlo_config(struct wlan_objmgr_psoc *psoc,
+					    uint8_t vdev_id,
+					    struct wlan_roam_mlo_config *req)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
 /**
  * wlan_cm_roam_send_set_vdev_pcl()  - Send vdev set pcl command to firmware
  * @psoc:     PSOC pointer
@@ -88,25 +110,23 @@ wlan_cm_tgt_exclude_rm_partial_scan_freq(struct wlan_objmgr_psoc *psoc,
  *
  * Return: QDF_STATUS
  */
-QDF_STATUS
-wlan_cm_tgt_send_roam_full_scan_6ghz_on_disc(
+QDF_STATUS wlan_cm_tgt_send_roam_full_scan_6ghz_on_disc(
 					struct wlan_objmgr_psoc *psoc,
 					uint8_t vdev_id,
 					uint8_t roam_full_scan_6ghz_on_disc);
 
+#ifdef FEATURE_RX_LINKSPEED_ROAM_TRIGGER
 /**
- * wlan_cm_tgt_send_roam_scan_offload_rssi_params() - Set the RSSI parameters
- * for roam offload scan
- * @vdev: Pointer to vdev object
- * @roam_rssi_params: structure containing parameters for roam offload scan
- * based on RSSI
+ * wlan_cm_tgt_send_roam_linkspeed_state() - Send roam link speed state
+ * command to FW
+ * @psoc: psoc pointer
+ * @req: roam stats config parameter
  *
  * Return: QDF_STATUS
  */
-QDF_STATUS
-wlan_cm_tgt_send_roam_scan_offload_rssi_params(
-		struct wlan_objmgr_vdev *vdev,
-		struct wlan_roam_offload_scan_rssi_params *roam_rssi_params);
+QDF_STATUS wlan_cm_tgt_send_roam_linkspeed_state(struct wlan_objmgr_psoc *psoc,
+						 struct roam_disable_cfg *req);
+#endif
 #else
 static inline QDF_STATUS
 wlan_cm_roam_send_set_vdev_pcl(struct wlan_objmgr_psoc *psoc,
@@ -120,6 +140,14 @@ wlan_cm_tgt_send_roam_rt_stats_config(struct wlan_objmgr_psoc *psoc,
 				      struct roam_disable_cfg *req)
 {
 	return QDF_STATUS_E_FAILURE;
+}
+
+static inline
+QDF_STATUS wlan_cm_tgt_send_roam_mlo_config(struct wlan_objmgr_psoc *psoc,
+					    uint8_t vdev_id,
+					    struct wlan_roam_mlo_config *req)
+{
+	return QDF_STATUS_SUCCESS;
 }
 
 static inline QDF_STATUS
@@ -146,6 +174,20 @@ wlan_cm_tgt_send_roam_full_scan_6ghz_on_disc(
 	return QDF_STATUS_E_FAILURE;
 }
 #endif /* WLAN_FEATURE_ROAM_OFFLOAD */
+
+#ifdef WLAN_VENDOR_HANDOFF_CONTROL
+/**
+ * wlan_cm_tgt_send_roam_vendor_handoff_config()  - Send vendor handoff config
+ * command to firmware
+ * @psoc: PSOC pointer
+ * @req: vendor handoff command params
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+wlan_cm_tgt_send_roam_vendor_handoff_config(struct wlan_objmgr_psoc *psoc,
+					    struct vendor_handoff_cfg *req);
+#endif
 
 #if defined(WLAN_FEATURE_HOST_ROAM) || defined(WLAN_FEATURE_ROAM_OFFLOAD)
 

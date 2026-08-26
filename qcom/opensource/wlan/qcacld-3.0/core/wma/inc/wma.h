@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -48,6 +48,7 @@
 #include "wmi_unified_param.h"
 #include "wmi.h"
 #include "wlan_cm_roam_public_struct.h"
+#include "target_if.h"
 
 /* Platform specific configuration for max. no. of fragments */
 #define QCA_OL_11AC_TX_MAX_FRAGS            2
@@ -179,6 +180,12 @@
 /* send connect respone after bss peer is deleted */
 #define WMA_DELETE_STA_CONNECT_RSP 0x09
 
+/* Peer create response for 11az PASN peer */
+#define WMA_PASN_PEER_CREATE_RESPONSE 0x0a
+
+#define WMA_PASN_PEER_DELETE_RESPONSE 0x0b
+#define WMA_PEER_DELETE_RESPONSE_TIMEOUT SIR_DELETE_STA_TIMEOUT
+
 /* FW response timeout values in milli seconds */
 #define WMA_VDEV_PLCY_MGR_TIMEOUT        SIR_VDEV_PLCY_MGR_TIMEOUT
 #define WMA_VDEV_HW_MODE_REQUEST_TIMEOUT WMA_VDEV_PLCY_MGR_TIMEOUT
@@ -289,6 +296,12 @@
 
 #define WMA_DEFAULT_HW_MODE_INDEX 0xFFFF
 #define TWO_THIRD (2/3)
+
+#ifdef WLAN_FEATURE_SON
+#define WMA_SON_MAX_PEER_EXT_STATS 16
+#else
+#define WMA_SON_MAX_PEER_EXT_STATS 0
+#endif
 
 /**
  * WMA hardware mode list bit-mask definitions.
@@ -708,7 +721,7 @@ struct wma_txrx_node {
 	uint8_t rmfEnabled;
 	uint32_t uapsd_cached_val;
 	void *del_staself_req;
-	bool is_del_sta_defered;
+	bool is_del_sta_deferred;
 	qdf_atomic_t bss_status;
 	enum tx_rate_info rate_flags;
 	uint8_t nss;
@@ -814,10 +827,10 @@ struct wma_wlm_stats_data {
  *   was done
  * @last_umac_data_nbuf: cache nbuf ptr for the last umac data buf
  * @tgt_cfg_update_cb: configuration update callback
- * @reg_cap: regulatory capablities
+ * @reg_cap: regulatory capabilities
  * @scan_id: scan id
  * @interfaces: txrx nodes(per vdev)
- * @pdevconfig: pdev related configrations
+ * @pdevconfig: pdev related configurations
  * @wma_hold_req_queue: Queue use to serialize requests to firmware
  * @wma_hold_req_q_lock: Mutex for @wma_hold_req_queue
  * @vht_supp_mcs: VHT supported MCS
@@ -846,6 +859,7 @@ struct wma_wlm_stats_data {
  * @RArateLimitInterval: RA rate limit interval
  * @is_lpass_enabled: Flag to indicate if LPASS feature is enabled or not
  * @staMaxLIModDtim: station max listen interval
+ * @sta_max_li_mod_dtim_ms: station max listen interval in ms
  * @staModDtim: station mode DTIM
  * @staDynamicDtim: station dynamic DTIM
  * @hw_bd_id: hardware board id
@@ -854,6 +868,7 @@ struct wma_wlm_stats_data {
  * @log_completion_timer: log completion timer
  * @old_hw_mode_index: Previous configured HW mode index
  * @new_hw_mode_index: Current configured HW mode index
+ * @peer_authorized_cb: peer authorized hdd callback
  * @ocb_config_req: OCB request context
  * @self_gen_frm_pwr: Self-generated frame power
  * @tx_chain_mask_cck: Is the CCK tx chain mask enabled
@@ -870,6 +885,7 @@ struct wma_wlm_stats_data {
  * @pe_roam_synch_cb: pe callback for firmware Roam Sync events
  * @csr_roam_auth_event_handle_cb: CSR callback for target authentication
  * offload event.
+ * @pe_roam_set_ie_cb: PE callback to set IEs to firmware.
  * @wmi_cmd_rsp_wake_lock: wmi command response wake lock
  * @wmi_cmd_rsp_runtime_lock: wmi command response bus lock
  * @active_uc_apf_mode: Setting that determines how APF is applied in
@@ -900,10 +916,6 @@ struct wma_wlm_stats_data {
  * * @fw_therm_throt_support: FW Supports thermal throttling?
  * @eht_cap: 802.11be capabilities
  * @set_hw_mode_resp_status: Set HW mode response status
- * @pagefault_wakeups_ts: Stores timestamps at which host wakes up by fw
- * because of pagefaults
- * @num_page_fault_wakeups: Stores the number of times host wakes up by fw
- * because of pagefaults
  *
  * This structure is the global wma context.  It contains global wma
  * module parameters and handles of other modules.
@@ -972,6 +984,7 @@ typedef struct {
 	bool is_lpass_enabled;
 #endif
 	uint8_t staMaxLIModDtim;
+	uint16_t sta_max_li_mod_dtim_ms;
 	uint8_t staModDtim;
 	uint8_t staDynamicDtim;
 	uint32_t hw_bd_id;
@@ -980,6 +993,7 @@ typedef struct {
 	qdf_mc_timer_t log_completion_timer;
 	uint32_t old_hw_mode_index;
 	uint32_t new_hw_mode_index;
+	wma_peer_authorized_fp peer_authorized_cb;
 	struct sir_ocb_config *ocb_config_req;
 	uint16_t self_gen_frm_pwr;
 	bool tx_chain_mask_cck;
@@ -987,7 +1001,8 @@ typedef struct {
 
 	QDF_STATUS (*csr_roam_auth_event_handle_cb)(struct mac_context *mac,
 						    uint8_t vdev_id,
-						    struct qdf_mac_addr bssid);
+						    struct qdf_mac_addr bssid,
+						    uint32_t akm);
 	QDF_STATUS (*pe_roam_synch_cb)(struct mac_context *mac,
 		uint8_t vdev_id,
 		struct roam_offload_synch_ind *roam_synch_data,
@@ -998,6 +1013,9 @@ typedef struct {
 					uint8_t *deauth_disassoc_frame,
 					uint16_t deauth_disassoc_frame_len,
 					uint16_t reason_code);
+	QDF_STATUS (*pe_roam_set_ie_cb)(struct mac_context *mac_ctx,
+					uint8_t vdev_id, uint16_t dot11_mode,
+					enum QDF_OPMODE device_mode);
 	qdf_wake_lock_t wmi_cmd_rsp_wake_lock;
 	qdf_runtime_lock_t wmi_cmd_rsp_runtime_lock;
 	qdf_runtime_lock_t sap_prevent_runtime_pm_lock;
@@ -1037,8 +1055,6 @@ typedef struct {
 	qdf_wake_lock_t sap_d3_wow_wake_lock;
 	qdf_wake_lock_t go_d3_wow_wake_lock;
 	enum set_hw_mode_status set_hw_mode_resp_status;
-	qdf_time_t *pagefault_wakeups_ts;
-	uint8_t num_page_fault_wakeups;
 } t_wma_handle, *tp_wma_handle;
 
 /**
@@ -1114,6 +1130,7 @@ struct wma_tx_ack_work_ctx {
  * @event_timeout: event timeout
  * @node: list
  * @user_data: user data
+ * @addr: Mac address
  * @msg_type: message type
  * @vdev_id: vdev id
  * @type: type
@@ -1122,6 +1139,7 @@ struct wma_target_req {
 	qdf_mc_timer_t event_timeout;
 	qdf_list_node_t node;
 	void *user_data;
+	struct qdf_mac_addr addr;
 	uint32_t msg_type;
 	uint8_t vdev_id;
 	uint8_t type;
@@ -1155,8 +1173,8 @@ struct wma_set_key_params {
 
 /**
  * struct t_thermal_cmd_params - thermal command parameters
- * @minTemp: minimum temprature
- * @maxTemp: maximum temprature
+ * @minTemp: minimum temperature
+ * @maxTemp: maximum temperature
  * @thermalEnable: thermal enable
  * @thermal_action: thermal action
  */
@@ -1659,12 +1677,63 @@ QDF_STATUS wma_create_peer(tp_wma_handle wma,
 			   uint8_t peer_mld_addr[QDF_MAC_ADDR_SIZE],
 			   bool is_assoc_peer);
 
+/**
+ * wma_create_objmgr_peer() - create objmgr peer information in host driver
+ * @wma: wma handle
+ * @vdev_id: vdev id
+ * @peer_addr: peer mac address
+ * @wma_peer_type: peer type of enum wmi_peer_type
+ * @peer_mld: peer mld address
+ *
+ * Return: Pointer to objmgr_peer
+ */
+struct wlan_objmgr_peer *wma_create_objmgr_peer(tp_wma_handle wma,
+						uint8_t vdev_id,
+						uint8_t *peer_addr,
+						uint32_t wma_peer_type,
+						uint8_t *peer_mld);
+
+/**
+ * wma_remove_objmgr_peer() - Remove Object manager peer
+ * @wma:  WMA handle
+ * @obj_vdev: Vdev object pointer
+ * @peer_addr: Peer mac address
+ *
+ * Return: None
+ */
+void wma_remove_objmgr_peer(tp_wma_handle wma,
+			    struct wlan_objmgr_vdev *obj_vdev,
+			    uint8_t *peer_addr);
+
 QDF_STATUS wma_peer_unmap_conf_cb(uint8_t vdev_id,
 				  uint32_t peer_id_cnt,
 				  uint16_t *peer_id_list);
 
 bool wma_objmgr_peer_exist(tp_wma_handle wma,
 			   uint8_t *peer_addr, uint8_t *peer_vdev_id);
+
+#ifdef WLAN_FEATURE_11BE_MLO_ADV_FEATURE
+/**
+ * wma_peer_tbl_trans_add_entry() - Add peer transition to peer history
+ * @peer: Object manager peer pointer
+ * @is_create: Set to %true if @peer is getting created
+ * @peer_info: Info of peer setup on @peer create,
+ *               %NULL if @is_create is %false.
+ *
+ * Adds new entry to peer history about the transition of peer in the system.
+ * The APIs has to be called to keep record of create and delete of peer.
+ *
+ * Returns: void
+ */
+void wma_peer_tbl_trans_add_entry(struct wlan_objmgr_peer *peer, bool is_create,
+				  struct cdp_peer_setup_info *peer_info);
+#else
+static inline void
+wma_peer_tbl_trans_add_entry(struct wlan_objmgr_peer *peer, bool is_create,
+			     struct cdp_peer_setup_info *peer_info)
+{
+}
+#endif
 
 /**
  * wma_get_cca_stats() - send request to fw to get CCA
@@ -2340,7 +2409,7 @@ bool wma_is_roam_in_progress(uint32_t vdev_id);
 struct wlan_objmgr_psoc *wma_get_psoc_from_scn_handle(void *scn_handle);
 
 /**
- * wma_set_peer_ucast_cipher() - Update unicast cipher fof the peer
+ * wma_set_peer_ucast_cipher() - Update unicast cipher of the peer
  * @mac_addr: peer mac address
  * @cipher: peer cipher bits
  * @cipher_cap: cipher cap
@@ -2391,7 +2460,7 @@ int wma_motion_det_base_line_host_event_handler(void *handle, u_int8_t *event,
 #endif /* WLAN_FEATURE_MOTION_DETECTION */
 
 /**
- * wma_add_bss_peer_sta() - creat bss peer when sta connect
+ * wma_add_bss_peer_sta() - create bss peer when sta connect
  * @vdev_id: vdev id
  * @bssid: AP bssid
  * @roam_sync: if roam sync is in progress
@@ -2499,6 +2568,25 @@ QDF_STATUS wma_post_chan_switch_setup(uint8_t vdev_id);
  */
 QDF_STATUS wma_vdev_pre_start(uint8_t vdev_id, bool restart);
 
+#ifdef WLAN_FEATURE_11BE_MLO
+/**
+ * wma_delete_peer_mlo() - Remove the MLO peer and detach link peer
+ * @psoc: PSOC objmgr pointer
+ * @macaddr: MAC address of objmgr peer
+ *
+ * The API will remove the ML peer with objmgr peer fetched from
+ * psoc peer list using the @macaddr.
+ *
+ * Return: void
+ */
+void wma_delete_peer_mlo(struct wlan_objmgr_psoc *psoc, uint8_t *macaddr);
+#else
+static inline
+void wma_delete_peer_mlo(struct wlan_objmgr_psoc *psoc, uint8_t *macaddr)
+{
+}
+#endif
+
 /**
  * wma_remove_bss_peer_on_failure() - remove the bss peers in case of
  * failure
@@ -2561,6 +2649,15 @@ QDF_STATUS wma_post_vdev_start_setup(uint8_t vdev_id);
 QDF_STATUS wma_pre_vdev_start_setup(uint8_t vdev_id,
 				    struct bss_params *add_bss);
 
+/**
+ * wma_is_multipass_sap() - wma api to verify whether multipass sap
+ * support is present in FW
+ *
+ * @tgt_hdl: target if handler.
+ *
+ * Return: Success if multipass sap is supported.
+ */
+inline bool wma_is_multipass_sap(struct target_psoc_info *tgt_hdl);
 #ifdef FEATURE_ANI_LEVEL_REQUEST
 /**
  * wma_send_ani_level_request() - Send get ani level cmd to WMI

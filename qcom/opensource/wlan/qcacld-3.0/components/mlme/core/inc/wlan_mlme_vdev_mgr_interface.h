@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -434,6 +434,14 @@ void mlme_set_notify_co_located_ap_update_rnr(struct wlan_objmgr_vdev *vdev,
 					      bool update_rnr);
 
 /**
+ * wlan_is_vdev_traffic_ll_ht() - if vdev traffic type is low latency or high TP
+ * @vdev: vdev pointer
+ *
+ * Return: true is LL or HT is set.
+ */
+bool wlan_is_vdev_traffic_ll_ht(struct wlan_objmgr_vdev *vdev);
+
+/**
  * mlme_get_assoc_type() - get associate type
  * @vdev: vdev pointer
  *
@@ -494,6 +502,27 @@ void mlme_vdev_self_peer_delete_resp(struct del_vdev_params *param);
  */
 void mlme_vdev_del_resp(uint8_t vdev_id);
 
+#if defined(WLAN_FEATURE_11BE_MLO) && defined(WLAN_FEATURE_ROAM_OFFLOAD)
+/**
+ * mlme_set_single_link_mlo_roaming() - to set single link mlo roaming
+ * @vdev: vdev pointer
+ * @val: single link mlo roaming value true/false
+ *
+ * This API will set single link mlo roaming value.
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+mlme_set_single_link_mlo_roaming(struct wlan_objmgr_vdev *vdev, bool val);
+
+/**
+ * mlme_get_single_link_mlo_roaming() - get single link mlo roaming
+ * @vdev: vdev pointer
+ *
+ * Return: single link mlo roaming boolean value true/false
+ */
+bool mlme_get_single_link_mlo_roaming(struct wlan_objmgr_vdev *vdev);
+#endif
 /**
  * wlan_sap_disconnect_all_p2p_client() - send SAP disconnect all P2P
  *	client event to the SAP event handler
@@ -519,4 +548,31 @@ QDF_STATUS wlan_sap_stop_bss(uint8_t vdev_id);
  */
 qdf_freq_t wlan_get_conc_freq(void);
 
+#ifdef WLAN_FEATURE_11BE_MLO
+/**
+ * wlan_handle_emlsr_sta_concurrency() - Handle concurrency scenarios with
+ * EMLSR STA.
+ * @psoc: pointer to psoc
+ * @conc_con_coming_up: Carries true if any concurrent connection(STA/SAP/NAN)
+ *			is comng up
+ * @emlsr_sta_coming_up: Check if the new connection request is EMLSR STA
+ *
+ * The API handles concurrency scenarios with existing EMLSR connection when a
+ * new connection request is received OR with an existing legacy connection when
+ * an EMLSR sta comes up.
+ *
+ * Return: none
+ */
+void
+wlan_handle_emlsr_sta_concurrency(struct wlan_objmgr_psoc *psoc,
+				  bool conc_con_coming_up,
+				  bool emlsr_sta_coming_up);
+#else
+static inline void
+wlan_handle_emlsr_sta_concurrency(struct wlan_objmgr_psoc *psoc,
+				  bool conc_con_coming_up,
+				  bool emlsr_sta_coming_up)
+{
+}
+#endif
 #endif

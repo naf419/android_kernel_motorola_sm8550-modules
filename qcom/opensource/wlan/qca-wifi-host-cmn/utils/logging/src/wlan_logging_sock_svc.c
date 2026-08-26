@@ -44,6 +44,7 @@
 #include <wlan_connectivity_logging.h>
 #endif
 
+#include "qdf_ssr_driver_dump.h"
 #ifdef CNSS_GENL
 #ifdef CONFIG_CNSS_OUT_OF_TREE
 #include "cnss_nl.h"
@@ -204,7 +205,7 @@ struct wlan_logging {
 	bool is_active;
 	/* Flush completion check */
 	bool is_flush_complete;
-	/* paramaters  for pkt stats */
+	/* parameters  for pkt stats */
 	struct list_head pkt_stat_free_list;
 	struct list_head pkt_stat_filled_list;
 	struct pkt_stats_msg *pkt_stats_pcur_node;
@@ -215,8 +216,12 @@ struct wlan_logging {
 	bool is_flush_timer_initialized;
 	uint32_t flush_timer_period;
 	qdf_spinlock_t flush_timer_lock;
-
 	qdf_event_t flush_log_completion;
+	uint64_t wakup_ts;
+	uint64_t start_ts;
+	uint64_t reinitcompletion_ts;
+	uint64_t set_exit_ts;
+	uint64_t exit_ts;
 };
 
 /* This global variable is intentionally not marked static because it
@@ -248,11 +253,17 @@ static struct log_msg gplog_msg[MAX_LOGMSG_COUNT];
 static inline QDF_STATUS allocate_log_msg_buffer(void)
 {
 	qdf_minidump_log(gplog_msg, sizeof(gplog_msg), "wlan_logs");
+	qdf_ssr_driver_dump_register_region("gwlan_logging", &gwlan_logging,
+					    sizeof(gwlan_logging));
+	qdf_ssr_driver_dump_register_region("wlan_logs", gplog_msg,
+					    sizeof(gplog_msg));
 	return QDF_STATUS_SUCCESS;
 }
 
 static inline void free_log_msg_buffer(void)
 {
+	qdf_ssr_driver_dump_unregister_region("wlan_logs");
+	qdf_ssr_driver_dump_unregister_region("gwlan_logging");
 	qdf_minidump_remove(gplog_msg, sizeof(gplog_msg), "wlan_logs");
 }
 #endif
@@ -351,11 +362,11 @@ static inline void
 log_to_console(QDF_TRACE_LEVEL level, const char *timestamp, const char *msg)
 {
 	if (qdf_detected_excessive_logging()) {
-		qdf_rl_print_supressed_inc();
+		qdf_rl_print_suppressed_inc();
 		return;
 	}
 
-	qdf_rl_print_supressed_log();
+	qdf_rl_print_suppressed_log();
 	pr_err("%s %s\n", timestamp, msg);
 }
 #else
@@ -630,12 +641,12 @@ static int pktlog_send_per_pkt_stats_to_user(void)
 			ret = 0;
 		}
 err:
-	/*
-	 * Free old skb in case or error before assigning new skb
-	 * to the free list.
-	 */
-	if (free_old_skb)
-		dev_kfree_skb(pstats_msg->skb);
+		/*
+		 * Free old skb in case or error before assigning new skb
+		 * to the free list.
+		 */
+		if (free_old_skb)
+			dev_kfree_skb(pstats_msg->skb);
 
 		spin_lock_irqsave(&gwlan_logging.pkt_stats_lock, flags);
 		pstats_msg->skb = skb_new;
@@ -668,7 +679,6 @@ static int send_filled_buffers_to_user(void)
 	static int nlmsg_seq;
 	unsigned long flags;
 	static int rate_limit;
-	void *out;
 
 	while (!list_empty(&gwlan_logging.filled_list)
 	       && !gwlan_logging.exit) {
@@ -715,12 +725,7 @@ static int send_filled_buffers_to_user(void)
 
 		wnl = (tAniNlHdr *) nlh;
 		wnl->radio = plog_msg->radio;
-		/* kernel FORTIFY_SOURCE may warn when multiple struct
-		 * are copied using memcpy. So, to avoid, assign a
-		 * void pointer to the struct and copy using memcpy
-		 */
-		out = &wnl->wmsg;
-		memcpy(out, plog_msg->logbuf,
+		memcpy(&wnl->wmsg, plog_msg->logbuf,
 		       plog_msg->filled_length + sizeof(tAniHdr));
 
 		spin_lock_irqsave(&gwlan_logging.spin_lock, flags);
@@ -792,7 +797,7 @@ static void send_flush_completion_to_user(uint8_t ring_id)
 	wlan_report_log_completion(is_fatal, indicator, reason_code, ring_id);
 
 	if (recovery_needed)
-		cds_trigger_recovery(QDF_FLUSH_LOGS);
+		cds_trigger_recovery(QDF_REASON_UNSPECIFIED);
 }
 #endif
 
@@ -848,6 +853,8 @@ static int wlan_logging_thread(void *Arg)
 	int ret_wait_status = 0;
 	int ret = 0;
 	unsigned long flags;
+
+	gwlan_logging.start_ts = qdf_get_log_timestamp();
 
 	while (!gwlan_logging.exit) {
 		setup_flush_timer();
@@ -938,6 +945,7 @@ static int wlan_logging_thread(void *Arg)
 			  &gwlan_logging.eventFlag);
 	}
 
+	gwlan_logging.exit_ts = qdf_get_log_timestamp();
 	kthread_complete_and_exit(&gwlan_logging.shutdown_comp, 0);
 
 	return 0;
@@ -1203,7 +1211,7 @@ int wlan_logging_sock_init_svc(void)
 		(gwlan_logging.pkt_stat_free_list.next);
 	list_del_init(gwlan_logging.pkt_stat_free_list.next);
 	spin_unlock_irqrestore(&gwlan_logging.pkt_stats_lock, irq_flag);
-	/* Pkt Stats intialization done */
+	/* Pkt Stats initialization done */
 
 	init_waitqueue_head(&gwlan_logging.wait_queue);
 	gwlan_logging.exit = false;
@@ -1219,6 +1227,8 @@ int wlan_logging_sock_init_svc(void)
 		goto err3;
 	}
 	wake_up_process(gwlan_logging.thread);
+	gwlan_logging.wakup_ts = qdf_get_log_timestamp();
+
 	gwlan_logging.is_active = true;
 	gwlan_logging.is_flush_complete = false;
 
@@ -1261,8 +1271,13 @@ int wlan_logging_sock_deinit_svc(void)
 
 	qdf_event_destroy(&gwlan_logging.flush_log_completion);
 
+	gwlan_logging.reinitcompletion_ts = qdf_get_log_timestamp();
 	INIT_COMPLETION(gwlan_logging.shutdown_comp);
+	qdf_wmb();
 	gwlan_logging.exit = true;
+	qdf_wmb();
+	gwlan_logging.set_exit_ts = qdf_get_log_timestamp();
+
 	gwlan_logging.is_active = false;
 #if defined(FEATURE_FW_LOG_PARSING) || defined(FEATURE_WLAN_DIAG_SUPPORT)
 	cds_set_multicast_logging(0);
@@ -1374,7 +1389,7 @@ static uint8_t grx_count;
  * wlan_get_pkt_stats_free_node() - Get the free node for pkt stats
  *
  * This function is used to get the free node for pkt stats from
- * free list/filles list
+ * free list/filled list
  *
  * Return: int
  *

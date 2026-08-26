@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -34,9 +34,11 @@
 #include <wlan_mlo_mgr_cmn.h>
 #include <wlan_cm_roam_api.h>
 #include "wlan_nan_api.h"
+#include "wlan_mlme_vdev_mgr_interface.h"
 #ifdef WLAN_FEATURE_11BE_MLO
 #include <wlan_mlo_mgr_sta.h>
 #endif
+#include "wlan_vdev_mgr_utils_api.h"
 
 QDF_STATUS if_mgr_connect_start(struct wlan_objmgr_vdev *vdev,
 				struct if_mgr_event_data *event_data)
@@ -68,6 +70,10 @@ QDF_STATUS if_mgr_connect_start(struct wlan_objmgr_vdev *vdev,
 							 &vdev_id_list[sta_cnt],
 							 PM_SAP_MODE);
 	op_mode = wlan_vdev_mlme_get_opmode(vdev);
+
+	if (op_mode == QDF_STA_MODE || op_mode == QDF_P2P_CLIENT_MODE)
+		wlan_handle_emlsr_sta_concurrency(psoc, true, false);
+
 	if (op_mode == QDF_P2P_CLIENT_MODE || sap_cnt || sta_cnt) {
 		for (i = 0; i < sta_cnt + sap_cnt; i++) {
 			if (vdev_id_list[i] == wlan_vdev_get_id(vdev))
@@ -93,6 +99,19 @@ QDF_STATUS if_mgr_connect_start(struct wlan_objmgr_vdev *vdev,
 	if (!ucfg_nan_is_sta_nan_ndi_4_port_allowed(psoc))
 		ucfg_nan_check_and_disable_unsupported_ndi(psoc,
 							   false);
+
+	return QDF_STATUS_SUCCESS;
+}
+
+QDF_STATUS if_mgr_connect_active(struct wlan_objmgr_vdev *vdev,
+				 struct if_mgr_event_data *event_data)
+{
+	struct wlan_objmgr_pdev *pdev;
+
+	pdev = wlan_vdev_get_pdev(vdev);
+	if (!pdev)
+		return QDF_STATUS_E_FAILURE;
+
 	if (!wlan_vdev_mlme_is_mlo_link_vdev(vdev)) {
 		/*
 		 * In case of STA+STA concurrency, firmware might try to roam
@@ -112,6 +131,7 @@ QDF_STATUS if_mgr_connect_complete(struct wlan_objmgr_vdev *vdev,
 	struct wlan_objmgr_psoc *psoc;
 	struct wlan_objmgr_pdev *pdev;
 	QDF_STATUS status = event_data->status;
+	uint8_t vdev_id;
 
 	pdev = wlan_vdev_get_pdev(vdev);
 	if (!pdev)
@@ -121,6 +141,7 @@ QDF_STATUS if_mgr_connect_complete(struct wlan_objmgr_vdev *vdev,
 	if (!psoc)
 		return QDF_STATUS_E_FAILURE;
 
+	vdev_id = wlan_vdev_get_id(vdev);
 	if (QDF_IS_STATUS_SUCCESS(status)) {
 		/*
 		 * Due to audio share glitch with P2P clients caused by roam
@@ -134,9 +155,9 @@ QDF_STATUS if_mgr_connect_complete(struct wlan_objmgr_vdev *vdev,
 			ifmgr_debug("p2p client active, keep roam disabled");
 		} else {
 			ifmgr_debug("set pcl when connection on vdev id:%d",
-				     vdev->vdev_objmgr.vdev_id);
-			policy_mgr_set_pcl_for_connected_vdev(psoc,
-					      vdev->vdev_objmgr.vdev_id, false);
+				     vdev_id);
+			policy_mgr_set_pcl_for_connected_vdev(psoc, vdev_id,
+							      false);
 			/*
 			 * Enable roaming on other STA iface except this one.
 			 * Firmware doesn't support connection on one STA iface
@@ -144,9 +165,6 @@ QDF_STATUS if_mgr_connect_complete(struct wlan_objmgr_vdev *vdev,
 			 */
 			if_mgr_enable_roaming(pdev, vdev, RSO_CONNECT_START);
 		}
-		if (wlan_vdev_mlme_get_opmode(vdev) == QDF_STA_MODE)
-			policy_mgr_handle_ml_sta_link_concurrency(psoc, vdev,
-								  true);
 	} else {
 		/* notify connect failure on final failure */
 		ucfg_tdls_notify_connect_failure(psoc);
@@ -160,9 +178,13 @@ QDF_STATUS if_mgr_connect_complete(struct wlan_objmgr_vdev *vdev,
 	}
 
 	policy_mgr_check_n_start_opportunistic_timer(psoc);
+	if (wlan_vdev_mlme_get_opmode(vdev) == QDF_STA_MODE &&
+	    wlan_vdev_mlme_is_mlo_vdev(vdev))
+		wlan_handle_emlsr_sta_concurrency(psoc, false, true);
 
 	if (!wlan_cm_is_vdev_roaming(vdev))
-		policy_mgr_check_concurrent_intf_and_restart_sap(psoc);
+		policy_mgr_check_concurrent_intf_and_restart_sap(psoc,
+				wlan_util_vdev_mgr_get_acs_mode_for_vdev(vdev));
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -201,23 +223,25 @@ QDF_STATUS if_mgr_disconnect_complete(struct wlan_objmgr_vdev *vdev,
 	if (!psoc)
 		return QDF_STATUS_E_FAILURE;
 
+	if (wlan_vdev_mlme_get_opmode(vdev) == QDF_STA_MODE ||
+	    wlan_vdev_mlme_get_opmode(vdev) == QDF_P2P_CLIENT_MODE)
+		wlan_handle_emlsr_sta_concurrency(psoc, false, true);
+
 	status = if_mgr_enable_roaming_after_p2p_disconnect(pdev, vdev,
-							RSO_INVALID_REQUESTOR);
+							    RSO_CONNECT_START);
 	if (status) {
 		ifmgr_err("Failed to enable roaming after p2p disconnect");
 		return status;
 	}
 
-	policy_mgr_check_concurrent_intf_and_restart_sap(psoc);
+	policy_mgr_check_concurrent_intf_and_restart_sap(psoc,
+				wlan_util_vdev_mgr_get_acs_mode_for_vdev(vdev));
 
 	status = if_mgr_enable_roaming_on_connected_sta(pdev, vdev);
 	if (status) {
 		ifmgr_err("Failed to enable roaming on connected sta");
 		return status;
 	}
-
-	if (wlan_vdev_mlme_get_opmode(vdev) == QDF_STA_MODE)
-		policy_mgr_handle_ml_sta_link_concurrency(psoc, vdev, false);
 
 	return QDF_STATUS_SUCCESS;
 }

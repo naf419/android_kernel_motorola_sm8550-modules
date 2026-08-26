@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -58,9 +58,6 @@
 	  ((mac)->mlme_cfg->lfr.roam_prefer_5ghz) \
 	)
 
-#define CSR_IS_CHANNEL_24GHZ(chnNum) \
-	(((chnNum) > 0) && ((chnNum) <= 14))
-
 /* Used to determine what to set to the MLME_DOT11_MODE */
 enum csr_cfgdot11mode {
 	eCSR_CFG_DOT11_MODE_ABG,
@@ -82,10 +79,7 @@ enum csr_cfgdot11mode {
 };
 
 enum csr_roam_reason {
-	eCsrNoConnection,
-	eCsrStartBss,
-	eCsrStopBss,
-	eCsrForcedDisassocSta,
+	eCsrForcedDisassocSta = 1,
 	eCsrForcedDeauthSta,
 };
 
@@ -94,7 +88,6 @@ enum csr_roam_substate {
 	eCSR_ROAM_SUBSTATE_START_BSS_REQ,
 	eCSR_ROAM_SUBSTATE_DISASSOC_REQ,
 	eCSR_ROAM_SUBSTATE_STOP_BSS_REQ,
-	eCSR_ROAM_SUBSTATE_CONFIG,
 	eCSR_ROAM_SUBSTATE_DEAUTH_REQ,
 	eCSR_ROAM_SUBSTATE_WAIT_FOR_KEY,
 	/*  max is 15 unless the bitfield is expanded... */
@@ -126,52 +119,10 @@ struct bss_config_param {
 	tSirMacSSid SSID;
 	enum csr_cfgdot11mode uCfgDot11Mode;
 	tSirMacCapabilityInfo BssCap;
-	ePhyChanBondState cbMode;
-};
-
-struct csr_roamstart_bssparams {
-	tSirMacSSid ssId;
-
-	/*
-	 * This is the BSSID for the party we want to
-	 * join (only use for WDS).
-	 */
-	struct qdf_mac_addr bssid;
-	tSirNwType sirNwType;
-	ePhyChanBondState cbMode;
-	tSirMacRateSet operationalRateSet;
-	tSirMacRateSet extendedRateSet;
-	uint32_t operation_chan_freq;
-	struct ch_params ch_params;
-	enum csr_cfgdot11mode uCfgDot11Mode;
-	uint8_t privacy;
-	bool fwdWPSPBCProbeReq;
-	bool protEnabled;
-	bool obssProtEnabled;
-	tAniAuthType authType;
-	uint16_t beaconInterval; /* If this is 0, SME'll fill in for caller */
-	uint16_t ht_protection;
-	uint32_t dtimPeriod;
-	uint8_t ApUapsdEnable;
-	uint8_t ssidHidden;
-	uint8_t wps_state;
-	enum QDF_OPMODE bssPersona;
-	uint16_t nRSNIELength;  /* If 0, pRSNIE is ignored. */
-	uint8_t *pRSNIE;        /* If not null, it has IE byte stream for RSN */
-	/* Flag used to indicate update beaconInterval */
-	bool updatebeaconInterval;
-	struct add_ie_params add_ie_params;
-	uint8_t sap_dot11mc;
-	uint16_t beacon_tx_rate;
-	uint32_t cac_duration_ms;
-	uint32_t dfs_regdomain;
 };
 
 struct roam_cmd {
-	uint32_t roamId;
 	enum csr_roam_reason roamReason;
-	struct csr_roam_profile roamProfile;
-	bool fReleaseProfile;             /* whether to free roamProfile */
 	tSirMacAddr peerMac;
 	enum wlan_reason_code reason;
 };
@@ -278,6 +229,9 @@ struct csr_disconnect_stats {
 /**
  * struct csr_roam_session - CSR per-vdev context
  * @vdev_id: ID of the vdev for which this entry is applicable
+ * @cb_mode: channel bonding mode
+ * @bcn_int: beacon interval
+ * @update_bcn_int: updated beacon interval
  * @is_bcn_recv_start: Allow to process bcn recv indication
  * @beacon_report_do_not_resume: Do not resume the beacon reporting after scan
  */
@@ -292,7 +246,10 @@ struct csr_roam_session {
 	 * to remember some parameters needed for START_BSS.
 	 * All member must be set every time we try to join
 	 */
-	struct csr_roamstart_bssparams bssParams;
+	ePhyChanBondState cb_mode;
+	uint16_t bcn_int;
+	bool update_bcn_int;
+
 #ifdef WLAN_BCN_RECV_FEATURE
 	bool is_bcn_recv_start;
 	bool beacon_report_do_not_resume;
@@ -308,7 +265,6 @@ struct csr_roam_session {
 };
 
 struct csr_roamstruct {
-	uint32_t nextRoamId;
 	struct csr_config configParam;
 	enum csr_roam_state curState[WLAN_MAX_VDEVS];
 	enum csr_roam_substate curSubState[WLAN_MAX_VDEVS];
@@ -325,18 +281,12 @@ struct csr_roamstruct {
 	spinlock_t roam_state_lock;
 };
 
-#define GET_NEXT_ROAM_ID(pRoamStruct)  (((pRoamStruct)->nextRoamId + 1 == 0) ? \
-			1 : (pRoamStruct)->nextRoamId)
 #define CSR_IS_ROAM_STATE(mac, state, sessionId) \
 			((state) == (mac)->roam.curState[sessionId])
 #define CSR_IS_ROAM_STOP(mac, sessionId) \
 		CSR_IS_ROAM_STATE((mac), eCSR_ROAMING_STATE_STOP, sessionId)
-#define CSR_IS_ROAM_INIT(mac, sessionId) \
-		 CSR_IS_ROAM_STATE((mac), eCSR_ROAMING_STATE_INIT, sessionId)
 #define CSR_IS_ROAM_JOINING(mac, sessionId)  \
 		CSR_IS_ROAM_STATE(mac, eCSR_ROAMING_STATE_JOINING, sessionId)
-#define CSR_IS_ROAM_IDLE(mac, sessionId) \
-		CSR_IS_ROAM_STATE(mac, eCSR_ROAMING_STATE_IDLE, sessionId)
 #define CSR_IS_ROAM_JOINED(mac, sessionId) \
 		CSR_IS_ROAM_STATE(mac, eCSR_ROAMING_STATE_JOINED, sessionId)
 #define CSR_IS_ROAM_SUBSTATE(mac, subState, sessionId) \
@@ -352,9 +302,6 @@ struct csr_roamstruct {
 #define CSR_IS_ROAM_SUBSTATE_STOP_BSS_REQ(mac, sessionId) \
 		CSR_IS_ROAM_SUBSTATE((mac), \
 			eCSR_ROAM_SUBSTATE_STOP_BSS_REQ, sessionId)
-#define CSR_IS_ROAM_SUBSTATE_CONFIG(mac, sessionId) \
-		CSR_IS_ROAM_SUBSTATE((mac), \
-		eCSR_ROAM_SUBSTATE_CONFIG, sessionId)
 #define CSR_IS_ROAM_SUBSTATE_WAITFORKEY(mac, sessionId) \
 		CSR_IS_ROAM_SUBSTATE((mac), \
 			eCSR_ROAM_SUBSTATE_WAIT_FOR_KEY, sessionId)
@@ -458,7 +405,7 @@ struct csr_roamstruct {
 /**
  * csr_get_vdev_dot11_mode() - get the supported dot11mode by vdev
  * @mac_ctx:  pointer to global mac structure
- * @device_mode: vdev mode
+ * @vdev_id: vdev id
  * @curr_dot11_mode: Current dot11 mode
  *
  * The function return the min of supported dot11 mode and vdev type dot11mode
@@ -468,12 +415,10 @@ struct csr_roamstruct {
  */
 enum csr_cfgdot11mode
 csr_get_vdev_dot11_mode(struct mac_context *mac,
-			enum QDF_OPMODE device_mode,
+			uint8_t vdev_id,
 			enum csr_cfgdot11mode curr_dot11_mode);
 
 QDF_STATUS csr_get_channel_and_power_list(struct mac_context *mac);
-
-QDF_STATUS csr_scan_filter_results(struct mac_context *mac);
 
 QDF_STATUS csr_set_modify_profile_fields(struct mac_context *mac,
 		uint32_t sessionId, tCsrRoamModifyProfileFields *
@@ -532,7 +477,7 @@ uint32_t csr_get_concurrent_operation_freq(struct mac_context *mac_ctx);
  *
  * This routine will return operating channel of active AP/GO channel
  * and will skip the channel of vdev_id_to_skip.
- * If other no reqested mode is active it will return 0
+ * If other no requested mode is active it will return 0
  *
  * Return: uint32_t
  */
@@ -552,7 +497,6 @@ bool csr_roam_is11r_assoc(struct mac_context *mac, uint8_t sessionId);
 #ifdef FEATURE_WLAN_ESE
 /* Returns whether the current association is a ESE assoc or not */
 bool csr_roam_is_ese_assoc(struct mac_context *mac, uint32_t sessionId);
-bool csr_roam_is_ese_ini_feature_enabled(struct mac_context *mac);
 QDF_STATUS csr_get_tsm_stats(struct mac_context *mac,
 		tCsrTsmStatsCallback callback,
 		struct qdf_mac_addr bssId,
@@ -560,22 +504,16 @@ QDF_STATUS csr_get_tsm_stats(struct mac_context *mac,
 #endif
 
 /**
- * csr_roam_channel_change_req() - Post channel change request to LIM
- * @mac: mac context
- * @bssid: SAP bssid
- * @vdev_id: vdev_id
- * @ch_params: channel information
- * @profile: CSR profile
+ * csr_send_channel_change_req() - Post channel change request to LIM
+ * @mac : mac context
+ * @req : channel change request
  *
  * This API is primarily used to post Channel Change Req for SAP
  *
- * Return: QDF_STATUS
+ *  Return: QDF_STATUS
  */
-QDF_STATUS csr_roam_channel_change_req(struct mac_context *mac,
-				       struct qdf_mac_addr bssid,
-				       uint8_t vdev_id,
-				       struct ch_params *ch_params,
-				       struct csr_roam_profile *profile);
+QDF_STATUS csr_send_channel_change_req(struct mac_context *mac,
+				       struct channel_change_req *req);
 
 /* Post Beacon Tx Start Indication */
 QDF_STATUS csr_roam_start_beacon_req(struct mac_context *mac,
@@ -657,16 +595,19 @@ bool csr_is_mcc_channel(struct mac_context *mac_ctx, uint32_t chan_freq);
  * @mac_ctx: Global mac context pointer
  * @vdev_id: Vdev id
  * @bssid: candidate AP bssid
+ * @akm: candidate AKM
  */
 QDF_STATUS
 csr_roam_auth_offload_callback(struct mac_context *mac_ctx,
 			       uint8_t vdev_id,
-			       struct qdf_mac_addr bssid);
+			       struct qdf_mac_addr bssid,
+			       uint32_t akm);
 #else
 static inline QDF_STATUS
 csr_roam_auth_offload_callback(struct mac_context *mac_ctx,
 			       uint8_t vdev_id,
-			       struct qdf_mac_addr bssid)
+			       struct qdf_mac_addr bssid,
+			       uint32_t akm)
 {
 	return QDF_STATUS_E_NOSUPPORT;
 }
@@ -685,4 +626,15 @@ csr_roam_auth_offload_callback(struct mac_context *mac_ctx,
 QDF_STATUS csr_invoke_neighbor_report_request(uint8_t session_id,
 				struct sRrmNeighborReq *neighbor_report_req,
 				bool send_resp_to_host);
+
+/**
+ * csr_set_vdev_ies_per_band() - sends the per band IEs to vdev
+ * @mac_handle: Opaque handle to the global MAC context
+ * @vdev_id: vdev_id for which IE is targeted
+ * @device_mode: vdev mode
+ *
+ * Return: None
+ */
+void csr_set_vdev_ies_per_band(mac_handle_t mac_handle, uint8_t vdev_id,
+			       enum QDF_OPMODE device_mode);
 #endif

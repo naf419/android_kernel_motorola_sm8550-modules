@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -85,6 +86,7 @@ typedef enum {
  * RTT - indicate RTT
  * DOT11AX - indicate 11ax
  * DOT11BE - indicate 11be
+ * SECURE_NAN - indicate NAN Pairing protocol
  * WOW - indicate WOW
  * WLAN_ROAM_SCAN_OFFLOAD - indicate Roam scan offload
  * WLAN_PERIODIC_TX_PTRN - indicate WLAN_PERIODIC_TX_PTRN
@@ -115,6 +117,9 @@ enum cap_bitmap {
 	DOT11AX = 13,
 #ifdef WLAN_FEATURE_11BE
 	DOT11BE = 14,
+#endif
+#ifdef WLAN_FEATURE_NAN
+	SECURE_NAN = 15,
 #endif
 	WOW = 22,
 	WLAN_ROAM_SCAN_OFFLOAD = 23,
@@ -394,7 +399,6 @@ enum halmsgtype {
 #ifndef REMOVE_PKT_LOG
 	SIR_HAL_PKTLOG_ENABLE_REQ         = (SIR_HAL_ITC_MSG_TYPES_BEGIN + 164),
 #endif
-	SIR_HAL_START_SCAN_OFFLOAD_REQ    = (SIR_HAL_ITC_MSG_TYPES_BEGIN + 166),
 	SIR_HAL_UPDATE_CHAN_LIST_REQ      = (SIR_HAL_ITC_MSG_TYPES_BEGIN + 167),
 	SIR_CSA_OFFLOAD_EVENT             = (SIR_HAL_ITC_MSG_TYPES_BEGIN + 169),
 
@@ -649,7 +653,8 @@ enum halmsgtype {
 	SIR_HAL_TWT_RESUME_DIALOG_REQUEST = (SIR_HAL_ITC_MSG_TYPES_BEGIN + 420),
 	SIR_HAL_PEER_CREATE_REQ           = (SIR_HAL_ITC_MSG_TYPES_BEGIN + 421),
 	SIR_HAL_TWT_NUDGE_DIALOG_REQUEST  = (SIR_HAL_ITC_MSG_TYPES_BEGIN + 422),
-
+	SIR_HAL_PASN_PEER_DELETE_REQUEST  = (SIR_HAL_ITC_MSG_TYPES_BEGIN + 423),
+	SIR_HAL_UPDATE_EDCA_PIFS_PARAM_IND = (SIR_HAL_ITC_MSG_TYPES_BEGIN + 424),
 
 	SIR_HAL_MSG_TYPES_END               = (SIR_HAL_MSG_TYPES_BEGIN + 0x1FF),
 };

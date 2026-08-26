@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -45,13 +45,13 @@
 #include "lim_ft_defs.h"
 #include "lim_session.h"
 #include "lim_ser_des_utils.h"
-#include "wlan_blm_api.h"
+#include "wlan_dlm_api.h"
 
 /**
  * lim_delete_sta_util - utility function for deleting station context
  *
  * @mac_ctx: global MAC context
- * @msg: pointer to delte station context
+ * @msg: pointer to delete station context
  * @session_entry: PE session entry
  *
  * utility function called to clear up station context.
@@ -245,7 +245,7 @@ void lim_delete_sta_context(struct mac_context *mac_ctx,
 			ap_info.reject_ap_type = DRIVER_AVOID_TYPE;
 			ap_info.reject_reason = REASON_STA_KICKOUT;
 			ap_info.source = ADDED_BY_DRIVER;
-			wlan_blm_add_bssid_to_reject_list(mac_ctx->pdev,
+			wlan_dlm_add_bssid_to_reject_list(mac_ctx->pdev,
 							  &ap_info);
 
 			/* only break for STA role (non TDLS) */
@@ -469,9 +469,6 @@ void lim_handle_heart_beat_failure(struct mac_context *mac_ctx,
 	WLAN_HOST_DIAG_LOG_REPORT(log_ptr);
 #endif /* FEATURE_WLAN_DIAG_SUPPORT */
 
-	/* Ensure HB Status for the session has been reseted */
-	session->LimHBFailureStatus = false;
-
 	if (LIM_IS_STA_ROLE(session) &&
 	    lim_is_sb_disconnect_allowed(session)) {
 		if (!mac_ctx->sys.gSysEnableLinkMonitorMode) {
@@ -531,6 +528,8 @@ void lim_rx_invalid_peer_process(struct mac_context *mac_ctx,
 			(struct ol_rx_inv_peer_params *)lim_msg->bodyptr;
 	struct pe_session *session_entry;
 	uint16_t reason_code = REASON_CLASS3_FRAME_FROM_NON_ASSOC_STA;
+	uint16_t aid;
+	tpDphHashNode sta_ds;
 
 	if (!msg) {
 		pe_err("Invalid body pointer in message");
@@ -546,6 +545,23 @@ void lim_rx_invalid_peer_process(struct mac_context *mac_ctx,
 
 	/* only if SAP mode */
 	if (session_entry->bssType == eSIR_INFRA_AP_MODE) {
+		sta_ds = dph_lookup_hash_entry(mac_ctx, msg->ta, &aid,
+					       &session_entry->dph.dphHashTable);
+		if (sta_ds && sta_ds->is_key_installed) {
+			/*
+			 * Skip deauth for an associated STA.
+			 *
+			 * The deauth sent for invalid peer indication will
+			 * not cleanup the SM if this is an associated STA.
+			 * Therefore, the deauth for associated STA creates
+			 * stale entries even after STA gets disconnected.
+			 */
+			pe_err_rl("Received Invalid rx peer indication for an associated STA "
+			       QDF_MAC_ADDR_FMT, QDF_MAC_ADDR_REF(msg->ta));
+			qdf_mem_free(msg);
+			lim_msg->bodyptr = NULL;
+			return;
+		}
 		pe_debug("send deauth frame to non-assoc STA");
 		lim_send_deauth_mgmt_frame(mac_ctx,
 					   reason_code,

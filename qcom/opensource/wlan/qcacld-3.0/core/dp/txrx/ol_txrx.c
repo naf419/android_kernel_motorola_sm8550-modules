@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1134,7 +1134,7 @@ ol_txrx_pdev_post_attach(struct cdp_soc_t *soc_hdl, uint8_t pdev_id)
 	 */
 
 	/*
-	 * LL - initialize the target credit outselves.
+	 * LL - initialize the target credit ourselves.
 	 * HL - wait for a HTT target credit initialization
 	 * during htt_attach.
 	 */
@@ -1936,6 +1936,7 @@ ol_txrx_vdev_attach(struct cdp_soc_t *soc_hdl, uint8_t pdev_id,
 	uint8_t vdev_id = vdev_info->vdev_id;
 	enum wlan_op_mode op_mode = vdev_info->op_mode;
 	enum wlan_op_subtype subtype = vdev_info->subtype;
+	enum QDF_OPMODE qdf_opmode = vdev_info->qdf_opmode;
 
 	struct ol_txrx_vdev_t *vdev;
 	QDF_STATUS qdf_status;
@@ -1958,6 +1959,7 @@ ol_txrx_vdev_attach(struct cdp_soc_t *soc_hdl, uint8_t pdev_id,
 	vdev->vdev_id = vdev_id;
 	vdev->opmode = op_mode;
 	vdev->subtype = subtype;
+	vdev->qdf_opmode = qdf_opmode;
 
 	vdev->delete.pending = 0;
 	vdev->safemode = 0;
@@ -2713,11 +2715,12 @@ static int ol_txrx_get_opmode(struct cdp_soc_t *soc_hdl, uint8_t vdev_id)
  * @soc_hdl: datapath soc handle
  * @vdev_id: virtual interface id
  * @peer_mac: peer mac addr
+ * @slowpath: called from slow path or not
  *
  * Return: return peer state
  */
 static int ol_txrx_get_peer_state(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
-				  uint8_t *peer_mac)
+				  uint8_t *peer_mac, bool slowpath)
 {
 	struct ol_txrx_soc_t *soc = cdp_soc_t_to_ol_txrx_soc_t(soc_hdl);
 	ol_txrx_pdev_handle pdev =
@@ -3493,7 +3496,8 @@ void peer_unmap_timer_handler(void *data)
  * @soc_hdl: datapath soc handle
  * @vdev_id: virtual interface id
  * @peer_mac: peer MAC address
- * @bitmap - bitmap indicating special handling of request.
+ * @bitmap: bitmap indicating special handling of request.
+ * @peer_type: link or mld peer
  * When the host's control SW disassociates a peer, it calls
  * this function to detach and delete the peer. The reference
  * stored in the control peer object to the data peer
@@ -3501,8 +3505,10 @@ void peer_unmap_timer_handler(void *data)
  *
  * Return: SUCCESS or Failure
  */
-static QDF_STATUS ol_txrx_peer_detach(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
-				      uint8_t *peer_mac, uint32_t bitmap)
+static QDF_STATUS ol_txrx_peer_detach(struct cdp_soc_t *soc_hdl,
+				      uint8_t vdev_id, uint8_t *peer_mac,
+				      uint32_t bitmap,
+				      enum cdp_peer_type peer_type)
 {
 	ol_txrx_peer_handle peer;
 	struct ol_txrx_soc_t *soc = cdp_soc_t_to_ol_txrx_soc_t(soc_hdl);
@@ -3611,7 +3617,8 @@ static void ol_txrx_peer_detach_force_delete(struct cdp_soc_t *soc_hdl,
 	/* Clear the peer_id_to_obj map entries */
 	ol_txrx_peer_remove_obj_map_entries(pdev, peer);
 	ol_txrx_peer_detach(soc_hdl, vdev_id, peer_mac,
-			    1 << CDP_PEER_DELETE_NO_SPECIAL);
+			    1 << CDP_PEER_DELETE_NO_SPECIAL,
+			    CDP_LINK_PEER_TYPE);
 }
 
 /**
@@ -3641,7 +3648,8 @@ static void ol_txrx_peer_detach_sync(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 	if (!pdev->peer_unmap_sync_cb)
 		pdev->peer_unmap_sync_cb = peer_unmap_sync;
 
-	ol_txrx_peer_detach(soc_hdl, vdev_id, peer_mac, bitmap);
+	ol_txrx_peer_detach(soc_hdl, vdev_id, peer_mac, bitmap,
+			    CDP_LINK_PEER_TYPE);
 }
 
 /**
@@ -3826,7 +3834,7 @@ static QDF_STATUS ol_txrx_bus_suspend(struct cdp_soc_t *soc_hdl,
  * @soc_hdl: Datapath soc handle
  * @pdev_id: id of data path pdev handle
  *
- * Dummy function for symetry
+ * Dummy function for symmetry
  *
  * Return: QDF_STATUS_SUCCESS
  */
@@ -3863,7 +3871,7 @@ void ol_txrx_discard_tx_pending(ol_txrx_pdev_handle pdev_handle)
 	/*
 	 * First let hif do the qdf_atomic_dec_and_test(&tx_desc->ref_cnt)
 	 * then let htt do the qdf_atomic_dec_and_test(&tx_desc->ref_cnt)
-	 * which is tha same with normal data send complete path
+	 * which is the same with normal data send complete path
 	 */
 	htt_tx_pending_discard(pdev_handle->htt_pdev);
 
@@ -5169,7 +5177,7 @@ void ol_rx_data_process(struct ol_txrx_peer_t *peer,
 				  "%s: failed to enqueue rx frm to cached_bufq",
 				  __func__);
 	} else {
-#ifdef QCA_CONFIG_SMP
+#ifdef WLAN_DP_LEGACY_OL_RX_THREAD
 		/*
 		 * If the kernel is SMP, schedule rx thread to
 		 * better use multicores.
@@ -5194,9 +5202,9 @@ void ol_rx_data_process(struct ol_txrx_peer_t *peer,
 			pkt->staId = peer->local_id;
 			cds_indicate_rxpkt(sched_ctx, pkt);
 		}
-#else                           /* QCA_CONFIG_SMP */
+#else                           /* WLAN_DP_LEGACY_OL_RX_THREAD */
 		ol_rx_data_handler(pdev, rx_buf_list, peer->local_id);
-#endif /* QCA_CONFIG_SMP */
+#endif /* WLAN_DP_LEGACY_OL_RX_THREAD */
 	}
 
 	return;
@@ -5763,7 +5771,7 @@ static void ol_txrx_soc_detach(struct cdp_soc_t *soc)
  * @pdev_id: id of data path pdev handle
  * @scn: device context
  *
- * Return: noe
+ * Return: none
  */
 static void ol_txrx_pkt_log_con_service(struct cdp_soc_t *soc_hdl,
 					uint8_t pdev_id, void *scn)
@@ -5775,7 +5783,7 @@ static void ol_txrx_pkt_log_con_service(struct cdp_soc_t *soc_hdl,
  * @soc_hdl: Datapath soc handle
  * @pdev_id: id of data path pdev handle
  *
- * Return: noe
+ * Return: none
  */
 static void ol_txrx_pkt_log_exit(struct cdp_soc_t *soc_hdl, uint8_t pdev_id)
 {
@@ -6133,171 +6141,6 @@ void ol_deregister_packetdump_callback(struct cdp_soc_t *soc_hdl,
 	pdev->ol_rx_packetdump_cb = NULL;
 }
 
-#ifdef WLAN_FEATURE_PEER_TXQ_FLUSH_CONF
-/**
- * ol_map_flush_policy() - Map DP layer flush policy values to target i/f layer
- * @policy: The DP layer flush policy value
- *
- * Return: Peer flush policy
- */
-static enum peer_txq_flush_policy
-ol_map_flush_policy(enum cdp_peer_txq_flush_policy policy)
-{
-	switch (policy) {
-	case  CDP_PEER_TXQ_FLUSH_POLICY_NONE:
-		return PEER_TXQ_FLUSH_POLICY_NONE;
-	case CDP_PEER_TXQ_FLUSH_POLICY_TWT_SP_END:
-		return PEER_TXQ_FLUSH_POLICY_TWT_SP_END;
-	default:
-		return PEER_TXQ_FLUSH_POLICY_INVALID;
-	}
-}
-
-/**
- * ol_send_peer_txq_flush_conf() - Send flush config for peers TID queues
- * @mac: MAC addr of peer for which the tx queue flush is intended
- * @vdev_id: VDEV identifier
- * @tid: TID mask for identifying the tx queues to be flushed
- * @policy: The peer tid queue flush policy
- *
- * Return: 0 for success or error code
- */
-static int ol_send_peer_txq_flush_conf(uint8_t *mac, uint8_t vdev_id,
-				       uint32_t tid,
-				       enum cdp_peer_txq_flush_policy policy)
-{
-	enum peer_txq_flush_policy flush_policy;
-	struct peer_txq_flush_config_params param = {0};
-	QDF_STATUS status;
-
-	flush_policy = ol_map_flush_policy(policy);
-	if (flush_policy >= PEER_TXQ_FLUSH_POLICY_INVALID) {
-		ol_txrx_err("Invalid flush policy : %d", policy);
-		return -EINVAL;
-	}
-
-	param.vdev_id = vdev_id;
-	param.tid_mask = tid;
-	param.policy = flush_policy;
-	qdf_mem_copy(param.peer, mac, QDF_MAC_ADDR_SIZE);
-
-	status = wma_peer_txq_flush_config_send(&param);
-	return qdf_status_to_os_return(status);
-}
-
-/**
- * ol_send_peer_txq_flush_tids() - Send flush command peers TID queues
- * @mac: MAC addr of peer for which the tx queue flush is intended
- * @vdev_id: VDEV identifier
- * @tid: TID mask for identifying the tx queues to be flushed
- *
- * Return: 0 for success or error code
- */
-static int ol_send_peer_txq_flush_tids(uint8_t *mac, uint8_t vdev_id,
-				       uint32_t tid)
-{
-	struct peer_flush_params param;
-	QDF_STATUS status;
-
-	param.vdev_id = vdev_id;
-	param.peer_tid_bitmap = tid;
-	qdf_mem_copy(param.peer_mac, mac, QDF_MAC_ADDR_SIZE);
-
-	status = wma_peer_flush_tids_send(mac, &param);
-	return qdf_status_to_os_return(status);
-}
-
-static int ol_txrx_peer_txq_flush_config(struct wlan_objmgr_psoc *psoc,
-				  uint8_t vdev_id, uint8_t *addr,
-				  uint8_t ac, uint32_t tid,
-				  enum cdp_peer_txq_flush_policy policy)
-{
-	static uint8_t ac_to_tid[4][2] = { {0, 3}, {1, 2}, {4, 5}, {6, 7} };
-	struct wlan_objmgr_peer *peer;
-	int i, rc;
-
-	if (!psoc || !addr) {
-		ol_txrx_err("Invalid params");
-		return -EINVAL;
-	}
-
-	if (!tid && !ac) {
-		ol_txrx_err("no ac/tid mask setting");
-		return -EINVAL;
-	}
-
-	if (tid && policy == CDP_PEER_TXQ_FLUSH_POLICY_INVALID) {
-		ol_txrx_err("Invalid flush policy");
-		return -EINVAL;
-	}
-
-	peer = wlan_objmgr_get_peer_by_mac(psoc, addr, WLAN_DP_ID);
-	if (!peer) {
-		ol_txrx_err("Peer not found in the list");
-		return -EINVAL;
-	}
-	/* If tid mask is provided and policy is immediate use legacy WMI.
-	 * If tid mask is provided and policy is other than immediate use
-	 * the new WMI command for flush config.
-	 * If tid mask is not provided and ac mask is provided, convert to tid,
-	 * use the legacy WMI cmd for flushing the queues immediately.
-	 */
-	if (tid) {
-		if (policy == CDP_PEER_TXQ_FLUSH_POLICY_IMMEDIATE) {
-			rc = ol_send_peer_txq_flush_tids(addr, vdev_id, tid);
-			wlan_objmgr_peer_release_ref(peer, WLAN_DP_ID);
-			return rc;
-		}
-		rc = ol_send_peer_txq_flush_conf(addr, vdev_id, tid, policy);
-		wlan_objmgr_peer_release_ref(peer, WLAN_DP_ID);
-		return rc;
-	}
-
-	if (ac) {
-		tid = 0;
-		for (i = 0; i < 4; ++i) {
-			if (((ac & 0x0f) >> i) & 0x01) {
-				tid |= (1 << ac_to_tid[i][0]) |
-				       (1 << ac_to_tid[i][1]);
-			}
-		}
-		rc = ol_send_peer_txq_flush_tids(addr, vdev_id, tid);
-		wlan_objmgr_peer_release_ref(peer, WLAN_DP_ID);
-		return rc;
-	}
-	 /* should not hit this line */
-	return 0;
-}
-
-/**
- * ol_txrx_set_peer_txq_flush_config() - Set the peer txq flush configuration
- * @soc_hdl: Opaque handle to the DP soc object
- * @vdev_id: VDEV identifier
- * @mac: MAC address of the peer
- * @ac: access category mask
- * @tid: TID mask
- * @policy: Flush policy
- *
- * Return: 0 on success, errno on failure
- */
-static int
-ol_txrx_set_peer_txq_flush_config(struct cdp_soc_t *soc_hdl,
-				  uint8_t vdev_id, uint8_t *mac,
-				  uint8_t ac, uint32_t tid,
-				  enum cdp_peer_txq_flush_policy policy)
-{
-	tp_wma_handle wma_handle = cds_get_context(QDF_MODULE_ID_WMA);
-
-	if (!soc_hdl) {
-		dp_err("soc is null");
-		return -EINVAL;
-	}
-
-	return ol_txrx_peer_txq_flush_config(wma_handle->psoc, vdev_id,
-					     mac, ac, tid, policy);
-}
-#endif
-
 static struct cdp_cmn_ops ol_ops_cmn = {
 	.txrx_soc_attach_target = ol_txrx_soc_attach_target,
 	.txrx_vdev_attach = ol_txrx_vdev_attach,
@@ -6366,9 +6209,6 @@ static struct cdp_misc_ops ol_ops_misc = {
 #ifdef WLAN_SUPPORT_TXRX_HL_BUNDLE
 	.vdev_set_bundle_require_flag = ol_tx_vdev_set_bundle_require,
 	.pdev_reset_bundle_require_flag = ol_tx_pdev_reset_bundle_require,
-#endif
-#ifdef WLAN_FEATURE_PEER_TXQ_FLUSH_CONF
-	.set_peer_txq_flush_config = ol_txrx_set_peer_txq_flush_config,
 #endif
 };
 

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -49,14 +49,14 @@
 #include "wlan_reg_services_api.h"
 #include "wlan_cm_roam_api.h"
 #include "wlan_mlo_mgr_sta.h"
+#include "wlan_twt_cfg_ext_api.h"
+#include <wlan_cmn_ieee80211.h>
 #ifdef WLAN_FEATURE_11BE_MLO
 #include <lim_mlo.h>
 #include <utils_mlo.h>
 #endif
-
-#if defined(WLAN_SUPPORT_TWT) && defined(WLAN_FEATURE_11AX) && \
-	defined(WLAN_TWT_CONV_SUPPORTED)
-#include "wlan_twt_cfg_ext_api.h"
+#ifdef WLAN_FEATURE_11BE
+#include <wlan_mlo_t2lm.h>
 #endif
 
 #define RSN_OUI_SIZE 4
@@ -87,24 +87,22 @@ void swap_bit_field16(uint16_t in, uint16_t *out)
 static inline void __print_wmm_params(struct mac_context *mac,
 				      tDot11fIEWMMParams *pWmm)
 {
-	pe_debug("WMM Parameters Received:");
-	pe_debug("BE: aifsn %d, acm %d, aci %d, cwmin %d, cwmax %d, txop %d",
-		pWmm->acbe_aifsn, pWmm->acbe_acm, pWmm->acbe_aci,
-		pWmm->acbe_acwmin, pWmm->acbe_acwmax, pWmm->acbe_txoplimit);
-
-	pe_debug("BK: aifsn %d, acm %d, aci %d, cwmin %d, cwmax %d, txop %d",
-		pWmm->acbk_aifsn, pWmm->acbk_acm, pWmm->acbk_aci,
-		pWmm->acbk_acwmin, pWmm->acbk_acwmax, pWmm->acbk_txoplimit);
-
-	pe_debug("VI: aifsn %d, acm %d, aci %d, cwmin %d, cwmax %d, txop %d",
-		pWmm->acvi_aifsn, pWmm->acvi_acm, pWmm->acvi_aci,
-		pWmm->acvi_acwmin, pWmm->acvi_acwmax, pWmm->acvi_txoplimit);
-
-	pe_debug("VO: aifsn %d, acm %d, aci %d, cwmin %d, cwmax %d, txop %d",
-		pWmm->acvo_aifsn, pWmm->acvo_acm, pWmm->acvo_aci,
-		pWmm->acvo_acwmin, pWmm->acvo_acwmax, pWmm->acvo_txoplimit);
-
-	return;
+	pe_nofl_debug("WMM: BE: aifsn %d, acm %d, aci %d, cwmin %d, cwmax %d, txop %d, "
+		      "BK: aifsn %d, acm %d, aci %d, cwmin %d, cwmax %d, txop %d, "
+		      "VI: aifsn %d, acm %d, aci %d, cwmin %d, cwmax %d, txop %d, "
+		      "VO: aifsn %d, acm %d, aci %d, cwmin %d, cwmax %d, txop %d",
+		      pWmm->acbe_aifsn, pWmm->acbe_acm, pWmm->acbe_aci,
+		      pWmm->acbe_acwmin, pWmm->acbe_acwmax,
+		      pWmm->acbe_txoplimit,
+		      pWmm->acbk_aifsn, pWmm->acbk_acm, pWmm->acbk_aci,
+		      pWmm->acbk_acwmin, pWmm->acbk_acwmax,
+		      pWmm->acbk_txoplimit,
+		      pWmm->acvi_aifsn, pWmm->acvi_acm, pWmm->acvi_aci,
+		      pWmm->acvi_acwmin, pWmm->acvi_acwmax,
+		      pWmm->acvi_txoplimit,
+		      pWmm->acvo_aifsn, pWmm->acvo_acm, pWmm->acvo_aci,
+		      pWmm->acvo_acwmin, pWmm->acvo_acwmax,
+		      pWmm->acvo_txoplimit);
 }
 
 /* ////////////////////////////////////////////////////////////////////// */
@@ -481,9 +479,9 @@ populate_dot11f_tx_power_env(struct mac_context *mac,
 
 		chan_params.ch_width = chan_width;
 		bw_val = wlan_reg_get_bw_value(chan_width);
-		wlan_reg_set_channel_params_for_freq(mac->pdev, chan_freq,
-						     chan_freq,
-						     &chan_params);
+		wlan_reg_set_channel_params_for_pwrmode(mac->pdev, chan_freq,
+							chan_freq, &chan_params,
+							REG_CURRENT_PWR_MODE);
 
 		if (chan_params.mhz_freq_seg1)
 			psd_start_freq =
@@ -611,38 +609,55 @@ populate_dot11f_country(struct mac_context *mac,
 {
 	uint8_t code[REG_ALPHA2_LEN + 1];
 	uint8_t cur_triplet_num_chans = 0;
-	int chan_enum, chan_num, chan_spacing = 0;
+	int chan_enum, chan_num;
 	struct regulatory_channel *sec_cur_chan_list;
 	struct regulatory_channel *cur_chan, *start, *prev;
-	enum reg_wifi_band rf_band = REG_BAND_UNKNOWN;
 	uint8_t buffer_triplets[81][3];
 	uint8_t i, j, num_triplets = 0;
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
 	bool six_gig_started = false;
+	uint8_t band_bitmap;
+	uint32_t band_capability;
+	uint8_t chan_spacing_for_2ghz = 1;
+	uint8_t chan_spacing_for_5ghz_6ghz = 4;
+	struct mlme_legacy_priv *mlme_priv = NULL;
 
 	sec_cur_chan_list = qdf_mem_malloc(NUM_CHANNELS *
 					   sizeof(*sec_cur_chan_list));
 	if (!sec_cur_chan_list)
 		return QDF_STATUS_E_NOMEM;
 
-	lim_get_rf_band_new(mac, &rf_band, pe_session);
-	switch (rf_band) {
-	case REG_BAND_2G:
-		chan_spacing = 1;
-		break;
-	case REG_BAND_5G:
-	case REG_BAND_6G:
-		chan_spacing = 4;
-		break;
-	case REG_BAND_UNKNOWN:
-		pe_err("Wrong reg band for country info");
-		status = QDF_STATUS_E_FAILURE;
-		goto out;
+	if (pe_session) {
+		mlme_priv = wlan_vdev_mlme_get_ext_hdl(pe_session->vdev);
+		if (!mlme_priv) {
+			pe_err("Invalid mlme priv object");
+			status = QDF_STATUS_E_FAILURE;
+			goto out;
+		}
 	}
 
-	chan_num = wlan_reg_get_secondary_band_channel_list(mac->pdev,
-							    BIT(rf_band),
-							    sec_cur_chan_list);
+	if (!pe_session ||
+	    (mlme_priv && mlme_priv->country_ie_for_all_band)) {
+		status = wlan_mlme_get_band_capability(mac->psoc,
+						       &band_capability);
+		if (QDF_IS_STATUS_ERROR(status)) {
+			pe_err("Failed to get MLME Band Capability");
+			goto out;
+		}
+		band_bitmap = (uint8_t)band_capability;
+	} else {
+		if (pe_session->limRFBand == REG_BAND_UNKNOWN) {
+			pe_err("Wrong reg band for country info");
+			status = QDF_STATUS_E_FAILURE;
+			goto out;
+		}
+		band_bitmap = BIT(pe_session->limRFBand);
+	}
+
+	chan_num = wlan_reg_get_secondary_band_channel_list(
+						mac->pdev,
+						band_bitmap,
+						sec_cur_chan_list);
 	if (!chan_num) {
 		pe_err("failed to get cur_chan list");
 		status = QDF_STATUS_E_FAILURE;
@@ -672,7 +687,10 @@ populate_dot11f_country(struct mac_context *mac,
 		}
 
 		if (start && prev &&
-		    prev->chan_num + chan_spacing == cur_chan->chan_num &&
+		    ((prev->chan_num + chan_spacing_for_2ghz ==
+		      cur_chan->chan_num) ||
+		     (prev->chan_num + chan_spacing_for_5ghz_6ghz ==
+		      cur_chan->chan_num)) &&
 		    start->tx_power == cur_chan->tx_power) {
 			/* Can use same entry */
 			prev = cur_chan;
@@ -969,6 +987,7 @@ populate_dot11f_ht_caps(struct mac_context *mac,
 	QDF_STATUS nSirStatus;
 	uint8_t disable_high_ht_mcs_2x2 = 0;
 	struct ch_params ch_params = {0};
+	uint8_t cb_mode;
 
 	tSirMacTxBFCapabilityInfo *pTxBFCapabilityInfo;
 	tSirMacASCapabilityInfo *pASCapabilityInfo;
@@ -997,21 +1016,23 @@ populate_dot11f_ht_caps(struct mac_context *mac,
 		pDot11f->shortGI20MHz = ht_cap_info->short_gi_20_mhz;
 		pDot11f->shortGI40MHz = ht_cap_info->short_gi_40_mhz;
 	} else {
+		cb_mode = lim_get_cb_mode_for_freq(mac, pe_session,
+						   pe_session->curr_op_freq);
 		if (WLAN_REG_IS_24GHZ_CH_FREQ(pe_session->curr_op_freq) &&
 		    LIM_IS_STA_ROLE(pe_session) &&
-		    WNI_CFG_CHANNEL_BONDING_MODE_DISABLE !=
-		    mac->roam.configParam.channelBondingMode24GHz) {
+		    cb_mode != WNI_CFG_CHANNEL_BONDING_MODE_DISABLE) {
 			pDot11f->supportedChannelWidthSet = 1;
 			ch_params.ch_width = CH_WIDTH_40MHZ;
-			wlan_reg_set_channel_params_for_freq(
+			wlan_reg_set_channel_params_for_pwrmode(
 				mac->pdev, pe_session->curr_op_freq, 0,
-				&ch_params);
+				&ch_params, REG_CURRENT_PWR_MODE);
 			if (ch_params.ch_width != CH_WIDTH_40MHZ)
 				pDot11f->supportedChannelWidthSet = 0;
-			pe_debug("pe ch offset %d ch_width %d htcap ch width set %d",
-				 pe_session->htSecondaryChannelOffset,
-				 ch_params.ch_width,
-				 pDot11f->supportedChannelWidthSet);
+		} else if (LIM_IS_STA_ROLE(pe_session)) {
+			if (pe_session->ch_width == CH_WIDTH_20MHZ)
+				pDot11f->supportedChannelWidthSet = 0;
+			else
+				pDot11f->supportedChannelWidthSet = 1;
 		} else {
 			pDot11f->supportedChannelWidthSet =
 				pe_session->htSupportedChannelWidthSet;
@@ -1137,14 +1158,7 @@ ePhyChanBondState wlan_get_cb_mode(struct mac_context *mac,
 	uint32_t self_cb_mode;
 	struct ch_params ch_params = {0};
 
-	if (WLAN_REG_IS_24GHZ_CH_FREQ(ch_freq)) {
-		self_cb_mode =
-			mac->roam.configParam.channelBondingMode24GHz;
-	} else {
-		self_cb_mode =
-			mac->roam.configParam.channelBondingMode5GHz;
-	}
-
+	self_cb_mode = lim_get_cb_mode_for_freq(mac, pe_session, ch_freq);
 	if (self_cb_mode == WNI_CFG_CHANNEL_BONDING_MODE_DISABLE)
 		return PHY_SINGLE_CHANNEL_CENTERED;
 
@@ -1200,8 +1214,9 @@ ePhyChanBondState wlan_get_cb_mode(struct mac_context *mac,
 
 	if (cb_mode != PHY_SINGLE_CHANNEL_CENTERED) {
 		ch_params.ch_width = CH_WIDTH_40MHZ;
-		wlan_reg_set_channel_params_for_freq(mac->pdev, ch_freq,
-						     sec_ch_freq, &ch_params);
+		wlan_reg_set_channel_params_for_pwrmode(mac->pdev, ch_freq,
+							sec_ch_freq, &ch_params,
+							REG_CURRENT_PWR_MODE);
 		if (ch_params.ch_width == CH_WIDTH_20MHZ ||
 		    ch_params.sec_ch_offset != cb_mode) {
 			pe_err("ch freq %d :: Supported HT BW %d and cbmode %d, APs HT BW %d and cbmode %d, so switch to 20Mhz",
@@ -1290,22 +1305,16 @@ static void lim_log_operating_mode(struct mac_context *mac,
 static void lim_log_qos_map_set(struct mac_context *mac,
 				struct qos_map_set *pQosMapSet)
 {
-	uint8_t i;
-
 	if (pQosMapSet->num_dscp_exceptions > QOS_MAP_MAX_EX)
 		pQosMapSet->num_dscp_exceptions = QOS_MAP_MAX_EX;
 
-	pe_debug("num of dscp exceptions: %d",
-		pQosMapSet->num_dscp_exceptions);
-	for (i = 0; i < pQosMapSet->num_dscp_exceptions; i++)
-		pe_nofl_debug("dscp value: %d, User priority value: %d",
-			      pQosMapSet->dscp_exceptions[i][0],
-			      pQosMapSet->dscp_exceptions[i][1]);
-
-	for (i = 0; i < 8; i++)
-		pe_nofl_debug("For up %d: dscp low: %d, dscp high: %d", i,
-			       pQosMapSet->dscp_range[i][0],
-			       pQosMapSet->dscp_range[i][1]);
+	pe_debug("num of dscp exceptions: %d", pQosMapSet->num_dscp_exceptions);
+	QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
+			   pQosMapSet->dscp_exceptions,
+			   sizeof(pQosMapSet->dscp_exceptions));
+	QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
+			   pQosMapSet->dscp_range,
+			   sizeof(pQosMapSet->dscp_range));
 }
 
 QDF_STATUS
@@ -1350,8 +1359,10 @@ populate_dot11f_vht_caps(struct mac_context *mac,
 
 		pDot11f->shortGI80MHz =
 			pe_session->vht_config.shortgi80;
-		pDot11f->shortGI160and80plus80MHz =
-			pe_session->vht_config.shortgi160and80plus80;
+
+		if (pDot11f->supportedChannelWidthSet)
+			pDot11f->shortGI160and80plus80MHz =
+				pe_session->vht_config.shortgi160and80plus80;
 
 		if (pe_session->ht_config.tx_stbc)
 			pDot11f->txSTBC = pe_session->vht_config.tx_stbc;
@@ -1397,8 +1408,10 @@ populate_dot11f_vht_caps(struct mac_context *mac,
 		nCfgValue = vht_cap_info->short_gi_80mhz;
 		pDot11f->shortGI80MHz = (nCfgValue & 0x0001);
 
-		nCfgValue = vht_cap_info->short_gi_160mhz;
-		pDot11f->shortGI160and80plus80MHz = (nCfgValue & 0x0001);
+		if (pDot11f->supportedChannelWidthSet) {
+			nCfgValue = vht_cap_info->short_gi_160mhz;
+			pDot11f->shortGI160and80plus80MHz = (nCfgValue & 0x0001);
+		}
 
 		nCfgValue = vht_cap_info->tx_stbc;
 		pDot11f->txSTBC = (nCfgValue & 0x0001);
@@ -1503,20 +1516,51 @@ populate_dot11f_vht_operation(struct mac_context *mac,
 {
 	uint32_t mcs_set;
 	struct mlme_vht_capabilities_info *vht_cap_info;
+	enum reg_wifi_band band;
+	uint8_t band_mask;
+	struct ch_params ch_params = {0};
+	qdf_freq_t sec_chan_freq = 0;
 
 	if (!pe_session || !pe_session->vhtCapability)
 		return QDF_STATUS_SUCCESS;
+
+	band = wlan_reg_freq_to_band(pe_session->curr_op_freq);
+	band_mask = 1 << band;
+
+	ch_params.ch_width = pe_session->ch_width;
+	ch_params.mhz_freq_seg0 =
+		wlan_reg_chan_band_to_freq(mac->pdev,
+					   pe_session->ch_center_freq_seg0,
+					   band_mask);
+
+	if (pe_session->ch_center_freq_seg1)
+		ch_params.mhz_freq_seg1 =
+			wlan_reg_chan_band_to_freq(mac->pdev,
+						   pe_session->ch_center_freq_seg1,
+						   band_mask);
+
+	if (band == (REG_BAND_2G) && ch_params.ch_width == CH_WIDTH_40MHZ) {
+		if (ch_params.mhz_freq_seg0 ==  pe_session->curr_op_freq + 10)
+			sec_chan_freq = pe_session->curr_op_freq + 20;
+		if (ch_params.mhz_freq_seg0 ==  pe_session->curr_op_freq - 10)
+			sec_chan_freq = pe_session->curr_op_freq - 20;
+	}
+
+	wlan_reg_set_channel_params_for_pwrmode(mac->pdev,
+						pe_session->curr_op_freq,
+						sec_chan_freq, &ch_params,
+						REG_CURRENT_PWR_MODE);
 
 	pDot11f->present = 1;
 
 	if (pe_session->ch_width > CH_WIDTH_40MHZ) {
 		pDot11f->chanWidth = 1;
 		pDot11f->chan_center_freq_seg0 =
-			pe_session->ch_center_freq_seg0;
+			ch_params.center_freq_seg0;
 		if (pe_session->ch_width == CH_WIDTH_80P80MHZ ||
 				pe_session->ch_width == CH_WIDTH_160MHZ)
 			pDot11f->chan_center_freq_seg1 =
-				pe_session->ch_center_freq_seg1;
+				ch_params.center_freq_seg1;
 		else
 			pDot11f->chan_center_freq_seg1 = 0;
 	} else {
@@ -1655,6 +1699,34 @@ void populate_dot11f_bss_max_idle(struct mac_context *mac,
 	}
 }
 
+void populate_dot11f_edca_pifs_param_set(struct mac_context *mac,
+					 tDot11fIEqcn_ie *qcn_ie)
+{
+	struct wlan_edca_pifs_param_ie param = {0};
+	struct edca_param *eparam;
+	struct pifs_param *pparam;
+	uint8_t edca_param_type;
+
+	qcn_ie->present = 1;
+	qcn_ie->edca_pifs_param_attr.present = 1;
+
+	edca_param_type = mac->mlme_cfg->edca_params.edca_param_type;
+	wlan_mlme_set_edca_pifs_param(&param, edca_param_type);
+	qcn_ie->edca_pifs_param_attr.edca_param_type = edca_param_type;
+
+	if (edca_param_type == HOST_EDCA_PARAM_TYPE_AGGRESSIVE) {
+		qcn_ie->edca_pifs_param_attr.num_data = sizeof(*eparam);
+		eparam = (struct edca_param *)qcn_ie->edca_pifs_param_attr.data;
+		qdf_mem_copy(eparam, &param.edca_pifs_param.eparam,
+			     sizeof(*eparam));
+	} else if (edca_param_type == HOST_EDCA_PARAM_TYPE_PIFS) {
+		qcn_ie->edca_pifs_param_attr.num_data = sizeof(*pparam);
+		pparam = (struct pifs_param *)qcn_ie->edca_pifs_param_attr.data;
+		qdf_mem_copy(pparam, &param.edca_pifs_param.pparam,
+			     sizeof(*pparam));
+	}
+}
+
 void populate_dot11f_qcn_ie(struct mac_context *mac,
 			    struct pe_session *pe_session,
 			    tDot11fIEqcn_ie *qcn_ie,
@@ -1676,6 +1748,15 @@ void populate_dot11f_qcn_ie(struct mac_context *mac,
 	}
 
 	populate_dot11f_qcn_ie_he_params(mac, pe_session, qcn_ie, attr_id);
+	if (policy_mgr_is_ll_sap_present(
+				mac->psoc,
+				policy_mgr_convert_device_mode_to_qdf_type(
+				pe_session->opmode), pe_session->vdev_id)) {
+		pe_debug("Populate edca/pifs param ie for ll sap");
+		populate_dot11f_edca_pifs_param_set(
+					mac,
+					qcn_ie);
+	}
 }
 
 QDF_STATUS
@@ -1994,42 +2075,22 @@ populate_dot11f_supp_channels(struct mac_context *mac,
 			      tDot11fIESuppChannels *pDot11f,
 			      uint8_t nAssocType, struct pe_session *pe_session)
 {
-	uint8_t i, j = 0;
+	uint8_t i;
 	uint8_t *p;
 	struct supported_channels supportedChannels;
-	uint8_t channel, opclass, base_opclass;
-	uint8_t reg_cc[REG_ALPHA2_LEN + 1];
 
 	wlan_add_supported_5Ghz_channels(mac->psoc, mac->pdev,
 					 supportedChannels.channelList,
 					 &supportedChannels.numChnl,
 					 false);
-
 	p = supportedChannels.channelList;
 	pDot11f->num_bands = supportedChannels.numChnl;
-	wlan_reg_read_current_country(mac->psoc, reg_cc);
 
-	for (i = 0U; i < pDot11f->num_bands; i++) {
-		base_opclass = wlan_reg_dmn_get_opclass_from_channel(
-						reg_cc,
-						p[i], BW20);
-		pDot11f->bands[j][0] = p[i];
-		pDot11f->bands[j][1] = 1;
-		channel = p[i];
-		while (i + 1 < pDot11f->num_bands && (p[i + 1] == channel + 4)) {
-			opclass = wlan_reg_dmn_get_opclass_from_channel(
-						reg_cc,
-						p[i + 1], BW20);
-			if (base_opclass != opclass)
-				goto skip;
-			pDot11f->bands[j][1]++;
-			channel = p[++i];
-		}
-skip:
-		j++;
+	for (i = 0U; i < pDot11f->num_bands; ++i, ++p) {
+		pDot11f->bands[i][0] = *p;
+		pDot11f->bands[i][1] = 1;
 	}
 
-	pDot11f->num_bands = j;
 	pDot11f->present = 1;
 
 } /* End populate_dot11f_supp_channels. */
@@ -2096,7 +2157,7 @@ populate_dot11f_supp_rates(struct mac_context *mac,
 /**
  * populate_dot11f_rates_tdls() - populate supported rates and
  *                                extended supported rates IE.
- * @p_mac gloabl - header.
+ * @p_mac global - header.
  * @p_supp_rates - pointer to supported rates IE
  * @p_ext_supp_rates - pointer to extended supported rates IE
  * @curr_oper_channel - current operating channel
@@ -2767,6 +2828,133 @@ static inline void update_bss_color_change_ie_from_probe_rsp(
 		tpSirProbeRespBeacon prb_rsp_struct)
 {}
 #endif
+
+#ifdef WLAN_FEATURE_11BE
+static void
+sir_convert_probe_frame2_eht_struct(tDot11fProbeResponse *pr,
+				    tpSirProbeRespBeacon p_probe_resp)
+{
+	if (pr->eht_cap.present) {
+		qdf_mem_copy(&p_probe_resp->eht_cap, &pr->eht_cap,
+			     sizeof(tDot11fIEeht_cap));
+	}
+}
+#else
+static inline void
+sir_convert_probe_frame2_eht_struct(tDot11fProbeResponse *pr,
+				    tpSirProbeRespBeacon p_probe_resp)
+{
+}
+#endif
+
+#ifdef WLAN_FEATURE_11BE_MLO
+static QDF_STATUS
+sir_convert_probe_frame2_mlo_struct(uint8_t *pframe,
+				    uint32_t nframe,
+				    tDot11fProbeResponse *pr,
+				    tpSirProbeRespBeacon p_probe_resp)
+{
+	uint32_t status;
+	uint8_t *ml_ie;
+	qdf_size_t ml_ie_total_len;
+
+	if (pr->mlo_ie.present) {
+		status = util_find_mlie(pframe + WLAN_PROBE_RESP_IES_OFFSET,
+					nframe - WLAN_PROBE_RESP_IES_OFFSET,
+					&ml_ie, &ml_ie_total_len);
+		if (QDF_IS_STATUS_SUCCESS(status)) {
+			sir_convert_mlo_probe_rsp_frame2_struct(ml_ie,
+							 ml_ie_total_len,
+							 &p_probe_resp->mlo_ie);
+		}
+	}
+
+	return QDF_STATUS_SUCCESS;
+}
+#else
+static inline QDF_STATUS
+sir_convert_probe_frame2_mlo_struct(uint8_t *pframe,
+				    uint32_t nframe,
+				    tDot11fProbeResponse *pr,
+				    tpSirProbeRespBeacon p_probe_resp)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
+#ifdef WLAN_FEATURE_11BE_MLO
+static QDF_STATUS
+sir_convert_probe_frame2_t2lm_struct(tDot11fProbeResponse *pr,
+				     tpSirProbeRespBeacon bcn_struct)
+{
+	QDF_STATUS status = QDF_STATUS_SUCCESS;
+	struct wlan_t2lm_context *t2lm_ctx;
+	/* add 3 bytes for extn_ie_header */
+	uint8_t ie[DOT11F_IE_T2LM_IE_MAX_LEN + 3];
+	struct wlan_t2lm_info t2lm;
+	uint8_t i;
+
+	t2lm_ctx = &bcn_struct->t2lm_ctx;
+	qdf_mem_zero(&t2lm_ctx->established_t2lm.t2lm,
+		     sizeof(struct wlan_t2lm_info));
+	t2lm_ctx->established_t2lm.t2lm.direction = WLAN_T2LM_INVALID_DIRECTION;
+
+	qdf_mem_zero(&t2lm_ctx->upcoming_t2lm.t2lm,
+		     sizeof(struct wlan_t2lm_info));
+	t2lm_ctx->upcoming_t2lm.t2lm.direction = WLAN_T2LM_INVALID_DIRECTION;
+
+	if (!pr->num_t2lm_ie) {
+		pe_debug("T2LM IEs not present");
+		return status;
+	}
+
+	pe_debug("Number of T2LM IEs in probe rsp %d", pr->num_t2lm_ie);
+	for (i = 0; i < pr->num_t2lm_ie; i++) {
+		qdf_mem_zero(&ie[0], DOT11F_IE_T2LM_IE_MAX_LEN + 3);
+		qdf_mem_zero(&t2lm, sizeof(struct wlan_t2lm_info));
+		ie[ID_POS] = WLAN_ELEMID_EXTN_ELEM;
+		ie[TAG_LEN_POS] = pr->t2lm_ie[i].num_data + 1;
+		ie[IDEXT_POS] = WLAN_EXTN_ELEMID_T2LM;
+		qdf_mem_copy(&ie[3], &pr->t2lm_ie[i].data[0],
+			     pr->t2lm_ie[i].num_data);
+
+		qdf_trace_hex_dump(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
+				   &ie[0], pr->t2lm_ie[i].num_data + 3);
+
+		if (ie[TAG_LEN_POS] + 2 > DOT11F_IE_T2LM_IE_MAX_LEN + 3) {
+			pe_debug("Invalid T2LM IE length");
+			return QDF_STATUS_E_PROTO;
+		}
+
+		status = wlan_mlo_parse_t2lm_info(&ie[0], &t2lm);
+		if (QDF_IS_STATUS_ERROR(status)) {
+			pe_debug("Parse T2LM IE fail");
+			return status;
+		}
+
+		if (!t2lm.mapping_switch_time_present &&
+		    t2lm.expected_duration_present) {
+			qdf_mem_copy(&t2lm_ctx->established_t2lm.t2lm, &t2lm,
+				     sizeof(struct wlan_t2lm_info));
+			pe_debug("Parse established T2LM IE success");
+		} else if (t2lm.mapping_switch_time_present) {
+			qdf_mem_copy(&t2lm_ctx->upcoming_t2lm.t2lm, &t2lm,
+				     sizeof(struct wlan_t2lm_info));
+			pe_debug("Parse upcoming T2LM IE success");
+		}
+		pe_debug("Parse T2LM IE success");
+	}
+	return status;
+}
+#else
+static inline QDF_STATUS
+sir_convert_probe_frame2_t2lm_struct(tDot11fProbeResponse *pr,
+				     tpSirProbeRespBeacon bcn_struct)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
 QDF_STATUS sir_convert_probe_frame2_struct(struct mac_context *mac,
 					      uint8_t *pFrame,
 					      uint32_t nFrame,
@@ -3034,67 +3222,76 @@ QDF_STATUS sir_convert_probe_frame2_struct(struct mac_context *mac,
 			     sizeof(tDot11fIEhe_op));
 	}
 
-	if (pr->eht_cap.present) {
-		qdf_mem_copy(&pProbeResp->eht_cap, &pr->eht_cap,
-			     sizeof(tDot11fIEeht_cap));
-	}
-
+	sir_convert_probe_frame2_eht_struct(pr, pProbeResp);
 	update_bss_color_change_ie_from_probe_rsp(pr, pProbeResp);
-	sir_convert_mlo_probe_rsp_frame2_struct(pr, &pProbeResp->mlo_ie);
+	sir_convert_probe_frame2_mlo_struct(pFrame, nFrame, pr, pProbeResp);
+	sir_convert_probe_frame2_t2lm_struct(pr, pProbeResp);
 
 	qdf_mem_free(pr);
 	return QDF_STATUS_SUCCESS;
 
 } /* End sir_convert_probe_frame2_struct. */
 
-#ifdef WLAN_FEATURE_11BE_MLO
-/**
- * dot11f_parse_assc_req_mlo_partner_info() - get mlo partner info in assoc req
- * @pframe: pointer of assoc request buffer
- * @nframe: length of assoc request buffer
- * @assoc_req: pointer to tpSirAssocReq
- * @offset: Offset of (Re)Assoc req IEs
- *
- * Return: none
- */
+#ifdef WLAN_FEATURE_11BE
 static void
-dot11f_parse_assc_req_mlo_partner_info(uint8_t *pframe, uint32_t nframe,
-				       tpSirAssocReq assoc_req, uint32_t offset)
+sir_convert_assoc_req_frame2_eht_struct(tDot11fAssocRequest *ar,
+					tpSirAssocReq p_assoc_req)
 {
-	const uint8_t *mlo_ie;
-
-	mlo_ie = wlan_get_ext_ie_ptr_from_ext_id(MLO_IE_OUI_TYPE,
-						 MLO_IE_OUI_SIZE,
-						 pframe + offset,
-						 nframe - offset);
-	if (!mlo_ie)
-		return;
-	util_get_bvmlie_persta_partner_info((uint8_t *)mlo_ie, mlo_ie[1] + 2,
-					    &assoc_req->mlo_info);
+	if (ar->eht_cap.present)
+		qdf_mem_copy(&p_assoc_req->eht_cap, &ar->eht_cap,
+			     sizeof(tDot11fIEeht_cap));
 }
 #else
-static void
-dot11f_parse_assc_req_mlo_partner_info(uint8_t *pframe, uint32_t nframe,
-				       tpSirAssocReq assoc_req, uint32_t offset)
+static inline void
+sir_convert_assoc_req_frame2_eht_struct(tDot11fAssocRequest *ar,
+					tpSirAssocReq p_assoc_req)
 {
 }
 #endif
 
 #ifdef WLAN_FEATURE_11BE_MLO
-void
-dot11f_parse_assoc_rsp_mlo_partner_info(struct pe_session *session_entry,
-					uint8_t *pframe, uint32_t nframe)
+static QDF_STATUS
+sir_convert_assoc_req_frame2_mlo_struct(uint8_t *pframe,
+					uint32_t nframe,
+					tDot11fAssocRequest *ar,
+					tpSirAssocReq p_assoc_req)
 {
-	const uint8_t *mlo_ie;
+	uint8_t *ml_ie;
+	qdf_size_t ml_ie_total_len;
+	struct qdf_mac_addr mld_mac_addr;
+	uint32_t status;
 
-	mlo_ie = wlan_get_ext_ie_ptr_from_ext_id(
-				MLO_IE_OUI_TYPE, MLO_IE_OUI_SIZE,
-				pframe + WLAN_ASSOC_RSP_IES_OFFSET,
-				nframe - WLAN_ASSOC_RSP_IES_OFFSET);
-	if (!mlo_ie)
-		return;
-	util_get_bvmlie_persta_partner_info((uint8_t *)mlo_ie, mlo_ie[1] + 2,
-					    &session_entry->ml_partner_info);
+	if (ar->mlo_ie.present) {
+		status = util_find_mlie(pframe + WLAN_ASSOC_REQ_IES_OFFSET,
+					nframe - WLAN_ASSOC_REQ_IES_OFFSET,
+					&ml_ie, &ml_ie_total_len);
+
+		if (QDF_IS_STATUS_SUCCESS(status)) {
+			util_get_bvmlie_persta_partner_info(ml_ie,
+							ml_ie_total_len,
+							&p_assoc_req->mlo_info);
+			util_get_bvmlie_mldmacaddr(ml_ie, ml_ie_total_len,
+						   &mld_mac_addr);
+			qdf_mem_copy(p_assoc_req->mld_mac, mld_mac_addr.bytes,
+				     QDF_MAC_ADDR_SIZE);
+			pe_debug("Partner link count: %d, MLD mac addr: " QDF_MAC_ADDR_FMT,
+				 p_assoc_req->mlo_info.num_partner_links,
+				 QDF_MAC_ADDR_REF(p_assoc_req->mld_mac));
+		} else {
+			pe_debug("Do not find mlie");
+		}
+	}
+
+	return QDF_STATUS_SUCCESS;
+}
+#else
+static inline QDF_STATUS
+sir_convert_assoc_req_frame2_mlo_struct(uint8_t *pFrame,
+					uint32_t nFrame,
+					tDot11fAssocRequest *ar,
+					tpSirAssocReq p_assoc_req)
+{
+	return QDF_STATUS_SUCCESS;
 }
 #endif
 
@@ -3120,7 +3317,7 @@ sir_convert_assoc_req_frame2_struct(struct mac_context *mac,
 		qdf_mem_free(ar);
 		return QDF_STATUS_E_FAILURE;
 	} else if (DOT11F_WARNED(status)) {
-		pe_debug("There were warnings while unpacking an Assoication Request (0x%08x, %d bytes):",
+		pe_debug("There were warnings while unpacking an Association Request (0x%08x, %d bytes):",
 			status, nFrame);
 	}
 	/* & "transliterate" from a 'tDot11fAssocRequest' to a 'tSirAssocReq'... */
@@ -3251,13 +3448,11 @@ sir_convert_assoc_req_frame2_struct(struct mac_context *mac,
 	if (ar->VHTCaps.present) {
 		qdf_mem_copy(&pAssocReq->VHTCaps, &ar->VHTCaps,
 			     sizeof(tDot11fIEVHTCaps));
-		pe_debug("Received Assoc Req with VHT Cap");
 		lim_log_vht_cap(mac, &pAssocReq->VHTCaps);
 	}
 	if (ar->OperatingMode.present) {
 		qdf_mem_copy(&pAssocReq->operMode, &ar->OperatingMode,
 			     sizeof(tDot11fIEOperatingMode));
-		pe_debug("Received Assoc Req with Operating Mode IE");
 		lim_log_operating_mode(mac, &pAssocReq->operMode);
 	}
 	if (ar->ExtCap.present) {
@@ -3279,9 +3474,6 @@ sir_convert_assoc_req_frame2_struct(struct mac_context *mac,
 		qdf_mem_copy(&pAssocReq->supp_operating_classes,
 			     &ar->SuppOperatingClasses,
 			     sizeof(tDot11fIESuppOperatingClasses));
-		QDF_TRACE_HEX_DUMP(
-			QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
-			ar->SuppOperatingClasses.classes, num_classes);
 	}
 
 	pAssocReq->vendor_vht_ie.present = ar->vendor_vht_ie.present;
@@ -3291,7 +3483,6 @@ sir_convert_assoc_req_frame2_struct(struct mac_context *mac,
 			qdf_mem_copy(&pAssocReq->vendor_vht_ie.VHTCaps,
 				     &ar->vendor_vht_ie.VHTCaps,
 				     sizeof(tDot11fIEVHTCaps));
-			pe_debug("Received Assoc Request with Vendor specific VHT Cap");
 			lim_log_vht_cap(mac, &pAssocReq->VHTCaps);
 		}
 	}
@@ -3303,41 +3494,24 @@ sir_convert_assoc_req_frame2_struct(struct mac_context *mac,
 			     &ar->bss_max_idle_period,
 			     sizeof(tDot11fIEbss_max_idle_period));
 	}
-	if (ar->he_cap.present) {
+	if (ar->he_cap.present)
 		qdf_mem_copy(&pAssocReq->he_cap, &ar->he_cap,
 			     sizeof(tDot11fIEhe_cap));
-		pe_debug("Received Assoc Req with HE Capability IE");
-		QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
-				   &pAssocReq->he_cap, sizeof(tDot11fIEhe_cap));
-	}
-	if (ar->he_6ghz_band_cap.present) {
+
+	if (ar->he_6ghz_band_cap.present)
 		qdf_mem_copy(&pAssocReq->he_6ghz_band_cap,
 			     &ar->he_6ghz_band_cap,
 			     sizeof(tDot11fIEhe_6ghz_band_cap));
-		pe_debug("Received Assoc Req with HE Band Capability IE");
-	}
-	if (ar->eht_cap.present) {
-		qdf_mem_copy(&pAssocReq->eht_cap, &ar->eht_cap,
-			     sizeof(tDot11fIEeht_cap));
-		pe_debug("Received Assoc Req with EHT Capability IE");
-		QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
-				   &pAssocReq->eht_cap,
-				   sizeof(tDot11fIEeht_cap));
-	}
-	if (ar->mlo_ie.present) {
-		dot11f_parse_assc_req_mlo_partner_info(pFrame, nFrame,
-					pAssocReq, WLAN_ASSOC_REQ_IES_OFFSET);
-		pAssocReq->mlo_info.num_partner_links =
-					ar->mlo_ie.num_sta_profile;
-		qdf_mem_copy(pAssocReq->mld_mac,
-			     ar->mlo_ie.mld_mac_addr.info.mld_mac_addr,
-			     QDF_MAC_ADDR_SIZE);
-		pe_debug("Received Assoc Req with MLO IE");
-		pe_debug("Partner link count: %d, MLD mac addr: " QDF_MAC_ADDR_FMT,
-			 ar->mlo_ie.num_sta_profile,
-			 QDF_MAC_ADDR_REF(
-				ar->mlo_ie.mld_mac_addr.info.mld_mac_addr));
-	}
+
+	sir_convert_assoc_req_frame2_eht_struct(ar, pAssocReq);
+	sir_convert_assoc_req_frame2_mlo_struct(pFrame, nFrame, ar, pAssocReq);
+
+	pe_debug("ht %d vht %d opmode %d vendor vht %d he %d he 6ghband %d eht %d",
+		 ar->HTCaps.present, ar->VHTCaps.present,
+		 ar->OperatingMode.present, ar->vendor_vht_ie.VHTCaps.present,
+		 ar->he_cap.present, ar->he_6ghz_band_cap.present,
+		 ar->eht_cap.present);
+
 	qdf_mem_free(ar);
 	return QDF_STATUS_SUCCESS;
 
@@ -3542,6 +3716,226 @@ QDF_STATUS wlan_parse_ftie_sha384(uint8_t *frame, uint32_t frame_len,
 	return QDF_STATUS_SUCCESS;
 }
 
+#ifdef WLAN_FEATURE_11BE
+static void
+sir_convert_assoc_resp_frame2_eht_struct(tDot11fAssocResponse *ar,
+					 tpSirAssocRsp p_assoc_rsp)
+{
+	if (ar->eht_cap.present)
+		qdf_mem_copy(&p_assoc_rsp->eht_cap, &ar->eht_cap,
+			     sizeof(tDot11fIEeht_cap));
+
+	if (ar->eht_op.present)
+		qdf_mem_copy(&p_assoc_rsp->eht_op, &ar->eht_op,
+			     sizeof(tDot11fIEeht_op));
+}
+#else
+static inline void
+sir_convert_assoc_resp_frame2_eht_struct(tDot11fAssocResponse *ar,
+					 tpSirAssocRsp p_assoc_rsp)
+{
+}
+#endif
+
+#ifdef WLAN_FEATURE_11BE_MLO
+static QDF_STATUS
+sir_convert_assoc_resp_frame2_mlo_struct(struct mac_context *mac,
+					 uint8_t *frame,
+					 uint32_t frame_len,
+					 struct pe_session *session_entry,
+					 tDot11fAssocResponse *ar,
+					 tpSirAssocRsp p_assoc_rsp)
+{
+	uint8_t *ml_ie;
+	qdf_size_t ml_ie_total_len;
+	struct wlan_mlo_ie *ml_ie_info;
+	bool link_id_found;
+	uint8_t link_id;
+	bool eml_cap_found, msd_cap_found;
+	uint16_t eml_cap;
+	uint16_t msd_cap;
+	struct qdf_mac_addr mld_mac_addr;
+	QDF_STATUS status = QDF_STATUS_SUCCESS;
+
+	if (ar->mlo_ie.present) {
+		status = util_find_mlie(frame + WLAN_ASSOC_RSP_IES_OFFSET,
+					frame_len - WLAN_ASSOC_RSP_IES_OFFSET,
+					&ml_ie, &ml_ie_total_len);
+		if (QDF_IS_STATUS_SUCCESS(status)) {
+			ml_ie_info = &p_assoc_rsp->mlo_ie.mlo_ie;
+			util_get_bvmlie_persta_partner_info(ml_ie,
+					       ml_ie_total_len,
+					       &session_entry->ml_partner_info);
+			if (!wlan_cm_is_roam_sync_in_progress(mac->psoc, session_entry->vdev_id)) {
+				session_entry->ml_partner_info.num_partner_links =
+				QDF_MIN(
+				session_entry->ml_partner_info.num_partner_links,
+				session_entry->lim_join_req->partner_info.num_partner_links);
+			}
+			util_get_bvmlie_mldmacaddr(ml_ie, ml_ie_total_len,
+						   &mld_mac_addr);
+			qdf_mem_copy(ml_ie_info->mld_mac_addr,
+				     mld_mac_addr.bytes, QDF_MAC_ADDR_SIZE);
+
+			util_get_mlie_common_info_len(ml_ie, ml_ie_total_len,
+					       &ml_ie_info->common_info_length);
+
+			util_get_bvmlie_primary_linkid(ml_ie, ml_ie_total_len,
+						       &link_id_found,
+						       &link_id);
+			util_get_bvmlie_msd_cap(ml_ie, ml_ie_total_len,
+						&msd_cap_found, &msd_cap);
+			if (msd_cap_found) {
+				ml_ie_info->medium_sync_delay_info_present =
+								msd_cap_found;
+				ml_ie_info->medium_sync_delay_info.medium_sync_duration =
+				  QDF_GET_BITS(
+				     msd_cap,
+				     WLAN_ML_BV_CINFO_MEDMSYNCDELAYINFO_DURATION_IDX,
+				     WLAN_ML_BV_CINFO_MEDMSYNCDELAYINFO_DURATION_BITS);
+				ml_ie_info->medium_sync_delay_info.medium_sync_ofdm_ed_thresh =
+				  QDF_GET_BITS(
+				     msd_cap,
+				     WLAN_ML_BV_CINFO_MEDMSYNCDELAYINFO_OFDMEDTHRESH_IDX,
+				     WLAN_ML_BV_CINFO_MEDMSYNCDELAYINFO_OFDMEDTHRESH_BITS);
+				ml_ie_info->medium_sync_delay_info.medium_sync_max_txop_num =
+				  QDF_GET_BITS(
+				     msd_cap,
+				     WLAN_ML_BV_CINFO_MEDMSYNCDELAYINFO_MAXTXOPS_IDX,
+				     WLAN_ML_BV_CINFO_MEDMSYNCDELAYINFO_MAXTXOPS_BITS);
+			}
+			util_get_bvmlie_eml_cap(ml_ie, ml_ie_total_len,
+						&eml_cap_found, &eml_cap);
+			if (eml_cap_found) {
+				ml_ie_info->eml_capab_present = eml_cap_found;
+				ml_ie_info->eml_capabilities_info.emlsr_support =
+				  QDF_GET_BITS(eml_cap,
+				     WLAN_ML_BV_CINFO_EMLCAP_EMLSRSUPPORT_IDX,
+				     WLAN_ML_BV_CINFO_EMLCAP_EMLSRSUPPORT_BITS);
+				ml_ie_info->eml_capabilities_info.transition_timeout =
+				  QDF_GET_BITS(eml_cap,
+				     WLAN_ML_BV_CINFO_EMLCAP_TRANSTIMEOUT_IDX,
+				     WLAN_ML_BV_CINFO_EMLCAP_TRANSTIMEOUT_BITS);
+			}
+
+			ml_ie_info->num_sta_profile =
+			       session_entry->ml_partner_info.num_partner_links;
+			ml_ie_info->link_id_info_present = link_id_found;
+			ml_ie_info->link_id = link_id;
+			pe_debug("Partner link count: %d, Link id: %d, MLD mac addr: " QDF_MAC_ADDR_FMT,
+				 ml_ie_info->num_sta_profile,
+				 ml_ie_info->link_id,
+				 QDF_MAC_ADDR_REF(ml_ie_info->mld_mac_addr));
+		}
+	}
+	return status;
+}
+
+static QDF_STATUS
+sir_convert_assoc_resp_frame2_t2lm_struct(struct mac_context *mac,
+					  uint8_t *frame,
+					  uint32_t frame_len,
+					  struct pe_session *session_entry,
+					  tDot11fAssocResponse *ar,
+					  tpSirAssocRsp p_assoc_rsp)
+{
+	QDF_STATUS status = QDF_STATUS_SUCCESS;
+	struct wlan_t2lm_context *t2lm_ctx;
+	/* add 3 bytes for extn_ie_header */
+	uint8_t ie[DOT11F_IE_T2LM_IE_MAX_LEN + 3];
+	struct wlan_t2lm_info t2lm;
+	uint8_t i;
+
+	t2lm_ctx = &p_assoc_rsp->t2lm_ctx;
+	qdf_mem_zero(&t2lm_ctx->established_t2lm.t2lm,
+		     sizeof(struct wlan_t2lm_info));
+	t2lm_ctx->established_t2lm.t2lm.direction = WLAN_T2LM_INVALID_DIRECTION;
+
+	qdf_mem_zero(&t2lm_ctx->upcoming_t2lm.t2lm,
+		     sizeof(struct wlan_t2lm_info));
+	t2lm_ctx->upcoming_t2lm.t2lm.direction = WLAN_T2LM_INVALID_DIRECTION;
+
+	if (!ar->num_t2lm_ie) {
+		pe_debug("T2LM IEs not present");
+		return status;
+	}
+
+	pe_debug("Number of T2LM IEs in assoc resp %d", ar->num_t2lm_ie);
+	for (i = 0; i < ar->num_t2lm_ie; i++) {
+		qdf_mem_zero(&ie[0], DOT11F_IE_T2LM_IE_MAX_LEN + 3);
+		qdf_mem_zero(&t2lm, sizeof(struct wlan_t2lm_info));
+		ie[ID_POS] = WLAN_ELEMID_EXTN_ELEM;
+		ie[TAG_LEN_POS] = ar->t2lm_ie[i].num_data + 1;
+		ie[IDEXT_POS] = WLAN_EXTN_ELEMID_T2LM;
+		qdf_mem_copy(&ie[3], &ar->t2lm_ie[i].data[0],
+			     ar->t2lm_ie[i].num_data);
+		qdf_trace_hex_dump(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
+				   &ie[0], ar->t2lm_ie[i].num_data + 3);
+
+		if (ie[TAG_LEN_POS] + 2 > DOT11F_IE_T2LM_IE_MAX_LEN + 3) {
+			pe_debug("Invalid T2LM IE length");
+			return QDF_STATUS_E_PROTO;
+		}
+
+		status = wlan_mlo_parse_t2lm_info(&ie[0], &t2lm);
+		if (QDF_IS_STATUS_ERROR(status)) {
+			pe_debug("Parse T2LM IE fail");
+			return status;
+		}
+
+		if (!t2lm.mapping_switch_time_present &&
+		    t2lm.expected_duration_present) {
+			qdf_mem_copy(&t2lm_ctx->established_t2lm.t2lm, &t2lm,
+				     sizeof(struct wlan_t2lm_info));
+			pe_debug("Parse established T2LM IE success");
+		} else if (t2lm.mapping_switch_time_present) {
+			qdf_mem_copy(&t2lm_ctx->upcoming_t2lm.t2lm, &t2lm,
+				     sizeof(struct wlan_t2lm_info));
+			pe_debug("Parse upcoming T2LM IE success");
+		}
+		pe_debug("Parse T2LM IE success");
+	}
+	return status;
+}
+
+#else
+static inline QDF_STATUS
+sir_convert_assoc_resp_frame2_mlo_struct(struct mac_context *mac,
+					 uint8_t *frame,
+					 uint32_t frame_len,
+					 struct pe_session *session_entry,
+					 tDot11fAssocResponse *ar,
+					 tpSirAssocRsp p_assoc_rsp)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline QDF_STATUS
+sir_convert_assoc_resp_frame2_t2lm_struct(struct mac_context *mac,
+					  uint8_t *frame,
+					  uint32_t frame_len,
+					  struct pe_session *session_entry,
+					  tDot11fAssocResponse *ar,
+					  tpSirAssocRsp p_assoc_rsp)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+#ifdef WLAN_FEATURE_SR
+static void sir_convert_assoc_resp_frame2_sr(tpSirAssocRsp pAssocRsp,
+					     tDot11fAssocResponse *ar)
+{
+	if (ar->spatial_reuse.present)
+		qdf_mem_copy(&pAssocRsp->srp_ie, &ar->spatial_reuse,
+			     sizeof(tDot11fIEspatial_reuse));
+}
+#else
+static inline void sir_convert_assoc_resp_frame2_sr(tpSirAssocRsp pAssocRsp,
+						    tDot11fAssocResponse *ar)
+{
+}
+#endif
+
 QDF_STATUS
 sir_convert_assoc_resp_frame2_struct(struct mac_context *mac,
 				     struct pe_session *session_entry,
@@ -3569,7 +3963,7 @@ sir_convert_assoc_resp_frame2_struct(struct mac_context *mac,
 	/*
 	 * decrypt the cipher text using AEAD decryption, if association
 	 * response status code is successful, else the don't do AEAD decryption
-	 * since AP doesn't inlude FILS session IE when association reject is
+	 * since AP doesn't include FILS session IE when association reject is
 	 * sent
 	 */
 	if (lim_is_fils_connection(session_entry) && !status_code) {
@@ -3643,21 +4037,16 @@ sir_convert_assoc_resp_frame2_struct(struct mac_context *mac,
 	if (ar->WMMParams.present) {
 		pAssocRsp->wmeEdcaPresent = 1;
 		convert_wmm_params(mac, &pAssocRsp->edca, &ar->WMMParams);
-		pe_debug("Received Assoc Resp with WMM Param");
-		__print_wmm_params(mac, &ar->WMMParams);
 	}
 
-	if (ar->HTCaps.present) {
-		pe_debug("Received Assoc Resp with HT Cap");
+	if (ar->HTCaps.present)
 		qdf_mem_copy(&pAssocRsp->HTCaps, &ar->HTCaps,
 			     sizeof(tDot11fIEHTCaps));
-	}
 
-	if (ar->HTInfo.present) {
-		pe_debug("Received Assoc Resp with HT Info");
+	if (ar->HTInfo.present)
 		qdf_mem_copy(&pAssocRsp->HTInfo, &ar->HTInfo,
 			     sizeof(tDot11fIEHTInfo));
-	}
+
 	if (ar->RRMEnabledCap.present) {
 		qdf_mem_copy(&pAssocRsp->rrm_caps, &ar->RRMEnabledCap,
 			     sizeof(tDot11fIERRMEnabledCap));
@@ -3741,24 +4130,19 @@ sir_convert_assoc_resp_frame2_struct(struct mac_context *mac,
 				sizeof(struct ese_tsm_ie));
 	}
 #endif
-	if (ar->bss_max_idle_period.present) {
+	if (ar->bss_max_idle_period.present)
 		qdf_mem_copy(&pAssocRsp->bss_max_idle_period,
 			     &ar->bss_max_idle_period,
 			     sizeof(tDot11fIEbss_max_idle_period));
-		pe_debug("Rcvd Assoc Rsp with BSS max idle period %d",
-			 pAssocRsp->bss_max_idle_period.max_idle_period);
-	}
 
 	if (ar->VHTCaps.present) {
 		qdf_mem_copy(&pAssocRsp->VHTCaps, &ar->VHTCaps,
 			     sizeof(tDot11fIEVHTCaps));
-		pe_debug("Received Assoc Response with VHT Cap");
 		lim_log_vht_cap(mac, &pAssocRsp->VHTCaps);
 	}
 	if (ar->VHTOperation.present) {
 		qdf_mem_copy(&pAssocRsp->VHTOperation, &ar->VHTOperation,
 			     sizeof(tDot11fIEVHTOperation));
-		pe_debug("Received Assoc Response with VHT Operation");
 		lim_log_vht_operation(mac, &pAssocRsp->VHTOperation);
 	}
 
@@ -3777,11 +4161,11 @@ sir_convert_assoc_resp_frame2_struct(struct mac_context *mac,
 		qdf_mem_copy(&pAssocRsp->oper_mode_ntf, &ar->OperatingMode,
 			     sizeof(tDot11fIEOperatingMode));
 	}
+
 	if (ar->QosMapSet.present) {
 		pAssocRsp->QosMapSet.present = 1;
 		convert_qos_mapset_frame(mac, &pAssocRsp->QosMapSet,
 					 &ar->QosMapSet);
-		pe_debug("Received Assoc Response with Qos Map Set");
 		lim_log_qos_map_set(mac, &pAssocRsp->QosMapSet);
 	}
 
@@ -3797,14 +4181,12 @@ sir_convert_assoc_resp_frame2_struct(struct mac_context *mac,
 		qdf_mem_copy(&pAssocRsp->vendor_vht_ie.VHTCaps,
 				&ar->vendor_vht_ie.VHTCaps,
 				sizeof(tDot11fIEVHTCaps));
-		pe_debug("Received Assoc Response with Vendor specific VHT Cap");
 		lim_log_vht_cap(mac, &pAssocRsp->VHTCaps);
 	}
 	if (ar->vendor_vht_ie.VHTOperation.present) {
 		qdf_mem_copy(&pAssocRsp->vendor_vht_ie.VHTOperation,
 				&ar->vendor_vht_ie.VHTOperation,
 				sizeof(tDot11fIEVHTOperation));
-		pe_debug("Received Assoc Response with Vendor specific VHT Oper");
 		lim_log_vht_operation(mac, &pAssocRsp->VHTOperation);
 	}
 
@@ -3815,78 +4197,113 @@ sir_convert_assoc_resp_frame2_struct(struct mac_context *mac,
 		qdf_mem_copy(&pAssocRsp->he_cap, &ar->he_cap,
 			     sizeof(tDot11fIEhe_cap));
 	}
-	if (ar->he_op.present) {
+	if (ar->he_op.present)
 		qdf_mem_copy(&pAssocRsp->he_op, &ar->he_op,
 			     sizeof(tDot11fIEhe_op));
-		pe_debug("bss_clr %d def_pe %d part_bss_clr %d bss_col_dis %d",
-				pAssocRsp->he_op.bss_color,
-				pAssocRsp->he_op.default_pe,
-				pAssocRsp->he_op.partial_bss_col,
-				pAssocRsp->he_op.bss_col_disabled);
-	}
 
-	if (ar->eht_cap.present) {
-		qdf_mem_copy(&pAssocRsp->eht_cap, &ar->eht_cap,
-			     sizeof(tDot11fIEeht_cap));
-		pe_debug("Received Assoc Response with EHT Cap");
-		pe_debug("320MHz support: %d",
-			 pAssocRsp->eht_cap.support_320mhz_6ghz);
-	}
+	sir_convert_assoc_resp_frame2_sr(pAssocRsp, ar);
 
-	if (ar->eht_op.present)
-		qdf_mem_copy(&pAssocRsp->eht_op, &ar->eht_op,
-			     sizeof(tDot11fIEeht_op));
-
-	if (ar->he_6ghz_band_cap.present) {
-		pe_debug("11AX: HE Band Capability IE present");
+	if (ar->he_6ghz_band_cap.present)
 		qdf_mem_copy(&pAssocRsp->he_6ghz_band_cap,
 			     &ar->he_6ghz_band_cap,
 			     sizeof(tDot11fIEhe_6ghz_band_cap));
-	}
 
 	if (ar->mu_edca_param_set.present) {
-		pe_debug("11AX: HE MU EDCA param IE present");
 		pAssocRsp->mu_edca_present = true;
 		convert_mu_edca_param(mac, &pAssocRsp->mu_edca,
 				&ar->mu_edca_param_set);
 	}
 
-	if (ar->MBO_IE.present && ar->MBO_IE.rssi_assoc_rej.present) {
+	if (ar->MBO_IE.present && ar->MBO_IE.rssi_assoc_rej.present)
 		qdf_mem_copy(&pAssocRsp->rssi_assoc_rej,
-				&ar->MBO_IE.rssi_assoc_rej,
-				sizeof(tDot11fTLVrssi_assoc_rej));
-		pe_debug("Received Assoc Response with rssi based assoc rej");
-	}
+			     &ar->MBO_IE.rssi_assoc_rej,
+			     sizeof(tDot11fTLVrssi_assoc_rej));
 
+	sir_convert_assoc_resp_frame2_eht_struct(ar, pAssocRsp);
 	fils_convert_assoc_rsp_frame2_struct(ar, pAssocRsp);
-	if (ar->mlo_ie.present) {
-		dot11f_parse_assoc_rsp_mlo_partner_info(session_entry,
-							frame, frame_len);
-		pAssocRsp->mlo_ie.mlo_ie.present = ar->mlo_ie.present;
-		pAssocRsp->mlo_ie.mlo_ie.mld_mac_addr_present =
-					ar->mlo_ie.mld_mac_addr_present;
-		qdf_mem_copy(
-		&pAssocRsp->mlo_ie.mlo_ie.mld_mac_addr.info.mld_mac_addr,
-		&ar->mlo_ie.mld_mac_addr.info.mld_mac_addr, QDF_MAC_ADDR_SIZE);
+	sir_convert_assoc_resp_frame2_mlo_struct(mac, frame, frame_len,
+						 session_entry, ar, pAssocRsp);
+	sir_convert_assoc_resp_frame2_t2lm_struct(mac, frame, frame_len,
+						  session_entry, ar, pAssocRsp);
+	pe_debug("ht %d vht %d vendor vht: cap %d op %d, he %d he 6ghband %d eht %d eht320 %d, max idle: present %d val %d, he mu edca %d wmm %d qos %d",
+		 ar->HTCaps.present, ar->VHTCaps.present,
+		 ar->vendor_vht_ie.VHTCaps.present,
+		 ar->vendor_vht_ie.VHTOperation.present, ar->he_cap.present,
+		 ar->he_6ghz_band_cap.present, ar->eht_cap.present,
+		 pAssocRsp->eht_cap.support_320mhz_6ghz,
+		 ar->bss_max_idle_period.present,
+		 pAssocRsp->bss_max_idle_period.max_idle_period,
+		 ar->mu_edca_param_set.present, ar->WMMParams.present,
+		 ar->QosMapSet.present);
 
-		pAssocRsp->mlo_ie.mlo_ie.link_id_info_present =
-					ar->mlo_ie.link_id_info_present;
-		pAssocRsp->mlo_ie.mlo_ie.link_id_info.info.link_id =
-					ar->mlo_ie.link_id_info.info.link_id;
-		pAssocRsp->mlo_ie.mlo_ie.num_sta_profile =
-					ar->mlo_ie.num_sta_profile;
-		pe_debug("Received Assoc Response with MLO IE");
-		pe_debug("Partner link count: %d, Link id: %d, MLD mac addr: " QDF_MAC_ADDR_FMT,
-			 ar->mlo_ie.num_sta_profile,
-			 ar->mlo_ie.link_id_info.info.link_id,
-			 QDF_MAC_ADDR_REF(
-				ar->mlo_ie.mld_mac_addr.info.mld_mac_addr));
-	}
+	if (ar->WMMParams.present)
+		__print_wmm_params(mac, &ar->WMMParams);
 
 	qdf_mem_free(ar);
 	return QDF_STATUS_SUCCESS;
 } /* End sir_convert_assoc_resp_frame2_struct. */
 
+#ifdef WLAN_FEATURE_11BE
+static void
+sir_convert_reassoc_req_frame2_eht_struct(tDot11fReAssocRequest *ar,
+					  tpSirAssocReq p_assoc_req)
+{
+	if (ar->eht_cap.present) {
+		qdf_mem_copy(&p_assoc_req->eht_cap, &ar->eht_cap,
+			     sizeof(tDot11fIEeht_cap));
+		pe_debug("Received Assoc Req with EHT Capability IE");
+		QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
+				   &p_assoc_req->eht_cap,
+				   sizeof(tDot11fIEeht_cap));
+	}
+}
+#else
+static inline void
+sir_convert_reassoc_req_frame2_eht_struct(tDot11fReAssocRequest *ar,
+					  tpSirAssocReq p_assoc_req)
+{
+}
+#endif
+
+#ifdef WLAN_FEATURE_11BE_MLO
+static QDF_STATUS
+sir_convert_reassoc_req_frame2_mlo_struct(uint8_t *pframe, uint32_t nframe,
+					  tDot11fReAssocRequest *ar,
+					  tpSirAssocReq p_assoc_req)
+{
+	uint8_t *ml_ie;
+	qdf_size_t ml_ie_total_len;
+	struct qdf_mac_addr mld_mac_addr;
+	uint32_t status = QDF_STATUS_SUCCESS;
+
+	if (ar->mlo_ie.present) {
+		status = util_find_mlie(pframe + WLAN_REASSOC_REQ_IES_OFFSET,
+					nframe - WLAN_ASSOC_REQ_IES_OFFSET,
+					&ml_ie, &ml_ie_total_len);
+		if (QDF_IS_STATUS_SUCCESS(status)) {
+			util_get_bvmlie_persta_partner_info(ml_ie,
+							ml_ie_total_len,
+							&p_assoc_req->mlo_info);
+
+			util_get_bvmlie_mldmacaddr(ml_ie, ml_ie_total_len,
+						   &mld_mac_addr);
+			qdf_mem_copy(p_assoc_req->mld_mac, mld_mac_addr.bytes,
+				     QDF_MAC_ADDR_SIZE);
+		} else {
+			pe_debug("Do not find ml ie");
+		}
+	}
+	return status;
+}
+#else
+static QDF_STATUS
+sir_convert_reassoc_req_frame2_mlo_struct(uint8_t *pframe, uint32_t nframe,
+					  tDot11fReAssocRequest *ar,
+					  tpSirAssocReq p_assoc_req)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
 QDF_STATUS
 sir_convert_reassoc_req_frame2_struct(struct mac_context *mac,
 				      uint8_t *pFrame,
@@ -4076,24 +4493,9 @@ sir_convert_reassoc_req_frame2_struct(struct mac_context *mac,
 			     sizeof(tDot11fIEhe_6ghz_band_cap));
 	}
 
-	if (ar->eht_cap.present) {
-		qdf_mem_copy(&pAssocReq->eht_cap, &ar->eht_cap,
-			     sizeof(tDot11fIEeht_cap));
-		pe_debug("Received Assoc Req with EHT Capability IE");
-		QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
-				   &pAssocReq->eht_cap,
-				   sizeof(tDot11fIEeht_cap));
-	}
-	if (ar->mlo_ie.present) {
-		dot11f_parse_assc_req_mlo_partner_info(pFrame, nFrame,
-					pAssocReq, WLAN_REASSOC_REQ_IES_OFFSET);
-		pAssocReq->mlo_info.num_partner_links =
-					ar->mlo_ie.num_sta_profile;
-		qdf_mem_copy(pAssocReq->mld_mac,
-			     ar->mlo_ie.mld_mac_addr.info.mld_mac_addr,
-			     QDF_MAC_ADDR_SIZE);
-	}
-
+	sir_convert_reassoc_req_frame2_eht_struct(ar, pAssocReq);
+	sir_convert_reassoc_req_frame2_mlo_struct(pFrame, nFrame,
+						  ar, pAssocReq);
 	qdf_mem_free(ar);
 
 	return QDF_STATUS_SUCCESS;
@@ -4115,7 +4517,9 @@ sir_beacon_ie_ese_bcn_report(struct mac_context *mac,
 	   for Bcn report mandatory Ies */
 	uint16_t numBytes = 0, freeBytes = 0;
 	uint8_t *pos = NULL;
+	uint32_t freq;
 
+	freq = WMA_GET_RX_FREQ(pPayload);
 	/* Zero-init our [out] parameter, */
 	qdf_mem_zero((uint8_t *) &eseBcnReportMandatoryIe,
 		    sizeof(eseBcnReportMandatoryIe));
@@ -4136,6 +4540,29 @@ sir_beacon_ie_ese_bcn_report(struct mac_context *mac,
 		pe_debug("There were warnings while unpacking Beacon IEs (0x%08x, %d bytes):",
 			status, nPayload);
 	}
+
+	status = lim_strip_and_decode_eht_op(pPayload + WLAN_BEACON_IES_OFFSET,
+					     nPayload - WLAN_BEACON_IES_OFFSET,
+					     &pBies->eht_op,
+					     pBies->VHTOperation,
+					     pBies->he_op,
+					     pBies->HTInfo);
+	if (status != QDF_STATUS_SUCCESS) {
+		pe_err("Failed to extract eht op");
+		qdf_mem_free(pBies);
+		return status;
+	}
+
+	status = lim_strip_and_decode_eht_cap(pPayload + WLAN_BEACON_IES_OFFSET,
+					      nPayload - WLAN_BEACON_IES_OFFSET,
+					      &pBies->eht_cap, pBies->he_cap,
+					      freq, false);
+	if (status != QDF_STATUS_SUCCESS) {
+		pe_err("Failed to extract eht cap");
+		qdf_mem_free(pBies);
+		return status;
+	}
+
 	/* & "transliterate" from a 'tDot11fBeaconIEs' to a 'eseBcnReportMandatoryIe'... */
 	if (!pBies->SSID.present) {
 		pe_debug("Mandatory IE SSID not present!");
@@ -4375,14 +4802,15 @@ static inline void update_bss_color_change_from_beacon_ies(
 {}
 #endif
 
-QDF_STATUS
-sir_parse_beacon_ie(struct mac_context *mac,
-		    tpSirProbeRespBeacon pBeaconStruct,
-		    uint8_t *pPayload, uint32_t nPayload)
+QDF_STATUS sir_parse_beacon_ie(struct mac_context *mac,
+			       tpSirProbeRespBeacon pBeaconStruct,
+			       uint8_t *pPayload, uint32_t nPayload)
 {
 	tDot11fBeaconIEs *pBies;
 	uint32_t status;
+	uint32_t freq;
 
+	freq = WMA_GET_RX_FREQ(pPayload);
 	/* Zero-init our [out] parameter, */
 	qdf_mem_zero((uint8_t *) pBeaconStruct, sizeof(tSirProbeRespBeacon));
 
@@ -4404,6 +4832,28 @@ sir_parse_beacon_ie(struct mac_context *mac,
 	} else if (DOT11F_WARNED(status)) {
 		pe_debug("warnings (0x%08x, %d bytes):", status, nPayload);
 	}
+
+	status = lim_strip_and_decode_eht_op(pPayload,
+					     nPayload,
+					     &pBies->eht_op,
+					     pBies->VHTOperation,
+					     pBies->he_op,
+					     pBies->HTInfo);
+	if (status != QDF_STATUS_SUCCESS) {
+		pe_err("Failed to extract eht op");
+		qdf_mem_free(pBies);
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	status = lim_strip_and_decode_eht_cap(pPayload, nPayload,
+					      &pBies->eht_cap, pBies->he_cap,
+					      freq, false);
+	if (status != QDF_STATUS_SUCCESS) {
+		pe_err("Failed to extract eht cap");
+		qdf_mem_free(pBies);
+		return QDF_STATUS_E_FAILURE;
+	}
+
 	/* & "transliterate" from a 'tDot11fBeaconIEs' to a 'tSirProbeRespBeacon'... */
 	if (!pBies->SSID.present) {
 		pe_debug("Mandatory IE SSID not present!");
@@ -4667,6 +5117,10 @@ sir_parse_beacon_ie(struct mac_context *mac,
 		qdf_mem_copy(&pBeaconStruct->eht_cap, &pBies->eht_cap,
 			     sizeof(tDot11fIEeht_cap));
 	}
+	if (pBies->eht_op.present) {
+		qdf_mem_copy(&pBeaconStruct->eht_op, &pBies->eht_op,
+			    sizeof(tDot11fIEeht_op));
+	}
 
 	update_bss_color_change_from_beacon_ies(pBies, pBeaconStruct);
 
@@ -4691,19 +5145,164 @@ static inline void convert_bcon_bss_color_change_ie(tDot11fBeacon *bcn_frm,
 {}
 #endif
 
-QDF_STATUS
-sir_convert_beacon_frame2_struct(struct mac_context *mac,
-				 uint8_t *pFrame,
-				 tpSirProbeRespBeacon pBeaconStruct)
+#ifdef WLAN_FEATURE_SR
+static void sir_convert_beacon_frame2_sr_struct(tDot11fBeacon *bcn_frm,
+						tpSirProbeRespBeacon bcn_struct)
+{
+	if (bcn_frm->spatial_reuse.present)
+		qdf_mem_copy(&bcn_struct->srp_ie, &bcn_frm->spatial_reuse,
+			     sizeof(tDot11fIEspatial_reuse));
+}
+#else
+static inline void
+sir_convert_beacon_frame2_sr_struct(tDot11fBeacon *bcn_frm,
+				    tpSirProbeRespBeacon bcn_struct)
+{
+}
+#endif
+
+#ifdef WLAN_FEATURE_11BE_MLO
+static QDF_STATUS
+sir_convert_beacon_frame2_t2lm_struct(tDot11fBeacon *bcn_frm,
+				      tpSirProbeRespBeacon bcn_struct)
+{
+	QDF_STATUS status = QDF_STATUS_SUCCESS;
+	struct wlan_t2lm_context *t2lm_ctx;
+	/* add 3 bytes for extn_ie_header */
+	uint8_t ie[DOT11F_IE_T2LM_IE_MAX_LEN + 3];
+	struct wlan_t2lm_info t2lm;
+	uint8_t i;
+
+	t2lm_ctx = &bcn_struct->t2lm_ctx;
+	qdf_mem_zero(&t2lm_ctx->established_t2lm.t2lm,
+		     sizeof(struct wlan_t2lm_info));
+	t2lm_ctx->established_t2lm.t2lm.direction = WLAN_T2LM_INVALID_DIRECTION;
+
+	qdf_mem_zero(&t2lm_ctx->upcoming_t2lm.t2lm,
+		     sizeof(struct wlan_t2lm_info));
+	t2lm_ctx->upcoming_t2lm.t2lm.direction = WLAN_T2LM_INVALID_DIRECTION;
+
+	if (!bcn_frm->num_t2lm_ie)
+		return status;
+
+	pe_debug("Number of T2LM IEs in beacon %d", bcn_frm->num_t2lm_ie);
+	for (i = 0; i < bcn_frm->num_t2lm_ie; i++) {
+		qdf_mem_zero(&ie[0], DOT11F_IE_T2LM_IE_MAX_LEN + 3);
+		qdf_mem_zero(&t2lm, sizeof(struct wlan_t2lm_info));
+		ie[ID_POS] = WLAN_ELEMID_EXTN_ELEM;
+		ie[TAG_LEN_POS] = bcn_frm->t2lm_ie[i].num_data + 1;
+		ie[IDEXT_POS] = WLAN_EXTN_ELEMID_T2LM;
+		qdf_mem_copy(&ie[3], &bcn_frm->t2lm_ie[i].data[0],
+			     bcn_frm->t2lm_ie[i].num_data);
+		qdf_trace_hex_dump(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
+				   &ie[0], bcn_frm->t2lm_ie[i].num_data + 3);
+
+		if (ie[TAG_LEN_POS] + 2 > DOT11F_IE_T2LM_IE_MAX_LEN + 3) {
+			pe_debug("Invalid T2LM IE length");
+			return QDF_STATUS_E_PROTO;
+		}
+
+		status = wlan_mlo_parse_t2lm_info(&ie[0], &t2lm);
+		if (QDF_IS_STATUS_ERROR(status)) {
+			pe_debug("Parse T2LM IE fail");
+			return status;
+		}
+
+		if (!t2lm.mapping_switch_time_present &&
+		    t2lm.expected_duration_present) {
+			qdf_mem_copy(&t2lm_ctx->established_t2lm.t2lm, &t2lm,
+				     sizeof(struct wlan_t2lm_info));
+			pe_debug("Parse established T2LM IE success");
+		} else if (t2lm.mapping_switch_time_present) {
+			qdf_mem_copy(&t2lm_ctx->upcoming_t2lm.t2lm, &t2lm,
+				     sizeof(struct wlan_t2lm_info));
+			pe_debug("Parse upcoming T2LM IE success");
+		}
+		pe_debug("Parse T2LM IE success");
+	}
+	return status;
+}
+#else
+static inline QDF_STATUS
+sir_convert_beacon_frame2_t2lm_struct(tDot11fBeacon *bcn_frm,
+				      tpSirProbeRespBeacon bcn_struct)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
+#ifdef WLAN_FEATURE_11BE_MLO
+static QDF_STATUS
+sir_convert_beacon_frame2_mlo_struct(uint8_t *pframe, uint32_t nframe,
+				     tDot11fBeacon *bcn_frm,
+				     tpSirProbeRespBeacon bcn_struct)
+{
+	uint8_t *ml_ie, *sta_prof;
+	qdf_size_t ml_ie_total_len;
+	uint8_t common_info_len = 0;
+	struct mlo_partner_info partner_info;
+	QDF_STATUS status = QDF_STATUS_SUCCESS;
+	uint8_t bpcc;
+	bool bpcc_found;
+
+	if (bcn_frm->mlo_ie.present) {
+		status = util_find_mlie(pframe + WLAN_BEACON_IES_OFFSET,
+					nframe - WLAN_BEACON_IES_OFFSET,
+					&ml_ie, &ml_ie_total_len);
+		if (QDF_IS_STATUS_SUCCESS(status)) {
+			status = util_get_bvmlie_persta_partner_info(
+								ml_ie,
+								ml_ie_total_len,
+								&partner_info);
+			if (QDF_IS_STATUS_ERROR(status))
+				return status;
+			bcn_struct->mlo_ie.mlo_ie.num_sta_profile =
+						partner_info.num_partner_links;
+			util_get_mlie_common_info_len(ml_ie, ml_ie_total_len,
+						      &common_info_len);
+			sta_prof = ml_ie + sizeof(struct wlan_ie_multilink) +
+				   common_info_len;
+
+			lim_store_mlo_ie_raw_info(ml_ie, sta_prof,
+						  ml_ie_total_len,
+						  &bcn_struct->mlo_ie.mlo_ie);
+
+			util_get_bvmlie_bssparamchangecnt(ml_ie,
+							  ml_ie_total_len,
+							  &bpcc_found, &bpcc);
+			bcn_struct->mlo_ie.mlo_ie.bss_param_change_cnt_present =
+						bpcc_found;
+			bcn_struct->mlo_ie.mlo_ie.bss_param_change_count = bpcc;
+			bcn_struct->mlo_ie.mlo_ie_present = true;
+		}
+	}
+
+	return status;
+}
+#else
+static inline QDF_STATUS
+sir_convert_beacon_frame2_mlo_struct(uint8_t *pframe, uint32_t nframe,
+				     tDot11fBeacon *bcn_frm,
+				     tpSirProbeRespBeacon bcn_struct)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
+QDF_STATUS sir_convert_beacon_frame2_struct(struct mac_context *mac,
+					    uint8_t *pFrame,
+					    tpSirProbeRespBeacon pBeaconStruct)
 {
 	tDot11fBeacon *pBeacon;
 	uint32_t status, nPayload;
 	uint8_t *pPayload;
 	tpSirMacMgmtHdr pHdr;
+	uint32_t freq;
 
 	pPayload = WMA_GET_RX_MPDU_DATA(pFrame);
 	nPayload = WMA_GET_RX_PAYLOAD_LEN(pFrame);
 	pHdr = WMA_GET_RX_MAC_HEADER(pFrame);
+	freq = WMA_GET_RX_FREQ(pFrame);
 
 	/* Zero-init our [out] parameter, */
 	qdf_mem_zero((uint8_t *) pBeaconStruct, sizeof(tSirProbeRespBeacon));
@@ -4725,6 +5324,29 @@ sir_convert_beacon_frame2_struct(struct mac_context *mac,
 		qdf_mem_free(pBeacon);
 		return QDF_STATUS_E_FAILURE;
 	}
+
+	status = lim_strip_and_decode_eht_op(pPayload + WLAN_BEACON_IES_OFFSET,
+					     nPayload - WLAN_BEACON_IES_OFFSET,
+					     &pBeacon->eht_op,
+					     pBeacon->VHTOperation,
+					     pBeacon->he_op,
+					     pBeacon->HTInfo);
+	if (status != QDF_STATUS_SUCCESS) {
+		pe_err("Failed to extract eht op");
+		qdf_mem_free(pBeacon);
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	status = lim_strip_and_decode_eht_cap(pPayload + WLAN_BEACON_IES_OFFSET,
+					      nPayload - WLAN_BEACON_IES_OFFSET,
+					      &pBeacon->eht_cap,
+					      pBeacon->he_cap, freq, false);
+	if (status != QDF_STATUS_SUCCESS) {
+		pe_err("Failed to extract eht cap");
+		qdf_mem_free(pBeacon);
+		return QDF_STATUS_E_FAILURE;
+	}
+
 	/* & "transliterate" from a 'tDot11fBeacon' to a 'tSirProbeRespBeacon'... */
 	/* Timestamp */
 	qdf_mem_copy((uint8_t *) pBeaconStruct->timeStamp,
@@ -4923,7 +5545,6 @@ sir_convert_beacon_frame2_struct(struct mac_context *mac,
 								     MobilityDomain.
 								     resourceReqCap
 								     << 1));
-
 	}
 
 #ifdef FEATURE_WLAN_ESE
@@ -5040,6 +5661,13 @@ sir_convert_beacon_frame2_struct(struct mac_context *mac,
 			     sizeof(tDot11fIEhe_op));
 	}
 
+	if (pBeacon->eht_cap.present)
+		qdf_mem_copy(&pBeaconStruct->eht_cap, &pBeacon->eht_cap,
+			     sizeof(tDot11fIEeht_cap));
+	if (pBeacon->eht_op.present)
+		qdf_mem_copy(&pBeaconStruct->eht_op, &pBeacon->eht_op,
+			    sizeof(tDot11fIEeht_op));
+
 	pBeaconStruct->num_transmit_power_env = pBeacon->num_transmit_power_env;
 	if (pBeacon->num_transmit_power_env) {
 		qdf_mem_copy(pBeaconStruct->transmit_power_env,
@@ -5049,6 +5677,10 @@ sir_convert_beacon_frame2_struct(struct mac_context *mac,
 	}
 
 	convert_bcon_bss_color_change_ie(pBeacon, pBeaconStruct);
+	sir_convert_beacon_frame2_mlo_struct(pPayload, nPayload, pBeacon,
+					     pBeaconStruct);
+	sir_convert_beacon_frame2_t2lm_struct(pBeacon, pBeaconStruct);
+	sir_convert_beacon_frame2_sr_struct(pBeacon, pBeaconStruct);
 
 	qdf_mem_free(pBeacon);
 	return QDF_STATUS_SUCCESS;
@@ -5205,6 +5837,16 @@ sir_convert_auth_frame2_struct(struct mac_context *mac,
 
 	/* Copy MLO IE presence flag to pAuth in case of ML connection */
 	pAuth->is_mlo_ie_present = auth.mlo_ie.present;
+	/* The minimum length is set to 9 based on below calculation
+	 * Multi-Link Control Field => 2 Bytes
+	 * Minimum CInfo Field => CInfo Length (1 Byte) + MLD Addr (6 Bytes)
+	 * min_len = 2 + 1 + 6
+	 * MLD Offset = min_len - (2 + 1)
+	 */
+	if (pAuth->is_mlo_ie_present && auth.mlo_ie.num_data >= 9) {
+		qdf_copy_macaddr(&pAuth->peer_mld,
+				 (struct qdf_mac_addr *)(auth.mlo_ie.data + 3));
+	}
 
 	sir_update_auth_frame2_struct_fils_conf(&auth, pAuth);
 
@@ -5522,7 +6164,7 @@ sir_convert_tpc_req_frame2_struct(struct mac_context *mac,
 		pTpcReqFrame->type = DOT11F_EID_TPCREQUEST;
 		pTpcReqFrame->length = 0;
 	} else {
-		pe_warn("!!!Rcv TPC Req of inalid type!");
+		pe_warn("!!!Rcv TPC Req of invalid type!");
 		return QDF_STATUS_E_FAILURE;
 	}
 	return QDF_STATUS_SUCCESS;
@@ -5637,21 +6279,21 @@ void
 populate_dot11f_mscs_dec_element(struct mscs_req_info *mscs_req,
 				 tDot11fmscs_request_action_frame *dot11f)
 {
-	dot11f->decriptor_element.request_type =
+	dot11f->descriptor_element.request_type =
 			mscs_req->dec.request_type;
-	dot11f->decriptor_element.user_priority_control =
+	dot11f->descriptor_element.user_priority_control =
 			mscs_req->dec.user_priority_control;
-	dot11f->decriptor_element.stream_timeout =
+	dot11f->descriptor_element.stream_timeout =
 			mscs_req->dec.stream_timeout;
-	dot11f->decriptor_element.tclas_mask.classifier_type =
+	dot11f->descriptor_element.tclas_mask.classifier_type =
 			mscs_req->dec.tclas_mask.classifier_type;
-	dot11f->decriptor_element.tclas_mask.classifier_mask =
+	dot11f->descriptor_element.tclas_mask.classifier_mask =
 			mscs_req->dec.tclas_mask.classifier_mask;
 
-	dot11f->decriptor_element.present = 1;
-	dot11f->decriptor_element.tclas_mask.present = 1;
+	dot11f->descriptor_element.present = 1;
+	dot11f->descriptor_element.tclas_mask.present = 1;
 
-} /* End populate_dot11f_decriptor_element */
+} /* End populate_dot11f_descriptor_element */
 #endif
 
 void populate_dot11f_wmmtspec(struct mac_tspec_ie *pOld,
@@ -6775,6 +7417,19 @@ QDF_STATUS populate_dot11f_he_caps(struct mac_context *mac_ctx, struct pe_sessio
 	return QDF_STATUS_SUCCESS;
 }
 
+QDF_STATUS
+populate_dot11f_he_caps_by_band(struct mac_context *mac_ctx,
+				bool is_2g,
+				tDot11fIEhe_cap *he_cap)
+{
+	if (is_2g)
+		qdf_mem_copy(he_cap, &mac_ctx->he_cap_2g, sizeof(*he_cap));
+	else
+		qdf_mem_copy(he_cap, &mac_ctx->he_cap_5g, sizeof(*he_cap));
+
+	return QDF_STATUS_SUCCESS;
+}
+
 /**
  * populate_dot11f_he_operation() - pouldate HE Operation IE
  * @mac_ctx: Global MAC context
@@ -6794,16 +7449,19 @@ populate_dot11f_he_operation(struct mac_context *mac_ctx,
 	he_op->vht_oper_present = 0;
 	if (session->he_6ghz_band) {
 		he_op->oper_info_6g_present = 1;
-		he_op->oper_info_6g.info.ch_width = session->ch_width;
-		he_op->oper_info_6g.info.center_freq_seg0 =
-					session->ch_center_freq_seg0;
-		if (session->ch_width == CH_WIDTH_80P80MHZ ||
-		    session->ch_width == CH_WIDTH_160MHZ) {
-			he_op->oper_info_6g.info.center_freq_seg1 =
-				session->ch_center_freq_seg1;
-			he_op->oper_info_6g.info.ch_width = CH_WIDTH_160MHZ;
-		} else {
-			he_op->oper_info_6g.info.center_freq_seg1 = 0;
+		if (session->bssType != eSIR_INFRA_AP_MODE) {
+			he_op->oper_info_6g.info.ch_width = session->ch_width;
+			he_op->oper_info_6g.info.center_freq_seg0 =
+						session->ch_center_freq_seg0;
+			if (session->ch_width == CH_WIDTH_80P80MHZ ||
+			    session->ch_width == CH_WIDTH_160MHZ) {
+				he_op->oper_info_6g.info.center_freq_seg1 =
+					session->ch_center_freq_seg1;
+				he_op->oper_info_6g.info.ch_width =
+							CH_WIDTH_160MHZ;
+			} else {
+				he_op->oper_info_6g.info.center_freq_seg1 = 0;
+			}
 		}
 		he_op->oper_info_6g.info.primary_ch =
 			wlan_reg_freq_to_chan(mac_ctx->pdev,
@@ -6814,6 +7472,36 @@ populate_dot11f_he_operation(struct mac_context *mac_ctx,
 		he_op->oper_info_6g.info.reg_info = ap_pwr_type;
 	}
 	lim_log_he_op(mac_ctx, he_op, session);
+
+	return QDF_STATUS_SUCCESS;
+}
+
+QDF_STATUS
+populate_dot11f_sr_info(struct mac_context *mac_ctx,
+			struct pe_session *session,
+			tDot11fIEspatial_reuse *sr_info)
+{
+	uint8_t non_srg_pd_offset;
+	uint8_t sr_ctrl = wlan_vdev_mlme_get_sr_ctrl(session->vdev);
+	bool sr_enabled = wlan_vdev_mlme_get_he_spr_enabled(session->vdev);
+	bool sr_disabled_due_conc =
+		wlan_vdev_mlme_is_sr_disable_due_conc(session->vdev);
+
+	if (!sr_enabled || !sr_ctrl || sr_disabled_due_conc ||
+	    (sr_ctrl & WLAN_HE_NON_SRG_PD_SR_DISALLOWED) ||
+	    !(sr_ctrl & WLAN_HE_NON_SRG_OFFSET_PRESENT))
+		return QDF_STATUS_SUCCESS;
+
+	non_srg_pd_offset = wlan_vdev_mlme_get_non_srg_pd_offset(session->vdev);
+	sr_info->present = 1;
+	sr_info->psr_disallow = 1;
+	sr_info->non_srg_pd_sr_disallow = 0;
+	sr_info->srg_info_present = 0;
+	sr_info->non_srg_offset_present = 1;
+	sr_info->srg_info_present = 0;
+	if (sr_ctrl & WLAN_HE_SIGA_SR_VAL15_ALLOWED)
+		sr_info->sr_value15_allow = 1;
+	sr_info->non_srg_offset.info.non_srg_pd_max_offset = non_srg_pd_offset;
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -6883,6 +7571,1799 @@ populate_dot11f_he_bss_color_change(struct mac_context *mac_ctx,
 #endif /* WLAN_FEATURE_11AX */
 
 #ifdef WLAN_FEATURE_11BE
+
+/**
+ * lim_get_ext_ie_ptr_from_ext_id() - Find out ext ie
+ * @ie: source ie address
+ * @ie_len: source ie length
+ *
+ * This API is used to find out ext ie from ext id
+ *
+ * Return: vendor ie address - success
+ *         NULL - failure
+ */
+static
+const uint8_t *lim_get_ext_ie_ptr_from_ext_id(const uint8_t *ie,
+					      uint16_t ie_len,
+					      const uint8_t *oui,
+					      uint8_t oui_size)
+{
+	return wlan_get_ext_ie_ptr_from_ext_id(oui, oui_size,
+					       ie, ie_len);
+}
+
+/* EHT Operation */
+/* 1 byte ext id, 1 byte eht op params, 4 bytes basic EHT MCS and NSS set*/
+#define EHTOP_FIXED_LEN         6
+
+/* EHTOP_FIXED_LEN bytes plus 1 byte chan_width, 2 bytes ccfs0 and ccfs1 */
+#define EHTOP_PARAM_LEN		(EHTOP_FIXED_LEN + 3)
+
+/* EHTOP_PARAM_LEN bytes plus 2 bytes sub chan bitmap */
+#define EHTOP_SUB_CHAN_BITMAP_LEN	(EHTOP_PARAM_LEN + 2)
+
+#define EHTOP_PARAMS_INFOP_IDX  0
+#define EHTOP_PARAMS_INFOP_BITS 1
+
+#define EHTOP_PARAMS_DISABLEDSUBCHANBITMAPP_IDX    1
+#define EHTOP_PARAMS_DISABLEDSUBCHANBITMAPP_BITS   1
+
+#define EHTOP_INFO_CHANWIDTH_IDX                   0
+#define EHTOP_INFO_CHANWIDTH_BITS                  3
+
+#define WLAN_MAX_DISABLED_SUB_CHAN_BITMAP          2
+
+#define ehtop_ie_set(eht_op, index, num_bits, val) \
+			QDF_SET_BITS((*eht_op), qdf_do_div_rem(index, 8),\
+				     (num_bits), (val))
+#define ehtop_ie_get(eht_op, index, num_bits) \
+			QDF_GET_BITS((eht_op), qdf_do_div_rem(index, 8), \
+				     (num_bits))
+
+/* byte 0 */
+#define EHTOP_PARAMS_INFOP_GET_FROM_IE(__eht_op_params) \
+			ehtop_ie_get(__eht_op_params, \
+				     EHTOP_PARAMS_INFOP_IDX, \
+				     EHTOP_PARAMS_INFOP_BITS)
+#define EHTOP_PARAMS_INFOP_SET_TO_IE(__eht_op_params, __value) \
+			ehtop_ie_set(&__eht_op_params, \
+				     EHTOP_PARAMS_INFOP_IDX, \
+				     EHTOP_PARAMS_INFOP_BITS, __value)
+
+#define EHTOP_PARAMS_DISABLEDSUBCHANBITMAPP_GET_FROM_IE(__eht_op_params) \
+			ehtop_ie_get(__eht_op_params, \
+				     EHTOP_PARAMS_DISABLEDSUBCHANBITMAPP_IDX, \
+				     EHTOP_PARAMS_DISABLEDSUBCHANBITMAPP_BITS)
+#define EHTOP_PARAMS_DISABLEDSUBCHANBITMAPP_SET_TO_IE(__eht_op_params, __value) \
+			ehtop_ie_set(&__eht_op_params, \
+				     EHTOP_PARAMS_DISABLEDSUBCHANBITMAPP_IDX, \
+				     EHTOP_PARAMS_DISABLEDSUBCHANBITMAPP_BITS, \
+				     __value)
+
+#define EHTOP_PARAMS_EHT_DEF_PE_DURATION_GET_FROM_IE(__eht_op_params) \
+			ehtop_ie_get(__eht_op_params, \
+				     EHTOP_DEFAULT_PE_DURATION_IDX, \
+				     EHTOP_DEFAULT_PE_DURATION_BITS)
+#define EHTOP_PARAMS_EHT_DEF_PE_DURATION_SET_TO_IE(__eht_op_params, __value) \
+			ehtop_ie_set(&__eht_op_params, \
+				     EHTOP_DEFAULT_PE_DURATION_IDX, \
+				     EHTOP_DEFAULT_PE_DURATION_BITS, __value)
+
+#define EHTOP_PARAMS_GROUP_ADDR_BU_IND_LIMIT_GET_FROM_IE(__eht_op_params) \
+			ehtop_ie_get(__eht_op_params, \
+				     EHTOP_GRP_ADDRESSED_BU_IND_LIMIT_IDX, \
+				     EHTOP_GRP_ADDRESSED_BU_IND_LIMIT_BITS)
+#define EHTOP_PARAMS_GROUP_ADDR_BU_IND_LIMIT_SET_TO_IE(__eht_op_params, __value) \
+			ehtop_ie_set(&__eht_op_params, \
+				     EHTOP_GRP_ADDRESSED_BU_IND_LIMIT_IDX, \
+				     EHTOP_GRP_ADDRESSED_BU_IND_LIMIT_BITS, \
+				     __value)
+
+#define EHTOP_PARAMS_GROUP_ADDR_BU_IND_EXPONENT_GET_FROM_IE(__eht_op_params) \
+			ehtop_ie_get(__eht_op_params, \
+				     EHTOP_GRP_ADDRESSED_BU_IND_EXPONENT_IDX, \
+				     EHTOP_GRP_ADDRESSED_BU_IND_EXPONENT_BITS)
+#define EHTOP_PARAMS_GROUP_ADDR_BU_IND_EXPONENT_SET_TO_IE(__eht_op_params, __value) \
+			ehtop_ie_set(&__eht_op_params, \
+				     EHTOP_GRP_ADDRESSED_BU_IND_EXPONENT_IDX, \
+				     EHTOP_GRP_ADDRESSED_BU_IND_EXPONENT_BITS, \
+				     __value)
+
+#define EHTOP_INFO_CHANWIDTH_GET_FROM_IE(__eht_op_control) \
+			ehtop_ie_get(__eht_op_control, \
+				     EHTOP_INFO_CHANWIDTH_IDX, \
+				     EHTOP_INFO_CHANWIDTH_BITS)
+#define EHTOP_INFO_CHANWIDTH_SET_TO_IE(__eht_op_control, __value) \
+			ehtop_ie_set(&__eht_op_control, \
+				     EHTOP_INFO_CHANWIDTH_IDX, \
+				     EHTOP_INFO_CHANWIDTH_BITS, __value)
+
+/* 1 byte ext id, 2 bytes mac cap, 9 bytes phy cap */
+#define EHTCAP_FIXED_LEN 12
+/* EHTCAP_FIXED_LEN bytes plus EHT MCS NSS for except 20 MHz BW*/
+#define EHTCAP_MCS_NSS_MIN_LEN	(EHTCAP_FIXED_LEN + 3)
+/* EHTCAP_FIXED_LEN bytes plus EHT MCS NSS for 20 MHz BW*/
+#define EHTCAP_MCS_NSS_MAX_LEN	(EHTCAP_FIXED_LEN + 4)
+
+#define EHTCAP_MACBYTE_IDX0      0
+#define EHTCAP_MACBYTE_IDX1      1
+
+#define EHTCAP_PHYBYTE_IDX0      0
+#define EHTCAP_PHYBYTE_IDX1      1
+#define EHTCAP_PHYBYTE_IDX2      2
+#define EHTCAP_PHYBYTE_IDX3      3
+#define EHTCAP_PHYBYTE_IDX4      4
+#define EHTCAP_PHYBYTE_IDX5      5
+#define EHTCAP_PHYBYTE_IDX6      6
+#define EHTCAP_PHYBYTE_IDX7      7
+#define EHTCAP_PHYBYTE_IDX8      8
+
+#define WLAN_IE_HDR_LEN          2
+
+enum EHT_TXRX_MCS_NSS_IDX {
+	EHTCAP_TXRX_MCS_NSS_IDX0,
+	EHTCAP_TXRX_MCS_NSS_IDX1,
+	EHTCAP_TXRX_MCS_NSS_IDX2,
+	EHTCAP_TXRX_MCS_NSS_IDXMAX,
+};
+
+enum EHT_PER_BW_TXRX_MCS_NSS_MAP_IDX {
+	EHTCAP_TXRX_MCS_NSS_IDX_ONLY20,
+	EHTCAP_TXRX_MCS_NSS_IDX_80,
+	EHTCAP_TXRX_MCS_NSS_IDX_160,
+	EHTCAP_TXRX_MCS_NSS_IDX_320,
+	EHTCAP_TXRX_MCS_NSS_IDX_MAX,
+};
+
+#define EHT_MCS_MAP_RX_MCS_0_9_IDX 0
+#define EHT_MCS_MAP_RX_MCS_0_9_BITS 4
+#define EHT_MCS_MAP_TX_MCS_0_9_IDX 4
+#define EHT_MCS_MAP_TX_MCS_0_9_BITS 4
+#define EHT_MCS_MAP_RX_MCS_10_11_IDX 8
+#define EHT_MCS_MAP_RX_MCS_10_11_BITS 4
+#define EHT_MCS_MAP_TX_MCS_10_11_IDX 12
+#define EHT_MCS_MAP_TX_MCS_10_11_BITS 4
+#define EHT_MCS_MAP_RX_MCS_12_13_IDX 16
+#define EHT_MCS_MAP_RX_MCS_12_13_BITS 4
+#define EHT_MCS_MAP_TX_MCS_12_13_IDX 20
+#define EHT_MCS_MAP_TX_MCS_12_13_BITS 4
+
+#define EHT_MCS_MAP_20_ONLY_RX_MCS_0_7_IDX 0
+#define EHT_MCS_MAP_20_ONLY_RX_MCS_0_7_BITS 4
+#define EHT_MCS_MAP_20_ONLY_TX_MCS_0_7_IDX 4
+#define EHT_MCS_MAP_20_ONLY_TX_MCS_0_7_BITS 4
+#define EHT_MCS_MAP_20_ONLY_RX_MCS_8_9_IDX 8
+#define EHT_MCS_MAP_20_ONLY_RX_MCS_8_9_BITS 4
+#define EHT_MCS_MAP_20_ONLY_TX_MCS_8_9_IDX 12
+#define EHT_MCS_MAP_20_ONLY_TX_MCS_8_9_BITS 4
+#define EHT_MCS_MAP_20_ONLY_RX_MCS_10_11_IDX 16
+#define EHT_MCS_MAP_20_ONLY_RX_MCS_10_11_BITS 4
+#define EHT_MCS_MAP_20_ONLY_TX_MCS_10_11_IDX 20
+#define EHT_MCS_MAP_20_ONLY_TX_MCS_10_11_BITS 4
+#define EHT_MCS_MAP_20_ONLY_RX_MCS_12_13_IDX 24
+#define EHT_MCS_MAP_20_ONLY_RX_MCS_12_13_BITS 4
+#define EHT_MCS_MAP_20_ONLY_TX_MCS_12_13_IDX 28
+#define EHT_MCS_MAP_20_ONLY_TX_MCS_12_13_BITS 4
+
+#define EHT_TXMCS_MAP_MCS_0_7_IDX 0
+#define EHT_TXMCS_MAP_MCS_0_7_BITS 4
+#define EHT_TXMCS_MAP_MCS_8_9_IDX 4
+#define EHT_TXMCS_MAP_MCS_8_9_BITS 4
+#define EHT_TXMCS_MAP_MCS_10_11_IDX 8
+#define EHT_TXMCS_MAP_MCS_10_11_BITS 4
+#define EHT_TXMCS_MAP_MCS_12_13_IDX 12
+#define EHT_TXMCS_MAP_MCS_12_13_BITS 4
+
+#define EHT_RXMCS_MAP_MCS_0_7_IDX 0
+#define EHT_RXMCS_MAP_MCS_0_7_BITS 4
+#define EHT_RXMCS_MAP_MCS_8_9_IDX 4
+#define EHT_RXMCS_MAP_MCS_8_9_BITS 4
+#define EHT_RXMCS_MAP_MCS_10_11_IDX 8
+#define EHT_RXMCS_MAP_MCS_10_11_BITS 4
+#define EHT_RXMCS_MAP_MCS_12_13_IDX 12
+#define EHT_RXMCS_MAP_MCS_12_13_BITS 4
+
+#define EHT_MCS_MAP_LEN 3
+#define EHT_MCS_MAP_BW20_ONLY_LEN 4
+
+#define ehtcap_ie_set(eht_cap, index, num_bits, val) \
+			QDF_SET_BITS((*eht_cap), qdf_do_div_rem(index, 8),\
+				     (num_bits), (val))
+#define ehtcap_ie_get(eht_cap, index, num_bits) \
+			QDF_GET_BITS((eht_cap), qdf_do_div_rem(index, 8), \
+				     (num_bits))
+
+/* byte 0 */
+#define EHTCAP_MAC_EPCSPRIACCESS_GET_FROM_IE(__eht_cap_mac) \
+			ehtcap_ie_get(__eht_cap_mac[EHTCAP_MACBYTE_IDX0], \
+				      EHTCAP_MAC_EPCSPRIACCESS_IDX, \
+				      EHTCAP_MAC_EPCSPRIACCESS_BITS)
+#define EHTCAP_MAC_EPCSPRIACCESS_SET_TO_IE(__eht_cap_mac, __value) \
+			ehtcap_ie_set(&__eht_cap_mac[EHTCAP_MACBYTE_IDX0], \
+				      EHTCAP_MAC_EPCSPRIACCESS_IDX, \
+				      EHTCAP_MAC_EPCSPRIACCESS_BITS, __value)
+
+#define EHTCAP_MAC_EHTOMCTRL_GET_FROM_IE(__eht_cap_mac) \
+			ehtcap_ie_get(__eht_cap_mac[EHTCAP_MACBYTE_IDX0], \
+				      EHTCAP_MAC_EHTOMCTRL_IDX, \
+				      EHTCAP_MAC_EHTOMCTRL_BITS)
+#define EHTCAP_MAC_EHTOMCTRL_SET_TO_IE(__eht_cap_mac, value) \
+			ehtcap_ie_set(&__eht_cap_mac[EHTCAP_MACBYTE_IDX0], \
+				      EHTCAP_MAC_EHTOMCTRL_IDX, \
+				      EHTCAP_MAC_EHTOMCTRL_BITS, value)
+
+#define EHTCAP_MAC_TRIGTXOP_MODE1_GET_FROM_IE(__eht_cap_mac) \
+			ehtcap_ie_get(__eht_cap_mac[EHTCAP_MACBYTE_IDX0], \
+				      EHTCAP_MAC_TRIGGERED_TXOP_MODE1_IDX, \
+				      EHTCAP_MAC_TRIGGERED_TXOP_MODE1_BITS)
+#define EHTCAP_MAC_TRIGTXOP_MODE1_SET_TO_IE(__eht_cap_mac, value) \
+			ehtcap_ie_set(&__eht_cap_mac[EHTCAP_MACBYTE_IDX0], \
+				      EHTCAP_MAC_TRIGGERED_TXOP_MODE1_IDX, \
+				      EHTCAP_MAC_TRIGGERED_TXOP_MODE1_BITS, \
+				      value)
+
+#define EHTCAP_MAC_TRIGTXOP_MODE2_GET_FROM_IE(__eht_cap_mac) \
+			ehtcap_ie_get(__eht_cap_mac[EHTCAP_MACBYTE_IDX0], \
+				      EHTCAP_MAC_TRIGGERED_TXOP_MODE2_IDX, \
+				      EHTCAP_MAC_TRIGGERED_TXOP_MODE2_BITS)
+#define EHTCAP_MAC_TRIGTXOP_MODE2_SET_TO_IE(__eht_cap_mac, value) \
+			ehtcap_ie_set(&__eht_cap_mac[EHTCAP_MACBYTE_IDX0], \
+				      EHTCAP_MAC_TRIGGERED_TXOP_MODE2_IDX, \
+				      EHTCAP_MAC_TRIGGERED_TXOP_MODE2_BITS, \
+				      value)
+
+#define EHTCAP_MAC_RESTRICTED_TWT_GET_FROM_IE(__eht_cap_mac) \
+			ehtcap_ie_get(__eht_cap_mac[EHTCAP_MACBYTE_IDX0], \
+				      EHTCAP_MAC_RESTRICTED_TWT_IDX, \
+				      EHTCAP_MAC_RESTRICTED_TWT_BITS)
+#define EHTCAP_MAC_RESTRICTED_TWT_SET_TO_IE(__eht_cap_mac, value) \
+			ehtcap_ie_set(&__eht_cap_mac[EHTCAP_MACBYTE_IDX0], \
+				      EHTCAP_MAC_RESTRICTED_TWT_IDX, \
+				      EHTCAP_MAC_RESTRICTED_TWT_BITS, value)
+
+#define EHTCAP_MAC_SCS_TRAFFIC_DESC_GET_FROM_IE(__eht_cap_mac) \
+			ehtcap_ie_get(__eht_cap_mac[EHTCAP_MACBYTE_IDX0], \
+				      EHTCAP_MAC_SCS_TRAFFIC_DESC_IDX, \
+				      EHTCAP_MAC_SCS_TRAFFIC_DESC_BITS)
+#define EHTCAP_MAC_SCS_TRAFFIC_DESC_SET_TO_IE(__eht_cap_mac, value) \
+			ehtcap_ie_set(&__eht_cap_mac[EHTCAP_MACBYTE_IDX0], \
+				      EHTCAP_MAC_SCS_TRAFFIC_DESC_IDX, \
+				      EHTCAP_MAC_SCS_TRAFFIC_DESC_BITS, value)
+
+#define EHTCAP_MAC_MAX_MPDU_LEN_GET_FROM_IE(__eht_cap_mac) \
+			ehtcap_ie_get(__eht_cap_mac[EHTCAP_MACBYTE_IDX0], \
+				      EHTCAP_MAC_MAX_MPDU_LEN_IDX, \
+				      EHTCAP_MAC_MAX_MPDU_LEN_BITS)
+#define EHTCAP_MAC_MAX_MPDU_LEN_SET_TO_IE(__eht_cap_mac, value) \
+			ehtcap_ie_set(&__eht_cap_mac[EHTCAP_MACBYTE_IDX0], \
+				      EHTCAP_MAC_MAX_MPDU_LEN_IDX, \
+				      EHTCAP_MAC_MAX_MPDU_LEN_BITS, value)
+
+#define EHTCAP_MAC_MAX_A_MPDU_LEN_EXPONENT_EXT_GET_FROM_IE(__eht_cap_mac) \
+			ehtcap_ie_get(__eht_cap_mac[EHTCAP_MACBYTE_IDX1], \
+				      EHTCAP_MAC_MAX_A_MPDU_LEN_IDX, \
+				      EHTCAP_MAC_MAX_A_MPDU_LEN_BITS)
+#define EHTCAP_MAC_MAX_A_MPDU_LEN_EXPONENT_EXT_SET_TO_IE(__eht_cap_mac, value) \
+			ehtcap_ie_set(&__eht_cap_mac[EHTCAP_MACBYTE_IDX1], \
+				      EHTCAP_MAC_MAX_A_MPDU_LEN_IDX, \
+				      EHTCAP_MAC_MAX_A_MPDU_LEN_BITS, value)
+
+#define EHTCAP_MAC_EHT_TRS_SUPPORT_GET_FROM_IE(__eht_cap_mac) \
+			ehtcap_ie_get(__eht_cap_mac[EHTCAP_MACBYTE_IDX1], \
+				      EHTCAP_MAC_TRS_SUPPORT_IDX, \
+				      EHTCAP_MAC_TRS_SUPPORT_BITS)
+#define EHTCAP_MAC_EHT_TRS_SUPPORT_SET_TO_IE(__eht_cap_mac, value) \
+			ehtcap_ie_set(&__eht_cap_mac[EHTCAP_MACBYTE_IDX1], \
+				      EHTCAP_MAC_TRS_SUPPORT_IDX, \
+				      EHTCAP_MAC_TRS_SUPPORT_BITS, value)
+
+#define EHTCAP_MAC_TXOP_RETURN_SUPPORT_SHARE_M2_GET_FROM_IE(__eht_cap_mac) \
+			ehtcap_ie_get(__eht_cap_mac[EHTCAP_MACBYTE_IDX1], \
+				      EHTCAP_MAC_TXOP_RET_SUPPP_IN_SHARING_MODE2_IDX, \
+				      EHTCAP_MAC_TXOP_RET_SUPPP_IN_SHARING_MODE2_BITS)
+#define EHTCAP_MAC_TXOP_RETURN_SUPPORT_SHARE_M2_SET_FROM_IE(__eht_cap_mac, value) \
+			ehtcap_ie_set(&__eht_cap_mac[EHTCAP_MACBYTE_IDX1], \
+				      EHTCAP_MAC_TXOP_RET_SUPPP_IN_SHARING_MODE2_IDX, \
+				      EHTCAP_MAC_TXOP_RET_SUPPP_IN_SHARING_MODE2_BITS, \
+				      value)
+
+#define EHTCAP_MAC_TWO_BQRS_SUPP_GET_FROM_IE(__eht_cap_mac) \
+			ehtcap_ie_get(__eht_cap_mac[EHTCAP_MACBYTE_IDX1], \
+				      EHTCAP_MAC_TWO_BQRS_SUPP_IDX, \
+				      EHTCAP_MAC_TWO_BQRS_SUPP_BITS)
+#define EHTCAP_MAC_TWO_BQRS_SUPP_SET_FROM_IE(__eht_cap_mac, value) \
+			ehtcap_ie_set(&__eht_cap_mac[EHTCAP_MACBYTE_IDX1], \
+				      EHTCAP_MAC_TWO_BQRS_SUPP_IDX, \
+				      EHTCAP_MAC_TWO_BQRS_SUPP_BITS, \
+				      value)
+
+#define EHTCAP_MAC_EHT_LINK_ADAPTATION_SUPP_GET_FROM_IE(__eht_cap_mac) \
+			ehtcap_ie_get(__eht_cap_mac[EHTCAP_MACBYTE_IDX1], \
+				      EHTCAP_MAC_EHT_LINK_ADAPTATION_SUPP_IDX, \
+				      EHTCAP_MAC_EHT_LINK_ADAPTATION_SUPP_BITS)
+#define EHTCAP_MAC_EHT_LINK_ADAPTATION_SUPP_SET_FROM_IE(__eht_cap_mac, value) \
+			ehtcap_ie_set(&__eht_cap_mac[EHTCAP_MACBYTE_IDX1], \
+				      EHTCAP_MAC_EHT_LINK_ADAPTATION_SUPP_IDX, \
+				      EHTCAP_MAC_EHT_LINK_ADAPTATION_SUPP_BITS, \
+				      value)
+
+/* byte 0 */
+#define EHTCAP_PHY_320MHZIN6GHZ_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX0], \
+				      EHTCAP_PHY_320MHZIN6GHZ_IDX, \
+				      EHTCAP_PHY_320MHZIN6GHZ_BITS)
+#define EHTCAP_PHY_320MHZIN6GHZ_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX0], \
+				      EHTCAP_PHY_320MHZIN6GHZ_IDX, \
+				      EHTCAP_PHY_320MHZIN6GHZ_BITS, value)
+
+#define EHTCAP_PHY_242TONERUBWGT20MHZ_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX0], \
+				      EHTCAP_PHY_242TONERUBWLT20MHZ_IDX, \
+				      EHTCAP_PHY_242TONERUBWLT20MHZ_BITS)
+#define EHTCAP_PHY_242TONERUBWGT20MHZ_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX0], \
+				      EHTCAP_PHY_242TONERUBWLT20MHZ_IDX, \
+				      EHTCAP_PHY_242TONERUBWLT20MHZ_BITS, value)
+
+#define EHTCAP_PHY_NDP4XEHTLTFAND320NSGI_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX0], \
+				      EHTCAP_PHY_NDP4XEHTLTFAND320NSGI_IDX, \
+				      EHTCAP_PHY_NDP4XEHTLTFAND320NSGI_BITS)
+#define EHTCAP_PHY_NDP4XEHTLTFAND320NSGI_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX0], \
+				      EHTCAP_PHY_NDP4XEHTLTFAND320NSGI_IDX, \
+				      EHTCAP_PHY_NDP4XEHTLTFAND320NSGI_BITS, \
+				      value)
+
+#define EHTCAP_PHY_PARTIALBWULMU_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX0], \
+				      EHTCAP_PHY_PARTIALBWULMU_IDX, \
+				      EHTCAP_PHY_PARTIALBWULMU_BITS)
+#define EHTCAP_PHY_PARTIALBWULMU_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX0], \
+				      EHTCAP_PHY_PARTIALBWULMU_IDX, \
+				      EHTCAP_PHY_PARTIALBWULMU_BITS, value)
+
+#define EHTCAP_PHY_SUBFMR_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX0], \
+				      EHTCAP_PHY_SUBFMR_IDX, \
+				      EHTCAP_PHY_SUBFMR_BITS)
+#define EHTCAP_PHY_SUBFMR_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX0],  \
+				      EHTCAP_PHY_SUBFMR_IDX, \
+				      EHTCAP_PHY_SUBFMR_BITS, value)
+
+#define EHTCAP_PHY_SUBFME_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX0], \
+				      EHTCAP_PHY_SUBFME_IDX, \
+				      EHTCAP_PHY_SUBFME_BITS)
+#define EHTCAP_PHY_SUBFME_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX0], \
+				      EHTCAP_PHY_SUBFME_IDX, \
+				      EHTCAP_PHY_SUBFME_BITS, value)
+
+#define EHTCAP_PHY_BFMESSLT80MHZ_GET_FROM_IE_BYTE0(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX0], \
+				      EHTCAP_PHY_BFMESSLT80MHZ_IDX, \
+				      1)
+#define EHTCAP_PHY_BFMESSLT80MHZ_SET_TO_IE_BYTE0(__eht_cap_phy, __value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX0], \
+				      EHTCAP_PHY_BFMESSLT80MHZ_IDX, \
+				      1, __value)
+
+/* byte 1 */
+#define EHTCAP_PHY_BFMESSLT80MHZ_GET_FROM_IE_BYTE1(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX1], \
+				      8, \
+				      2)
+#define EHTCAP_PHY_BFMESSLT80MHZ_SET_TO_IE_BYTE1(__eht_cap_phy, __value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX1], \
+				      8, \
+				      2, __value)
+#define EHTCAP_PHY_BFMESS160MHZ_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX1], \
+				      EHTCAP_PHY_BFMESS160MHZ_IDX, \
+				      EHTCAP_PHY_BFMESS160MHZ_BITS)
+#define EHTCAP_PHY_BFMESS160MHZ_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX1], \
+				      EHTCAP_PHY_BFMESS160MHZ_IDX, \
+				      EHTCAP_PHY_BFMESS160MHZ_BITS, value)
+
+#define EHTCAP_PHY_BFMESS320MHZ_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX1], \
+				      EHTCAP_PHY_BFMESS320MHZ_IDX, \
+				      EHTCAP_PHY_BFMESS320MHZ_BITS)
+#define EHTCAP_PHY_BFMESS320MHZ_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX1], \
+				      EHTCAP_PHY_BFMESS320MHZ_IDX, \
+				      EHTCAP_PHY_BFMESS320MHZ_BITS, value)
+
+/* byte 2 */
+#define EHTCAP_PHY_NUMSOUNDLT80MHZ_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX2], \
+				      EHTCAP_PHY_NUMSOUNDLT80MHZ_IDX, \
+				      EHTCAP_PHY_NUMSOUNDLT80MHZ_BITS)
+#define EHTCAP_PHY_NUMSOUNDLT80MHZ_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX2], \
+				      EHTCAP_PHY_NUMSOUNDLT80MHZ_IDX, \
+				      EHTCAP_PHY_NUMSOUNDLT80MHZ_BITS, value)
+
+#define EHTCAP_PHY_NUMSOUND160MHZ_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX2], \
+				      EHTCAP_PHY_NUMSOUND160MHZ_IDX, \
+				      EHTCAP_PHY_NUMSOUND160MHZ_BITS)
+#define EHTCAP_PHY_NUMSOUND160MHZ_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX2], \
+				      EHTCAP_PHY_NUMSOUND160MHZ_IDX, \
+				      EHTCAP_PHY_NUMSOUND160MHZ_BITS, value)
+
+#define EHTCAP_PHY_NUMSOUND320MHZ_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX2], \
+				      EHTCAP_PHY_NUMSOUND320MHZ_IDX, \
+				      EHTCAP_PHY_NUMSOUND320MHZ_BITS)
+#define EHTCAP_PHY_NUMSOUND320MHZ_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX2], \
+				      EHTCAP_PHY_NUMSOUND320MHZ_IDX, \
+				      EHTCAP_PHY_NUMSOUND320MHZ_BITS, value)
+
+/* byte 3 */
+#define EHTCAP_PHY_NG16SUFB_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX3], \
+				      EHTCAP_PHY_NG16SUFB_IDX, \
+				      EHTCAP_PHY_NG16SUFB_BITS)
+#define EHTCAP_PHY_NG16SUFB_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX3], \
+				      EHTCAP_PHY_NG16SUFB_IDX, \
+				      EHTCAP_PHY_NG16SUFB_BITS, value)
+
+#define EHTCAP_PHY_NG16MUFB_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX3], \
+				      EHTCAP_PHY_NG16MUFB_IDX, \
+				      EHTCAP_PHY_NG16MUFB_BITS)
+#define EHTCAP_PHY_NG16MUFB_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX3], \
+				      EHTCAP_PHY_NG16MUFB_IDX, \
+				      EHTCAP_PHY_NG16MUFB_BITS, value)
+
+#define EHTCAP_PHY_CODBK42SUFB_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX3], \
+				      EHTCAP_PHY_CODBK42SUFB_IDX, \
+				      EHTCAP_PHY_CODBK42SUFB_BITS)
+#define EHTCAP_PHY_CODBK42SUFB_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX3], \
+				      EHTCAP_PHY_CODBK42SUFB_IDX, \
+				      EHTCAP_PHY_CODBK42SUFB_BITS, value)
+
+#define EHTCAP_PHY_CODBK75MUFB_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX3], \
+				      EHTCAP_PHY_CODBK75MUFB_IDX, \
+				      EHTCAP_PHY_CODBK75MUFB_BITS)
+#define EHTCAP_PHY_CODBK75MUFB_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX3], \
+				      EHTCAP_PHY_CODBK75MUFB_IDX, \
+				      EHTCAP_PHY_CODBK75MUFB_BITS, value)
+
+#define EHTCAP_PHY_TRIGSUBFFB_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX3], \
+				      EHTCAP_PHY_TRIGSUBFFB_IDX, \
+				      EHTCAP_PHY_TRIGSUBFFB_BITS)
+#define EHTCAP_PHY_TRIGSUBFFB_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX3], \
+				      EHTCAP_PHY_TRIGSUBFFB_IDX, \
+				      EHTCAP_PHY_TRIGSUBFFB_BITS, value)
+
+#define EHTCAP_PHY_TRIGMUBFPARTBWFB_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX3], \
+				      EHTCAP_PHY_TRIGMUBFPARTBWFB_IDX, \
+				      EHTCAP_PHY_TRIGMUBFPARTBWFB_BITS)
+#define EHTCAP_PHY_TRIGMUBFPARTBWFB_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX3], \
+				      EHTCAP_PHY_TRIGMUBFPARTBWFB_IDX, \
+				      EHTCAP_PHY_TRIGMUBFPARTBWFB_BITS, value)
+
+#define EHTCAP_PHY_TRIGCQIFB_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX3], \
+				      EHTCAP_PHY_TRIGCQIFB_IDX, \
+				      EHTCAP_PHY_TRIGCQIFB_BITS)
+#define EHTCAP_PHY_TRIGCQIFB_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX3], \
+				      EHTCAP_PHY_TRIGCQIFB_IDX, \
+				      EHTCAP_PHY_TRIGCQIFB_BITS, value)
+
+/* byte 4 */
+#define EHTCAP_PHY_PARTBWDLMUMIMO_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX4], \
+				      EHTCAP_PHY_PARTBWDLMUMIMO_IDX, \
+				      EHTCAP_PHY_PARTBWDLMUMIMO_BITS)
+#define EHTCAP_PHY_PARTBWDLMUMIMO_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX4], \
+				      EHTCAP_PHY_PARTBWDLMUMIMO_IDX, \
+				      EHTCAP_PHY_PARTBWDLMUMIMO_BITS, value)
+
+#define EHTCAP_PHY_PSRSR_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX4], \
+				      EHTCAP_PHY_PSRSR_IDX, \
+				      EHTCAP_PHY_PSRSR_BITS)
+#define EHTCAP_PHY_PSRSR_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX4], \
+				      EHTCAP_PHY_PSRSR_IDX, \
+				      EHTCAP_PHY_PSRSR_BITS, value)
+
+#define EHTCAP_PHY_PWRBSTFACTOR_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX4], \
+				      EHTCAP_PHY_PWRBSTFACTOR_IDX, \
+				      EHTCAP_PHY_PWRBSTFACTOR_BITS)
+#define EHTCAP_PHY_PWRBSTFACTOR_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX4], \
+				      EHTCAP_PHY_PWRBSTFACTOR_IDX, \
+				      EHTCAP_PHY_PWRBSTFACTOR_BITS, value)
+
+#define EHTCAP_PHY_4XEHTMULTFAND800NSGI_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX4], \
+				      EHTCAP_PHY_4XEHTLTFAND800NSGI_IDX, \
+				      EHTCAP_PHY_4XEHTLTFAND800NSGI_BITS)
+#define EHTCAP_PHY_4XEHTMULTFAND800NSGI_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX4], \
+				      EHTCAP_PHY_4XEHTLTFAND800NSGI_IDX, \
+				      EHTCAP_PHY_4XEHTLTFAND800NSGI_BITS, value)
+
+#define EHTCAP_PHY_MAXNC_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX4], \
+				      EHTCAP_PHY_MAXNC_IDX, \
+				      EHTCAP_PHY_MAXNC_BITS)
+#define EHTCAP_PHY_MAXNC_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX4], \
+				      EHTCAP_PHY_MAXNC_IDX, \
+				      EHTCAP_PHY_MAXNC_BITS, value)
+
+/* byte 5 */
+#define EHTCAP_PHY_NONTRIGCQIFB_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX5], \
+				      EHTCAP_PHY_NONTRIGCQIFB_IDX, \
+				      EHTCAP_PHY_NONTRIGCQIFB_BITS)
+#define EHTCAP_PHY_NONTRIGCQIFB_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX5], \
+				      EHTCAP_PHY_NONTRIGCQIFB_IDX, \
+				      EHTCAP_PHY_NONTRIGCQIFB_BITS, value)
+
+#define EHTCAP_PHY_TX1024AND4096QAMLT242TONERU_GET_FROM_IE(__eht_cap_phy) \
+		    ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX5], \
+				  EHTCAP_PHY_TX1024AND4096QAMLS242TONERU_IDX, \
+				  EHTCAP_PHY_TX1024AND4096QAMLS242TONERU_BITS)
+#define EHTCAP_PHY_TX1024AND4096QAMLT242TONERU_SET_TO_IE(__eht_cap_phy, value) \
+		    ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX5], \
+				  EHTCAP_PHY_TX1024AND4096QAMLS242TONERU_IDX, \
+				  EHTCAP_PHY_TX1024AND4096QAMLS242TONERU_BITS, \
+				  value)
+
+#define EHTCAP_PHY_RX1024AND4096QAMLT242TONERU_GET_FROM_IE(__eht_cap_phy) \
+		    ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX5], \
+				  EHTCAP_PHY_RX1024AND4096QAMLS242TONERU_IDX, \
+				  EHTCAP_PHY_RX1024AND4096QAMLS242TONERU_BITS)
+#define EHTCAP_PHY_RX1024AND4096QAMLT242TONERU_SET_TO_IE(__eht_cap_phy, value) \
+		    ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX5], \
+				  EHTCAP_PHY_RX1024AND4096QAMLS242TONERU_IDX, \
+				  EHTCAP_PHY_RX1024AND4096QAMLS242TONERU_BITS, \
+				  value)
+
+#define EHTCAP_PHY_PPETHRESPRESENT_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX5], \
+				      EHTCAP_PHY_PPETHRESPRESENT_IDX, \
+				      EHTCAP_PHY_PPETHRESPRESENT_BITS)
+#define EHTCAP_PHY_PPETHRESPRESENT_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX5], \
+				      EHTCAP_PHY_PPETHRESPRESENT_IDX, \
+				      EHTCAP_PHY_PPETHRESPRESENT_BITS, value)
+
+#define EHTCAP_PHY_CMNNOMPKTPAD_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX5], \
+				      EHTCAP_PHY_CMNNOMPKTPAD_IDX, \
+				      EHTCAP_PHY_CMNNOMPKTPAD_BITS)
+#define EHTCAP_PHY_CMNNOMPKTPAD_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX5], \
+				      EHTCAP_PHY_CMNNOMPKTPAD_IDX, \
+				      EHTCAP_PHY_CMNNOMPKTPAD_BITS, value)
+
+#define EHTCAP_PHY_MAXNUMEHTLTF_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX5], \
+				      EHTCAP_PHY_MAXNUMEHTLTF_IDX, \
+				      EHTCAP_PHY_MAXNUMEHTLTF_BITS)
+#define EHTCAP_PHY_MAXNUMEHTLTF_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX5], \
+				      EHTCAP_PHY_MAXNUMEHTLTF_IDX, \
+				      EHTCAP_PHY_MAXNUMEHTLTF_BITS, value)
+
+/* byte 6 */
+#define EHTCAP_PHY_SUPMCS15_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX6], \
+				      EHTCAP_PHY_SUPMCS15_IDX, \
+				      EHTCAP_PHY_SUPMCS15_BITS)
+#define EHTCAP_PHY_SUPMCS15_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX6], \
+				      EHTCAP_PHY_SUPMCS15_IDX, \
+				      EHTCAP_PHY_SUPMCS15_BITS, value)
+
+#define EHTCAP_PHY_EHTDUPIN6GHZ_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX6], \
+				      EHTCAP_PHY_EHTDUPIN6GHZ_IDX, \
+				      EHTCAP_PHY_EHTDUPIN6GHZ_BITS)
+#define EHTCAP_PHY_EHTDUPIN6GHZ_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX6], \
+				      EHTCAP_PHY_EHTDUPIN6GHZ_IDX, \
+				      EHTCAP_PHY_EHTDUPIN6GHZ_BITS, value)
+
+/* byte 7 */
+#define EHTCAP_PHY_20MHZOPSTARXNDPWIDERBW_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX7], \
+				      EHTCAP_PHY_20MHZOPSTARXNDPWIDERBW_IDX, \
+				      EHTCAP_PHY_20MHZOPSTARXNDPWIDERBW_BITS)
+#define EHTCAP_PHY_20MHZOPSTARXNDPWIDERBW_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX7], \
+				      EHTCAP_PHY_20MHZOPSTARXNDPWIDERBW_IDX, \
+				      EHTCAP_PHY_20MHZOPSTARXNDPWIDERBW_BITS, \
+				      value)
+
+#define EHTCAP_PHY_NONOFDMAULMUMIMOLT80MHZ_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX7], \
+				      EHTCAP_PHY_NONOFDMAULMUMIMOLT80MHZ_IDX, \
+				      EHTCAP_PHY_NONOFDMAULMUMIMOLT80MHZ_BITS)
+#define EHTCAP_PHY_NONOFDMAULMUMIMOLT80MHZ_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX7], \
+				      EHTCAP_PHY_NONOFDMAULMUMIMOLT80MHZ_IDX, \
+				      EHTCAP_PHY_NONOFDMAULMUMIMOLT80MHZ_BITS, \
+				      value)
+
+#define EHTCAP_PHY_NONOFDMAULMUMIMO160MHZ_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX7], \
+				      EHTCAP_PHY_NONOFDMAULMUMIMO160MHZ_IDX, \
+				      EHTCAP_PHY_NONOFDMAULMUMIMO160MHZ_BITS)
+#define EHTCAP_PHY_NONOFDMAULMUMIMO160MHZ_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX7], \
+				      EHTCAP_PHY_NONOFDMAULMUMIMO160MHZ_IDX, \
+				      EHTCAP_PHY_NONOFDMAULMUMIMO160MHZ_BITS, \
+				      value)
+
+#define EHTCAP_PHY_NONOFDMAULMUMIMO320MHZ_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX7], \
+				      EHTCAP_PHY_NONOFDMAULMUMIMO320MHZ_IDX, \
+				      EHTCAP_PHY_NONOFDMAULMUMIMO320MHZ_BITS)
+#define EHTCAP_PHY_NONOFDMAULMUMIMO320MHZ_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX7], \
+				      EHTCAP_PHY_NONOFDMAULMUMIMO320MHZ_IDX, \
+				      EHTCAP_PHY_NONOFDMAULMUMIMO320MHZ_BITS, \
+				      value)
+
+#define EHTCAP_PHY_MUBFMRLT80MHZ_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX7], \
+				      EHTCAP_PHY_MUBFMRLT80MHZ_IDX, \
+				      EHTCAP_PHY_MUBFMRLT80MHZ_BITS)
+#define EHTCAP_PHY_MUBFMRLT80MHZ_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX7], \
+				      EHTCAP_PHY_MUBFMRLT80MHZ_IDX, \
+				      EHTCAP_PHY_MUBFMRLT80MHZ_BITS, value)
+
+#define EHTCAP_PHY_MUBFMR160MHZ_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX7], \
+				      EHTCAP_PHY_MUBFMR160MHZ_IDX, \
+				      EHTCAP_PHY_MUBFMR160MHZ_BITS)
+#define EHTCAP_PHY_MUBFMR160MHZ_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX7], \
+				      EHTCAP_PHY_MUBFMR160MHZ_IDX, \
+				      EHTCAP_PHY_MUBFMR160MHZ_BITS, value)
+
+#define EHTCAP_PHY_MUBFMR320MHZ_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX7], \
+				      EHTCAP_PHY_MUBFMR320MHZ_IDX, \
+				      EHTCAP_PHY_MUBFMR320MHZ_BITS)
+#define EHTCAP_PHY_MUBFMR320MHZ_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX7], \
+				      EHTCAP_PHY_MUBFMR320MHZ_IDX, \
+				      EHTCAP_PHY_MUBFMR320MHZ_BITS, value)
+
+#define EHTCAP_PHY_TB_SOUNDING_FB_RL_GET_FROM_IE(__eht_cap_phy) \
+			ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX7], \
+				      EHTCAP_PHY_TB_SOUNDING_FEEDBACK_RL_IDX, \
+				      EHTCAP_PHY_TB_SOUNDING_FEEDBACK_RL_BITS)
+#define EHTCAP_PHY_TB_SOUNDING_FB_RL_SET_TO_IE(__eht_cap_phy, value) \
+			ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX7], \
+				      EHTCAP_PHY_TB_SOUNDING_FEEDBACK_RL_IDX, \
+				      EHTCAP_PHY_TB_SOUNDING_FEEDBACK_RL_BITS, \
+				      value)
+#define EHTCAP_PHY_RX_1K_QAM_IN_WIDER_BW_DL_OFDMA_GET_FROM_IE(__eht_cap_phy) \
+		ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX8], \
+			      EHTCAP_PHY_RX_1K_QAM_IN_WIDER_BW_DL_OFDMA_IDX, \
+			      EHTCAP_PHY_RX_1K_QAM_IN_WIDER_BW_DL_OFDMA_BITS)
+#define EHTCAP_PHY_RX_1K_QAM_IN_WIDER_BW_DL_OFDMA_SET_TO_IE(__eht_cap_phy, value) \
+		ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX8], \
+			      EHTCAP_PHY_RX_1K_QAM_IN_WIDER_BW_DL_OFDMA_IDX, \
+			      EHTCAP_PHY_RX_1K_QAM_IN_WIDER_BW_DL_OFDMA_BITS, \
+			      value)
+
+#define EHTCAP_PHY_RX_4K_QAM_IN_WIDER_BW_DL_OFDMA_GET_FROM_IE(__eht_cap_phy) \
+		ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX8], \
+			      EHTCAP_PHY_RX_4K_QAM_IN_WIDER_BW_DL_OFDMA_IDX, \
+			      EHTCAP_PHY_RX_4K_QAM_IN_WIDER_BW_DL_OFDMA_BITS)
+#define EHTCAP_PHY_RX_4K_QAM_IN_WIDER_BW_DL_OFDMA_SET_TO_IE(__eht_cap_phy, value) \
+		ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX8], \
+			      EHTCAP_PHY_RX_4K_QAM_IN_WIDER_BW_DL_OFDMA_IDX, \
+			      EHTCAP_PHY_RX_4K_QAM_IN_WIDER_BW_DL_OFDMA_BITS, \
+			      value)
+
+#define EHTCAP_PHY_20MHZ_ONLY_CAPS_GET_FROM_IE(__eht_cap_phy) \
+		ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX8], \
+			      EHTCAP_PHY_20MHZ_ONLY_CAPS_IDX, \
+			      EHTCAP_PHY_20MHZ_ONLY_CAPS_BITS)
+#define EHTCAP_PHY_20MHZ_ONLY_CAPS_SET_TO_IE(__eht_cap_phy, value) \
+		ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX8], \
+			      EHTCAP_PHY_20MHZ_ONLY_CAPS_IDX, \
+			      EHTCAP_PHY_20MHZ_ONLY_CAPS_BITS, \
+			      value)
+
+#define EHTCAP_PHY_20MHZ_ONLY_TRIGGER_MUBF_FULL_BW_FB_AND_DLMUMIMO_GET_FROM_IE(__eht_cap_phy) \
+		ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX8], \
+			      EHTCAP_PHY_20MHZ_ONLY_TRIGGER_MUBF_FL_BW_FB_DLMUMIMO_IDX, \
+			      EHTCAP_PHY_20MHZ_ONLY_TRIGGER_MUBF_FL_BW_FB_DLMUMIMO_BITS)
+
+#define EHTCAP_PHY_20MHZ_ONLY_TRIGGER_MUBF_FULL_BW_FB_AND_DLMUMIMO_SET_TO_IE(__eht_cap_phy, value) \
+		ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX8], \
+			      EHTCAP_PHY_20MHZ_ONLY_TRIGGER_MUBF_FL_BW_FB_DLMUMIMO_IDX, \
+			      EHTCAP_PHY_20MHZ_ONLY_TRIGGER_MUBF_FL_BW_FB_DLMUMIMO_BITS, \
+			      value)
+
+#define EHTCAP_PHY_20MHZ_ONLY_MRU_SUPP_GET_FROM_IE(__eht_cap_phy) \
+		ehtcap_ie_get(__eht_cap_phy[EHTCAP_PHYBYTE_IDX8], \
+			      EHTCAP_PHY_20MHZ_ONLY_MRU_SUPP_IDX, \
+			      EHTCAP_PHY_20MHZ_ONLY_MRU_SUPP_BITS)
+#define EHTCAP_PHY_20MHZ_ONLY_MRU_SUPP_SET_TO_IE(__eht_cap_phy, value) \
+		ehtcap_ie_set(&__eht_cap_phy[EHTCAP_PHYBYTE_IDX8], \
+			      EHTCAP_PHY_20MHZ_ONLY_MRU_SUPP_IDX, \
+			      EHTCAP_PHY_20MHZ_ONLY_MRU_SUPP_BITS, \
+			      value)
+static
+QDF_STATUS lim_ieee80211_unpack_ehtop(const uint8_t *eht_op_ie,
+				      tDot11fIEeht_op *dot11f_eht_op,
+				      tDot11fIEVHTOperation dot11f_vht_op,
+				      tDot11fIEhe_op dot11f_he_op,
+				      tDot11fIEHTInfo dot11f_ht_info)
+{
+	struct wlan_ie_ehtops *ehtop = (struct wlan_ie_ehtops *)eht_op_ie;
+	uint8_t i;
+
+	if (!eht_op_ie) {
+		pe_err("Invalid EHT op IE");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	if (!ehtop->elem_len || ehtop->elem_len < EHTOP_FIXED_LEN) {
+		pe_err("Invalid EHT op IE len %d", ehtop->elem_len);
+		return QDF_STATUS_E_INVAL;
+	}
+
+	if (!(ehtop->elem_id == DOT11F_EID_EHT_OP &&
+	      ehtop->elem_id_extn == 0x6a)) {
+		pe_err("Invalid EHT op IE");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	qdf_mem_zero(dot11f_eht_op, (sizeof(tDot11fIEeht_op)));
+
+	dot11f_eht_op->present = 1;
+	dot11f_eht_op->eht_op_information_present =
+		EHTOP_PARAMS_INFOP_GET_FROM_IE(ehtop->ehtop_param);
+
+	dot11f_eht_op->disabled_sub_chan_bitmap_present =
+		EHTOP_PARAMS_DISABLEDSUBCHANBITMAPP_GET_FROM_IE(
+							ehtop->ehtop_param);
+
+	dot11f_eht_op->eht_default_pe_duration =
+		EHTOP_PARAMS_EHT_DEF_PE_DURATION_GET_FROM_IE(
+							ehtop->ehtop_param);
+
+	dot11f_eht_op->group_addr_bu_indication_limit =
+		EHTOP_PARAMS_GROUP_ADDR_BU_IND_LIMIT_GET_FROM_IE(
+							ehtop->ehtop_param);
+
+	dot11f_eht_op->group_addr_bu_indication_exponent =
+		EHTOP_PARAMS_GROUP_ADDR_BU_IND_EXPONENT_GET_FROM_IE(
+							ehtop->ehtop_param);
+
+	dot11f_eht_op->basic_rx_max_nss_for_mcs_0_to_7 =
+		ehtop_ie_get(ehtop->basic_mcs_nss_set.max_nss_mcs_0_7,
+			     EHTOP_RX_MCS_NSS_MAP_IDX,
+			     EHTOP_RX_MCS_NSS_MAP_BITS);
+	dot11f_eht_op->basic_tx_max_nss_for_mcs_0_to_7 =
+		ehtop_ie_get(ehtop->basic_mcs_nss_set.max_nss_mcs_0_7,
+			     EHTOP_TX_MCS_NSS_MAP_IDX,
+			     EHTOP_TX_MCS_NSS_MAP_BITS);
+	dot11f_eht_op->basic_rx_max_nss_for_mcs_8_and_9 =
+		ehtop_ie_get(ehtop->basic_mcs_nss_set.max_nss_mcs_8_9,
+			     EHTOP_RX_MCS_NSS_MAP_IDX,
+			     EHTOP_RX_MCS_NSS_MAP_BITS);
+	dot11f_eht_op->basic_tx_max_nss_for_mcs_8_and_9 =
+		ehtop_ie_get(ehtop->basic_mcs_nss_set.max_nss_mcs_8_9,
+			     EHTOP_TX_MCS_NSS_MAP_IDX,
+			     EHTOP_TX_MCS_NSS_MAP_BITS);
+	dot11f_eht_op->basic_rx_max_nss_for_mcs_10_and_11 =
+		ehtop_ie_get(ehtop->basic_mcs_nss_set.max_nss_mcs_10_11,
+			     EHTOP_RX_MCS_NSS_MAP_IDX,
+			     EHTOP_RX_MCS_NSS_MAP_BITS);
+	dot11f_eht_op->basic_tx_max_nss_for_mcs_10_and_11 =
+		ehtop_ie_get(ehtop->basic_mcs_nss_set.max_nss_mcs_10_11,
+			     EHTOP_TX_MCS_NSS_MAP_IDX,
+			     EHTOP_TX_MCS_NSS_MAP_BITS);
+	dot11f_eht_op->basic_rx_max_nss_for_mcs_12_and_13 =
+		ehtop_ie_get(ehtop->basic_mcs_nss_set.max_nss_mcs_12_13,
+			     EHTOP_RX_MCS_NSS_MAP_IDX,
+			     EHTOP_RX_MCS_NSS_MAP_BITS);
+	dot11f_eht_op->basic_tx_max_nss_for_mcs_12_and_13 =
+		ehtop_ie_get(ehtop->basic_mcs_nss_set.max_nss_mcs_12_13,
+			     EHTOP_TX_MCS_NSS_MAP_IDX,
+			     EHTOP_TX_MCS_NSS_MAP_BITS);
+
+	if (dot11f_eht_op->eht_op_information_present) {
+		if (ehtop->elem_len < EHTOP_PARAM_LEN) {
+			pe_err("Invalid length for EHT_OP param len %d",
+			       ehtop->elem_len);
+			return QDF_STATUS_E_INVAL;
+		}
+
+		dot11f_eht_op->channel_width =
+			EHTOP_INFO_CHANWIDTH_GET_FROM_IE(ehtop->control);
+
+		dot11f_eht_op->ccfs0 = ehtop->ccfs0;
+
+		dot11f_eht_op->ccfs1 = ehtop->ccfs1;
+
+		if (dot11f_eht_op->disabled_sub_chan_bitmap_present) {
+			if (ehtop->elem_len != EHTOP_SUB_CHAN_BITMAP_LEN) {
+				pe_err("Invalid length for EHT_OP sub chan bitmap len %d",
+				       ehtop->elem_len);
+				return QDF_STATUS_E_INVAL;
+			}
+
+			for (i = 0; i < WLAN_MAX_DISABLED_SUB_CHAN_BITMAP;
+			     i++) {
+				dot11f_eht_op->disabled_sub_chan_bitmap[0][i] =
+					ehtop->disabled_sub_chan_bitmap[i];
+			}
+		}
+	}
+
+	return QDF_STATUS_SUCCESS;
+}
+
+static
+QDF_STATUS lim_ieee80211_unpack_ehtcap(const uint8_t *eht_cap_ie,
+				       tDot11fIEeht_cap *dot11f_eht_cap,
+				       tDot11fIEhe_cap dot11f_he_cap,
+				       bool is_band_2g,
+				       bool is_eht_cap_from_sta)
+{
+	struct wlan_ie_ehtcaps *ehtcap  = (struct wlan_ie_ehtcaps *)eht_cap_ie;
+	uint32_t idx = 0, var_length = 0;
+	uint32_t mcs_map_len;
+
+	if (!eht_cap_ie) {
+		pe_err("Invalid EHT cap IE");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	if (!ehtcap->elem_len || ehtcap->elem_len < EHTCAP_FIXED_LEN) {
+		pe_err("Invalid EHT cap IE len %d", ehtcap->elem_len);
+		return QDF_STATUS_E_INVAL;
+	}
+
+	if (!(ehtcap->elem_id == DOT11F_EID_EHT_CAP &&
+	      ehtcap->elem_id_extn == 0x6c)) {
+		pe_err("Invalid EHT cap IE");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	qdf_mem_zero(dot11f_eht_cap, (sizeof(tDot11fIEeht_cap)));
+
+	dot11f_eht_cap->present = 1;
+	dot11f_eht_cap->epcs_pri_access =
+		    EHTCAP_MAC_EPCSPRIACCESS_GET_FROM_IE(ehtcap->eht_mac_cap);
+
+	dot11f_eht_cap->eht_om_ctl =
+		    EHTCAP_MAC_EHTOMCTRL_GET_FROM_IE(ehtcap->eht_mac_cap);
+
+	dot11f_eht_cap->triggered_txop_sharing_mode1 =
+		    EHTCAP_MAC_TRIGTXOP_MODE1_GET_FROM_IE(ehtcap->eht_mac_cap);
+
+	dot11f_eht_cap->triggered_txop_sharing_mode2 =
+		    EHTCAP_MAC_TRIGTXOP_MODE2_GET_FROM_IE(ehtcap->eht_mac_cap);
+
+	dot11f_eht_cap->restricted_twt =
+		    EHTCAP_MAC_RESTRICTED_TWT_GET_FROM_IE(ehtcap->eht_mac_cap);
+
+	dot11f_eht_cap->scs_traffic_desc =
+		  EHTCAP_MAC_SCS_TRAFFIC_DESC_GET_FROM_IE(ehtcap->eht_mac_cap);
+
+	dot11f_eht_cap->max_mpdu_len =
+		  EHTCAP_MAC_MAX_MPDU_LEN_GET_FROM_IE(ehtcap->eht_mac_cap);
+
+	dot11f_eht_cap->max_a_mpdu_len_exponent_ext =
+		  EHTCAP_MAC_MAX_A_MPDU_LEN_EXPONENT_EXT_GET_FROM_IE(
+				ehtcap->eht_mac_cap);
+
+	dot11f_eht_cap->eht_trs_support =
+		EHTCAP_MAC_EHT_TRS_SUPPORT_GET_FROM_IE(ehtcap->eht_mac_cap);
+
+	dot11f_eht_cap->txop_return_support_txop_share_m2 =
+		EHTCAP_MAC_TXOP_RETURN_SUPPORT_SHARE_M2_GET_FROM_IE(
+				ehtcap->eht_mac_cap);
+	dot11f_eht_cap->two_bqrs_support =
+			EHTCAP_MAC_TWO_BQRS_SUPP_GET_FROM_IE(
+					ehtcap->eht_mac_cap);
+
+	dot11f_eht_cap->eht_link_adaptation_support =
+			EHTCAP_MAC_EHT_LINK_ADAPTATION_SUPP_GET_FROM_IE(
+					ehtcap->eht_mac_cap);
+
+	dot11f_eht_cap->support_320mhz_6ghz =
+			EHTCAP_PHY_320MHZIN6GHZ_GET_FROM_IE(
+				ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->ru_242tone_wt_20mhz =
+			EHTCAP_PHY_242TONERUBWGT20MHZ_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->ndp_4x_eht_ltf_3dot2_us_gi =
+			EHTCAP_PHY_NDP4XEHTLTFAND320NSGI_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->partial_bw_mu_mimo =
+			EHTCAP_PHY_PARTIALBWULMU_GET_FROM_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->su_beamformer =
+	      EHTCAP_PHY_SUBFMR_GET_FROM_IE(ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->su_beamformee =
+	      EHTCAP_PHY_SUBFME_GET_FROM_IE(ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->bfee_ss_le_80mhz =
+			EHTCAP_PHY_BFMESSLT80MHZ_GET_FROM_IE_BYTE0(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->bfee_ss_le_80mhz |=
+			(EHTCAP_PHY_BFMESSLT80MHZ_GET_FROM_IE_BYTE1(
+				ehtcap->eht_phy_cap.phy_cap_bytes) << 1);
+	dot11f_eht_cap->bfee_ss_160mhz =
+			EHTCAP_PHY_BFMESS160MHZ_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->bfee_ss_320mhz =
+			EHTCAP_PHY_BFMESS320MHZ_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->num_sounding_dim_le_80mhz =
+			EHTCAP_PHY_NUMSOUNDLT80MHZ_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->num_sounding_dim_160mhz =
+			EHTCAP_PHY_NUMSOUND160MHZ_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->num_sounding_dim_320mhz =
+			EHTCAP_PHY_NUMSOUND320MHZ_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->ng_16_su_feedback =
+			EHTCAP_PHY_NG16SUFB_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->ng_16_mu_feedback =
+			EHTCAP_PHY_NG16MUFB_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->cb_sz_4_2_su_feedback =
+			EHTCAP_PHY_CODBK42SUFB_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->cb_sz_7_5_su_feedback =
+			EHTCAP_PHY_CODBK75MUFB_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->trig_su_bforming_feedback =
+			EHTCAP_PHY_TRIGSUBFFB_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->trig_mu_bforming_partial_bw_feedback =
+			EHTCAP_PHY_TRIGMUBFPARTBWFB_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->triggered_cqi_feedback =
+			EHTCAP_PHY_TRIGCQIFB_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->partial_bw_dl_mu_mimo =
+			EHTCAP_PHY_PARTBWDLMUMIMO_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->psr_based_sr =
+			EHTCAP_PHY_PSRSR_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->power_boost_factor =
+			EHTCAP_PHY_PWRBSTFACTOR_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->eht_mu_ppdu_4x_ltf_0_8_us_gi =
+			EHTCAP_PHY_4XEHTMULTFAND800NSGI_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->max_nc =
+			EHTCAP_PHY_MAXNC_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->non_trig_cqi_feedback =
+			EHTCAP_PHY_NONTRIGCQIFB_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->tx_1024_4096_qam_lt_242_tone_ru =
+			EHTCAP_PHY_TX1024AND4096QAMLT242TONERU_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->rx_1024_4096_qam_lt_242_tone_ru =
+			EHTCAP_PHY_RX1024AND4096QAMLT242TONERU_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->ppet_present =
+			EHTCAP_PHY_PPETHRESPRESENT_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->common_nominal_pkt_padding =
+			EHTCAP_PHY_CMNNOMPKTPAD_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->max_num_eht_ltf =
+			EHTCAP_PHY_MAXNUMEHTLTF_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->mcs_15 =
+			EHTCAP_PHY_SUPMCS15_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->eht_dup_6ghz =
+			EHTCAP_PHY_EHTDUPIN6GHZ_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->op_sta_rx_ndp_wider_bw_20mhz =
+			EHTCAP_PHY_20MHZOPSTARXNDPWIDERBW_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->non_ofdma_ul_mu_mimo_le_80mhz =
+			EHTCAP_PHY_NONOFDMAULMUMIMOLT80MHZ_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->non_ofdma_ul_mu_mimo_160mhz =
+			EHTCAP_PHY_NONOFDMAULMUMIMO160MHZ_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->non_ofdma_ul_mu_mimo_320mhz =
+			EHTCAP_PHY_NONOFDMAULMUMIMO320MHZ_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->mu_bformer_le_80mhz =
+			EHTCAP_PHY_MUBFMRLT80MHZ_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->mu_bformer_160mhz =
+			EHTCAP_PHY_MUBFMR160MHZ_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->mu_bformer_320mhz =
+			EHTCAP_PHY_MUBFMR320MHZ_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->tb_sounding_feedback_rl =
+			EHTCAP_PHY_TB_SOUNDING_FB_RL_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->rx_1k_qam_in_wider_bw_dl_ofdma =
+			EHTCAP_PHY_RX_1K_QAM_IN_WIDER_BW_DL_OFDMA_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->rx_4k_qam_in_wider_bw_dl_ofdma =
+			EHTCAP_PHY_RX_4K_QAM_IN_WIDER_BW_DL_OFDMA_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->limited_cap_support_20mhz =
+			EHTCAP_PHY_20MHZ_ONLY_CAPS_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->triggered_mu_bf_full_bw_fb_and_dl_mumimo =
+	EHTCAP_PHY_20MHZ_ONLY_TRIGGER_MUBF_FULL_BW_FB_AND_DLMUMIMO_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	dot11f_eht_cap->mru_support_20mhz =
+			EHTCAP_PHY_20MHZ_ONLY_MRU_SUPP_GET_FROM_IE(
+					ehtcap->eht_phy_cap.phy_cap_bytes);
+
+	/**
+	 * After fixed length of parameters will have variable
+	 * length of 0 or 3 or 6 or 9. There is no bit or field will
+	 * represent this variable length, so to get this remaining length
+	 * calculating by offsetof with the structure wlan_ie_ehtcaps.
+	 * offsetof will point to the mcs_nss_map_bytes which after
+	 * the fixed length of parameters and -2 is to
+	 * exclude ELEM_ID and ELEM_LEN of 2 bytes which is not
+	 * not included in the element length.
+	 */
+	var_length = ehtcap->elem_len -
+		     (offsetof(struct wlan_ie_ehtcaps, mcs_nss_map_bytes) - 2);
+
+	/* Fill EHT MCS and NSS set field */
+	if ((is_band_2g && !dot11f_he_cap.chan_width_0) ||
+	    (!is_band_2g && !dot11f_he_cap.chan_width_1 &&
+	     !dot11f_he_cap.chan_width_2 && !dot11f_he_cap.chan_width_3)) {
+		if (ehtcap->elem_len < EHTCAP_MCS_NSS_MIN_LEN) {
+			pe_err("Invalid EHT cap IE len %d for MCS NSS 20 MHz BW",
+			       ehtcap->elem_len);
+			return QDF_STATUS_E_INVAL;
+		}
+
+		dot11f_eht_cap->bw_20_rx_max_nss_for_mcs_0_to_7 =
+			ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_RX_MCS_NSS_MAP_IDX,
+				      EHTCAP_RX_MCS_NSS_MAP_BITS);
+
+		dot11f_eht_cap->bw_20_tx_max_nss_for_mcs_0_to_7 =
+			ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_TX_MCS_NSS_MAP_IDX,
+				      EHTCAP_TX_MCS_NSS_MAP_BITS);
+
+		if (is_eht_cap_from_sta) {
+			if (ehtcap->elem_len != EHTCAP_MCS_NSS_MAX_LEN) {
+				pe_err("Invalid EHT cap IE len %d for MCS NSS STA",
+				       ehtcap->elem_len);
+				return QDF_STATUS_E_INVAL;
+			}
+			idx++;
+		}
+
+		dot11f_eht_cap->bw_20_rx_max_nss_for_mcs_8_and_9 =
+			ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_RX_MCS_NSS_MAP_IDX,
+				      EHTCAP_RX_MCS_NSS_MAP_BITS);
+
+		dot11f_eht_cap->bw_20_tx_max_nss_for_mcs_8_and_9 =
+			ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_TX_MCS_NSS_MAP_IDX,
+				      EHTCAP_TX_MCS_NSS_MAP_BITS);
+		idx++;
+
+		dot11f_eht_cap->bw_20_rx_max_nss_for_mcs_10_and_11 =
+			ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_RX_MCS_NSS_MAP_IDX,
+				      EHTCAP_RX_MCS_NSS_MAP_BITS);
+
+		dot11f_eht_cap->bw_20_tx_max_nss_for_mcs_10_and_11 =
+			ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_TX_MCS_NSS_MAP_IDX,
+				      EHTCAP_TX_MCS_NSS_MAP_BITS);
+		idx++;
+
+		dot11f_eht_cap->bw_20_rx_max_nss_for_mcs_12_and_13 =
+			ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_RX_MCS_NSS_MAP_IDX,
+				      EHTCAP_RX_MCS_NSS_MAP_BITS);
+
+		dot11f_eht_cap->bw_20_tx_max_nss_for_mcs_12_and_13 =
+			ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_TX_MCS_NSS_MAP_IDX,
+				      EHTCAP_TX_MCS_NSS_MAP_BITS);
+		idx++;
+	} else {
+		if (ehtcap->elem_len < EHTCAP_MCS_NSS_MIN_LEN) {
+			pe_err("Invalid EHT cap IE len %d for MCS NSS",
+			       ehtcap->elem_len);
+			return QDF_STATUS_E_INVAL;
+		}
+
+		if ((is_band_2g && dot11f_he_cap.chan_width_0) ||
+		    (!is_band_2g && dot11f_he_cap.chan_width_1)) {
+			dot11f_eht_cap->bw_le_80_rx_max_nss_for_mcs_0_to_9 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_RX_MCS_NSS_MAP_IDX,
+					      EHTCAP_RX_MCS_NSS_MAP_BITS);
+			dot11f_eht_cap->bw_20_rx_max_nss_for_mcs_0_to_7 =
+			     dot11f_eht_cap->bw_le_80_rx_max_nss_for_mcs_0_to_9;
+			dot11f_eht_cap->bw_20_rx_max_nss_for_mcs_8_and_9 =
+			     dot11f_eht_cap->bw_le_80_rx_max_nss_for_mcs_0_to_9;
+
+			dot11f_eht_cap->bw_le_80_tx_max_nss_for_mcs_0_to_9 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_TX_MCS_NSS_MAP_IDX,
+					      EHTCAP_TX_MCS_NSS_MAP_BITS);
+			dot11f_eht_cap->bw_20_tx_max_nss_for_mcs_0_to_7 =
+			     dot11f_eht_cap->bw_le_80_tx_max_nss_for_mcs_0_to_9;
+			dot11f_eht_cap->bw_20_tx_max_nss_for_mcs_8_and_9 =
+			     dot11f_eht_cap->bw_le_80_tx_max_nss_for_mcs_0_to_9;
+			idx++;
+
+			dot11f_eht_cap->bw_le_80_rx_max_nss_for_mcs_10_and_11 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_RX_MCS_NSS_MAP_IDX,
+					      EHTCAP_RX_MCS_NSS_MAP_BITS);
+			dot11f_eht_cap->bw_20_rx_max_nss_for_mcs_10_and_11 =
+			  dot11f_eht_cap->bw_le_80_rx_max_nss_for_mcs_10_and_11;
+
+			dot11f_eht_cap->bw_le_80_tx_max_nss_for_mcs_10_and_11 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_TX_MCS_NSS_MAP_IDX,
+					      EHTCAP_TX_MCS_NSS_MAP_BITS);
+			dot11f_eht_cap->bw_20_tx_max_nss_for_mcs_10_and_11 =
+			  dot11f_eht_cap->bw_le_80_tx_max_nss_for_mcs_10_and_11;
+			idx++;
+
+			dot11f_eht_cap->bw_le_80_rx_max_nss_for_mcs_12_and_13 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_RX_MCS_NSS_MAP_IDX,
+					      EHTCAP_RX_MCS_NSS_MAP_BITS);
+			dot11f_eht_cap->bw_20_rx_max_nss_for_mcs_12_and_13 =
+			  dot11f_eht_cap->bw_le_80_rx_max_nss_for_mcs_12_and_13;
+
+			dot11f_eht_cap->bw_le_80_tx_max_nss_for_mcs_12_and_13 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_TX_MCS_NSS_MAP_IDX,
+					      EHTCAP_TX_MCS_NSS_MAP_BITS);
+			dot11f_eht_cap->bw_20_tx_max_nss_for_mcs_12_and_13 =
+			  dot11f_eht_cap->bw_le_80_tx_max_nss_for_mcs_12_and_13;
+			idx++;
+		}
+
+		/* If 160 MHz BW is supported more 3 bytes to read */
+		if (dot11f_he_cap.chan_width_2 == 1 &&
+		    ((idx + 3) > var_length)) {
+			pe_err("Invalid EHT cap IE len %d for ch_width2",
+			       ehtcap->elem_len);
+			return QDF_STATUS_E_INVAL;
+		}
+
+		if (dot11f_he_cap.chan_width_2 == 1) {
+			dot11f_eht_cap->bw_160_rx_max_nss_for_mcs_0_to_9 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_RX_MCS_NSS_MAP_IDX,
+					      EHTCAP_RX_MCS_NSS_MAP_BITS);
+
+			dot11f_eht_cap->bw_160_tx_max_nss_for_mcs_0_to_9 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_TX_MCS_NSS_MAP_IDX,
+					      EHTCAP_TX_MCS_NSS_MAP_BITS);
+			idx++;
+
+			dot11f_eht_cap->bw_160_rx_max_nss_for_mcs_10_and_11 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_RX_MCS_NSS_MAP_IDX,
+					      EHTCAP_RX_MCS_NSS_MAP_BITS);
+
+			dot11f_eht_cap->bw_160_tx_max_nss_for_mcs_10_and_11 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_TX_MCS_NSS_MAP_IDX,
+					      EHTCAP_TX_MCS_NSS_MAP_BITS);
+			idx++;
+
+			dot11f_eht_cap->bw_160_rx_max_nss_for_mcs_12_and_13 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_RX_MCS_NSS_MAP_IDX,
+					      EHTCAP_RX_MCS_NSS_MAP_BITS);
+
+			dot11f_eht_cap->bw_160_tx_max_nss_for_mcs_12_and_13 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_TX_MCS_NSS_MAP_IDX,
+					      EHTCAP_TX_MCS_NSS_MAP_BITS);
+			idx++;
+		}
+
+		/* If 320 MHz BW is supported more 3 bytes to read */
+		if (dot11f_eht_cap->support_320mhz_6ghz &&
+		    ((idx + 3) > var_length)) {
+			pe_err("Invalid EHT cap IE len %d for 320 MHz BW",
+			       ehtcap->elem_len);
+			return QDF_STATUS_E_INVAL;
+		}
+
+		if (dot11f_eht_cap->support_320mhz_6ghz) {
+			dot11f_eht_cap->bw_320_rx_max_nss_for_mcs_0_to_9 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_RX_MCS_NSS_MAP_IDX,
+					      EHTCAP_RX_MCS_NSS_MAP_BITS);
+
+			dot11f_eht_cap->bw_320_tx_max_nss_for_mcs_0_to_9 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_TX_MCS_NSS_MAP_IDX,
+					      EHTCAP_TX_MCS_NSS_MAP_BITS);
+			idx++;
+
+			dot11f_eht_cap->bw_320_rx_max_nss_for_mcs_10_and_11 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_RX_MCS_NSS_MAP_IDX,
+					      EHTCAP_RX_MCS_NSS_MAP_BITS);
+
+			dot11f_eht_cap->bw_320_tx_max_nss_for_mcs_10_and_11 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_TX_MCS_NSS_MAP_IDX,
+					      EHTCAP_TX_MCS_NSS_MAP_BITS);
+			idx++;
+
+			dot11f_eht_cap->bw_320_rx_max_nss_for_mcs_12_and_13 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_RX_MCS_NSS_MAP_IDX,
+					      EHTCAP_RX_MCS_NSS_MAP_BITS);
+
+			dot11f_eht_cap->bw_320_tx_max_nss_for_mcs_12_and_13 =
+				ehtcap_ie_get(ehtcap->mcs_nss_map_bytes[idx],
+					      EHTCAP_TX_MCS_NSS_MAP_IDX,
+					      EHTCAP_TX_MCS_NSS_MAP_BITS);
+			idx++;
+		}
+	}
+
+	/* Fill in TxRx EHT NSS & MCS support */
+	mcs_map_len = idx;
+	//ehtcap->elem_len = EHTCAP_FIXED_LEN + mcs_map_len;
+	//ehtcaplen = ehtcap->elem_len + WLAN_IE_HDR_LEN;
+
+	return QDF_STATUS_SUCCESS;
+}
+
+QDF_STATUS lim_strip_and_decode_eht_cap(uint8_t *ie, uint16_t ie_len,
+					tDot11fIEeht_cap *dot11f_eht_cap,
+					tDot11fIEhe_cap dot11f_he_cap,
+					uint16_t freq, bool is_eht_cap_from_sta)
+{
+	const uint8_t *eht_cap_ie;
+	bool is_band_2g;
+	QDF_STATUS status;
+
+	eht_cap_ie = lim_get_ext_ie_ptr_from_ext_id(ie, ie_len,
+						    EHT_CAP_OUI_TYPE,
+						    EHT_CAP_OUI_SIZE);
+
+	if (!eht_cap_ie)
+		return QDF_STATUS_SUCCESS;
+
+	is_band_2g = WLAN_REG_IS_24GHZ_CH_FREQ(freq);
+
+	status = lim_ieee80211_unpack_ehtcap(eht_cap_ie, dot11f_eht_cap,
+					     dot11f_he_cap, is_band_2g,
+					     is_eht_cap_from_sta);
+
+	if (status != QDF_STATUS_SUCCESS) {
+		pe_err("Failed to extract eht cap");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	return QDF_STATUS_SUCCESS;
+}
+
+void lim_ieee80211_pack_ehtcap(uint8_t *ie, tDot11fIEeht_cap dot11f_eht_cap,
+			       tDot11fIEhe_cap dot11f_he_cap, bool is_band_2g)
+{
+	struct wlan_ie_ehtcaps *ehtcap  = (struct wlan_ie_ehtcaps *)ie;
+	uint32_t ehtcaplen;
+	uint32_t val, idx = 0;
+	bool chwidth_320;
+	uint32_t mcs_map_len;
+
+	if (!ie) {
+		pe_err("ie is null");
+		return;
+	}
+
+	/* deduct the variable size fields before
+	 * memsetting hecap to 0
+	 */
+	qdf_mem_zero(ehtcap,
+		     (sizeof(struct wlan_ie_ehtcaps)));
+
+	ehtcap->elem_id = DOT11F_EID_EHT_CAP;
+	/* elem id + len = 2 bytes  readjust based on
+	 *  mcs-nss and ppet fields
+	 */
+	qdf_mem_copy(&ehtcap->elem_id_extn, EHT_CAP_OUI_TYPE, EHT_CAP_OUI_SIZE);
+
+	val = dot11f_eht_cap.epcs_pri_access;
+	EHTCAP_MAC_EPCSPRIACCESS_SET_TO_IE(ehtcap->eht_mac_cap, val);
+
+	val = dot11f_eht_cap.eht_om_ctl;
+	EHTCAP_MAC_EHTOMCTRL_SET_TO_IE(ehtcap->eht_mac_cap, val);
+
+	val = dot11f_eht_cap.triggered_txop_sharing_mode1;
+	EHTCAP_MAC_TRIGTXOP_MODE1_SET_TO_IE(ehtcap->eht_mac_cap, val);
+
+	val = dot11f_eht_cap.triggered_txop_sharing_mode2;
+	EHTCAP_MAC_TRIGTXOP_MODE2_SET_TO_IE(ehtcap->eht_mac_cap, val);
+
+	val = dot11f_eht_cap.restricted_twt;
+	EHTCAP_MAC_RESTRICTED_TWT_SET_TO_IE(ehtcap->eht_mac_cap, val);
+
+	val = dot11f_eht_cap.scs_traffic_desc;
+	EHTCAP_MAC_SCS_TRAFFIC_DESC_SET_TO_IE(ehtcap->eht_mac_cap, val);
+
+	val = dot11f_eht_cap.max_mpdu_len;
+	EHTCAP_MAC_MAX_MPDU_LEN_SET_TO_IE(ehtcap->eht_mac_cap, val);
+
+	val = dot11f_eht_cap.max_a_mpdu_len_exponent_ext;
+	EHTCAP_MAC_MAX_A_MPDU_LEN_EXPONENT_EXT_SET_TO_IE(ehtcap->eht_mac_cap,
+							 val);
+
+	val = dot11f_eht_cap.eht_trs_support;
+	EHTCAP_MAC_EHT_TRS_SUPPORT_SET_TO_IE(ehtcap->eht_mac_cap, val);
+
+	val = dot11f_eht_cap.txop_return_support_txop_share_m2;
+	EHTCAP_MAC_TXOP_RETURN_SUPPORT_SHARE_M2_SET_FROM_IE(ehtcap->eht_mac_cap,
+							    val);
+	val = dot11f_eht_cap.two_bqrs_support;
+	EHTCAP_MAC_TWO_BQRS_SUPP_SET_FROM_IE(ehtcap->eht_mac_cap,
+					     val);
+
+	val = dot11f_eht_cap.eht_link_adaptation_support;
+	EHTCAP_MAC_EHT_LINK_ADAPTATION_SUPP_SET_FROM_IE(ehtcap->eht_mac_cap,
+							val);
+
+	chwidth_320 = dot11f_eht_cap.support_320mhz_6ghz;
+	EHTCAP_PHY_320MHZIN6GHZ_SET_TO_IE(ehtcap->eht_phy_cap.phy_cap_bytes,
+					  chwidth_320);
+
+	val = dot11f_eht_cap.ru_242tone_wt_20mhz;
+	EHTCAP_PHY_242TONERUBWGT20MHZ_SET_TO_IE(
+				      ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.ndp_4x_eht_ltf_3dot2_us_gi;
+	EHTCAP_PHY_NDP4XEHTLTFAND320NSGI_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.partial_bw_mu_mimo;
+	EHTCAP_PHY_PARTIALBWULMU_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.su_beamformer;
+	EHTCAP_PHY_SUBFMR_SET_TO_IE(ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.su_beamformee;
+	EHTCAP_PHY_SUBFME_SET_TO_IE(ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.bfee_ss_le_80mhz;
+	EHTCAP_PHY_BFMESSLT80MHZ_SET_TO_IE_BYTE0(
+				     ehtcap->eht_phy_cap.phy_cap_bytes,
+				     val & 1);
+
+	EHTCAP_PHY_BFMESSLT80MHZ_SET_TO_IE_BYTE1(
+				     ehtcap->eht_phy_cap.phy_cap_bytes,
+				     (val >> 1));
+	val = dot11f_eht_cap.bfee_ss_160mhz;
+	EHTCAP_PHY_BFMESS160MHZ_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.bfee_ss_320mhz;
+	EHTCAP_PHY_BFMESS320MHZ_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.num_sounding_dim_le_80mhz;
+	EHTCAP_PHY_NUMSOUNDLT80MHZ_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.num_sounding_dim_160mhz;
+	EHTCAP_PHY_NUMSOUND160MHZ_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.num_sounding_dim_320mhz;
+	EHTCAP_PHY_NUMSOUND320MHZ_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.ng_16_su_feedback;
+	EHTCAP_PHY_NG16SUFB_SET_TO_IE(ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.ng_16_mu_feedback;
+	EHTCAP_PHY_NG16MUFB_SET_TO_IE(ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.cb_sz_4_2_su_feedback;
+	EHTCAP_PHY_CODBK42SUFB_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.cb_sz_7_5_su_feedback;
+	EHTCAP_PHY_CODBK75MUFB_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.trig_su_bforming_feedback;
+	EHTCAP_PHY_TRIGSUBFFB_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.trig_mu_bforming_partial_bw_feedback;
+	EHTCAP_PHY_TRIGMUBFPARTBWFB_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.triggered_cqi_feedback;
+	EHTCAP_PHY_TRIGCQIFB_SET_TO_IE(ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.partial_bw_dl_mu_mimo;
+	EHTCAP_PHY_PARTBWDLMUMIMO_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.psr_based_sr;
+	EHTCAP_PHY_PSRSR_SET_TO_IE(ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.power_boost_factor;
+	EHTCAP_PHY_PWRBSTFACTOR_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.eht_mu_ppdu_4x_ltf_0_8_us_gi;
+	EHTCAP_PHY_4XEHTMULTFAND800NSGI_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.max_nc;
+	EHTCAP_PHY_MAXNC_SET_TO_IE(ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.non_trig_cqi_feedback;
+	EHTCAP_PHY_NONTRIGCQIFB_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.tx_1024_4096_qam_lt_242_tone_ru;
+	EHTCAP_PHY_TX1024AND4096QAMLT242TONERU_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.rx_1024_4096_qam_lt_242_tone_ru;
+	EHTCAP_PHY_RX1024AND4096QAMLT242TONERU_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.ppet_present;
+	EHTCAP_PHY_PPETHRESPRESENT_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.common_nominal_pkt_padding;
+	EHTCAP_PHY_CMNNOMPKTPAD_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.max_num_eht_ltf;
+	EHTCAP_PHY_MAXNUMEHTLTF_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.mcs_15;
+	EHTCAP_PHY_SUPMCS15_SET_TO_IE(ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.eht_dup_6ghz;
+	EHTCAP_PHY_EHTDUPIN6GHZ_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.op_sta_rx_ndp_wider_bw_20mhz;
+	EHTCAP_PHY_20MHZOPSTARXNDPWIDERBW_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.non_ofdma_ul_mu_mimo_le_80mhz;
+	EHTCAP_PHY_NONOFDMAULMUMIMOLT80MHZ_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.non_ofdma_ul_mu_mimo_160mhz;
+	EHTCAP_PHY_NONOFDMAULMUMIMO160MHZ_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.non_ofdma_ul_mu_mimo_320mhz;
+	EHTCAP_PHY_NONOFDMAULMUMIMO320MHZ_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.mu_bformer_le_80mhz;
+	EHTCAP_PHY_MUBFMRLT80MHZ_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.mu_bformer_160mhz;
+	EHTCAP_PHY_MUBFMR160MHZ_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.mu_bformer_320mhz;
+	EHTCAP_PHY_MUBFMR320MHZ_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.tb_sounding_feedback_rl;
+	EHTCAP_PHY_TB_SOUNDING_FB_RL_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes,	val);
+
+	val = dot11f_eht_cap.rx_1k_qam_in_wider_bw_dl_ofdma;
+	EHTCAP_PHY_RX_1K_QAM_IN_WIDER_BW_DL_OFDMA_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.rx_4k_qam_in_wider_bw_dl_ofdma;
+	EHTCAP_PHY_RX_4K_QAM_IN_WIDER_BW_DL_OFDMA_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.limited_cap_support_20mhz;
+	EHTCAP_PHY_20MHZ_ONLY_CAPS_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.triggered_mu_bf_full_bw_fb_and_dl_mumimo;
+	EHTCAP_PHY_20MHZ_ONLY_TRIGGER_MUBF_FULL_BW_FB_AND_DLMUMIMO_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	val = dot11f_eht_cap.mru_support_20mhz;
+	EHTCAP_PHY_20MHZ_ONLY_MRU_SUPP_SET_TO_IE(
+				     ehtcap->eht_phy_cap.phy_cap_bytes, val);
+
+	/* Fill EHT MCS and NSS set field */
+	if ((is_band_2g && !dot11f_he_cap.chan_width_0) ||
+	    (!is_band_2g && !dot11f_he_cap.chan_width_1 &&
+	     !dot11f_he_cap.chan_width_2 && !dot11f_he_cap.chan_width_3)) {
+		val = dot11f_eht_cap.bw_20_rx_max_nss_for_mcs_0_to_7;
+		ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+			      EHTCAP_RX_MCS_NSS_MAP_IDX,
+			      EHTCAP_RX_MCS_NSS_MAP_BITS, val);
+
+		val = dot11f_eht_cap.bw_20_tx_max_nss_for_mcs_0_to_7;
+		ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+			      EHTCAP_TX_MCS_NSS_MAP_IDX,
+			      EHTCAP_TX_MCS_NSS_MAP_BITS, val);
+		idx++;
+
+		val = dot11f_eht_cap.bw_20_rx_max_nss_for_mcs_8_and_9;
+		ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+			      EHTCAP_RX_MCS_NSS_MAP_IDX,
+			      EHTCAP_RX_MCS_NSS_MAP_BITS, val);
+
+		val = dot11f_eht_cap.bw_20_tx_max_nss_for_mcs_8_and_9;
+		ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+			      EHTCAP_TX_MCS_NSS_MAP_IDX,
+			      EHTCAP_TX_MCS_NSS_MAP_BITS, val);
+		idx++;
+
+		val = dot11f_eht_cap.bw_20_rx_max_nss_for_mcs_10_and_11;
+		ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+			      EHTCAP_RX_MCS_NSS_MAP_IDX,
+			      EHTCAP_RX_MCS_NSS_MAP_BITS, val);
+
+		val = dot11f_eht_cap.bw_20_tx_max_nss_for_mcs_10_and_11;
+		ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+			      EHTCAP_TX_MCS_NSS_MAP_IDX,
+			      EHTCAP_TX_MCS_NSS_MAP_BITS, val);
+		idx++;
+
+		val = dot11f_eht_cap.bw_20_rx_max_nss_for_mcs_12_and_13;
+		ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+			      EHTCAP_RX_MCS_NSS_MAP_IDX,
+			      EHTCAP_RX_MCS_NSS_MAP_BITS, val);
+
+		val = dot11f_eht_cap.bw_20_tx_max_nss_for_mcs_12_and_13;
+		ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+			      EHTCAP_TX_MCS_NSS_MAP_IDX,
+			      EHTCAP_TX_MCS_NSS_MAP_BITS, val);
+		idx++;
+	} else {
+		if ((is_band_2g && dot11f_he_cap.chan_width_0) ||
+		    (!is_band_2g && dot11f_he_cap.chan_width_1)) {
+			val = dot11f_eht_cap.bw_le_80_rx_max_nss_for_mcs_0_to_9;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_RX_MCS_NSS_MAP_IDX,
+				      EHTCAP_RX_MCS_NSS_MAP_BITS, val);
+
+			val = dot11f_eht_cap.bw_le_80_tx_max_nss_for_mcs_0_to_9;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_TX_MCS_NSS_MAP_IDX,
+				      EHTCAP_TX_MCS_NSS_MAP_BITS, val);
+			idx++;
+
+			val = dot11f_eht_cap.bw_le_80_rx_max_nss_for_mcs_10_and_11;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_RX_MCS_NSS_MAP_IDX,
+				      EHTCAP_RX_MCS_NSS_MAP_BITS, val);
+
+			val = dot11f_eht_cap.bw_le_80_tx_max_nss_for_mcs_10_and_11;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_TX_MCS_NSS_MAP_IDX,
+				      EHTCAP_TX_MCS_NSS_MAP_BITS, val);
+			idx++;
+
+			val = dot11f_eht_cap.bw_le_80_rx_max_nss_for_mcs_12_and_13;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_RX_MCS_NSS_MAP_IDX,
+				      EHTCAP_RX_MCS_NSS_MAP_BITS, val);
+
+			val = dot11f_eht_cap.bw_le_80_tx_max_nss_for_mcs_12_and_13;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_TX_MCS_NSS_MAP_IDX,
+				      EHTCAP_TX_MCS_NSS_MAP_BITS, val);
+			idx++;
+		}
+
+		if (dot11f_he_cap.chan_width_2 == 1) {
+			val = dot11f_eht_cap.bw_160_rx_max_nss_for_mcs_0_to_9;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_RX_MCS_NSS_MAP_IDX,
+				      EHTCAP_RX_MCS_NSS_MAP_BITS, val);
+
+			val = dot11f_eht_cap.bw_160_tx_max_nss_for_mcs_0_to_9;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_TX_MCS_NSS_MAP_IDX,
+				      EHTCAP_TX_MCS_NSS_MAP_BITS, val);
+			idx++;
+
+			val = dot11f_eht_cap.bw_160_rx_max_nss_for_mcs_10_and_11;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_RX_MCS_NSS_MAP_IDX,
+				      EHTCAP_RX_MCS_NSS_MAP_BITS, val);
+
+			val = dot11f_eht_cap.bw_160_tx_max_nss_for_mcs_10_and_11;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_TX_MCS_NSS_MAP_IDX,
+				      EHTCAP_TX_MCS_NSS_MAP_BITS, val);
+			idx++;
+
+			val = dot11f_eht_cap.bw_160_rx_max_nss_for_mcs_12_and_13;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_RX_MCS_NSS_MAP_IDX,
+				      EHTCAP_RX_MCS_NSS_MAP_BITS, val);
+
+			val = dot11f_eht_cap.bw_160_tx_max_nss_for_mcs_12_and_13;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_TX_MCS_NSS_MAP_IDX,
+				      EHTCAP_TX_MCS_NSS_MAP_BITS, val);
+			idx++;
+		}
+
+		if (chwidth_320) {
+			val = dot11f_eht_cap.bw_320_rx_max_nss_for_mcs_0_to_9;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_RX_MCS_NSS_MAP_IDX,
+				      EHTCAP_RX_MCS_NSS_MAP_BITS, val);
+
+			val = dot11f_eht_cap.bw_320_tx_max_nss_for_mcs_0_to_9;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_TX_MCS_NSS_MAP_IDX,
+				      EHTCAP_TX_MCS_NSS_MAP_BITS, val);
+			idx++;
+
+			val = dot11f_eht_cap.bw_320_rx_max_nss_for_mcs_10_and_11;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_RX_MCS_NSS_MAP_IDX,
+				      EHTCAP_RX_MCS_NSS_MAP_BITS, val);
+
+			val = dot11f_eht_cap.bw_320_tx_max_nss_for_mcs_10_and_11;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_TX_MCS_NSS_MAP_IDX,
+				      EHTCAP_TX_MCS_NSS_MAP_BITS, val);
+			idx++;
+
+			val = dot11f_eht_cap.bw_320_rx_max_nss_for_mcs_12_and_13;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_RX_MCS_NSS_MAP_IDX,
+				      EHTCAP_RX_MCS_NSS_MAP_BITS, val);
+
+			val = dot11f_eht_cap.bw_320_tx_max_nss_for_mcs_12_and_13;
+			ehtcap_ie_set(&ehtcap->mcs_nss_map_bytes[idx],
+				      EHTCAP_TX_MCS_NSS_MAP_IDX,
+				      EHTCAP_TX_MCS_NSS_MAP_BITS, val);
+			idx++;
+		}
+	}
+
+	/* Fill in TxRx EHT NSS & MCS support */
+	mcs_map_len = idx;
+	ehtcap->elem_len = EHTCAP_FIXED_LEN + mcs_map_len;
+	ehtcaplen = ehtcap->elem_len + WLAN_IE_HDR_LEN;
+}
+
+#ifdef WLAN_SUPPORT_TWT
+static void
+populate_dot11f_twt_eht_cap(struct mac_context *mac,
+			    tDot11fIEeht_cap *eht_cap)
+{
+	bool restricted_support = false;
+
+	wlan_twt_get_rtwt_support(mac->psoc, &restricted_support);
+
+	pe_debug("rTWT support: %d", restricted_support);
+
+	eht_cap->restricted_twt = restricted_support;
+}
+#else
+static inline void
+populate_dot11f_twt_eht_cap(struct mac_context *mac_ctx,
+			    tDot11fIEhe_cap *eht_cap)
+{
+	eht_cap->restricted_twt = false;
+}
+#endif
 QDF_STATUS populate_dot11f_eht_caps(struct mac_context *mac_ctx,
 				    struct pe_session *session,
 				    tDot11fIEeht_cap *eht_cap)
@@ -6898,8 +9379,170 @@ QDF_STATUS populate_dot11f_eht_caps(struct mac_context *mac_ctx,
 
 	/** TODO: String items needs attention. **/
 	qdf_mem_copy(eht_cap, &session->eht_config, sizeof(*eht_cap));
+	if (session->ch_width != CH_WIDTH_320MHZ)
+		eht_cap->support_320mhz_6ghz = 0;
+
+	populate_dot11f_twt_eht_cap(mac_ctx, eht_cap);
+	return QDF_STATUS_SUCCESS;
+}
+
+QDF_STATUS
+populate_dot11f_eht_caps_by_band(struct mac_context *mac_ctx,
+				 bool is_2g,
+				 tDot11fIEeht_cap *eht_cap)
+{
+	pe_debug("is_2g %d", is_2g);
+	if (is_2g)
+		qdf_mem_copy(eht_cap,
+			     &mac_ctx->eht_cap_2g,
+			     sizeof(tDot11fIEeht_cap));
+	else
+		qdf_mem_copy(eht_cap,
+			     &mac_ctx->eht_cap_5g,
+			     sizeof(tDot11fIEeht_cap));
 
 	return QDF_STATUS_SUCCESS;
+}
+
+QDF_STATUS lim_strip_and_decode_eht_op(uint8_t *ie, uint16_t ie_len,
+				       tDot11fIEeht_op *dot11f_eht_op,
+				       tDot11fIEVHTOperation dot11f_vht_op,
+				       tDot11fIEhe_op dot11f_he_op,
+				       tDot11fIEHTInfo dot11f_ht_info)
+{
+	const uint8_t *eht_op_ie;
+	QDF_STATUS status;
+
+	eht_op_ie = lim_get_ext_ie_ptr_from_ext_id(ie, ie_len,
+						   EHT_OP_OUI_TYPE,
+						   EHT_OP_OUI_SIZE);
+
+	if (!eht_op_ie)
+		return QDF_STATUS_SUCCESS;
+
+	status = lim_ieee80211_unpack_ehtop(eht_op_ie, dot11f_eht_op,
+					    dot11f_vht_op, dot11f_he_op,
+					    dot11f_ht_info);
+
+	if (status != QDF_STATUS_SUCCESS) {
+		pe_err("Failed to extract eht op");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	return QDF_STATUS_SUCCESS;
+}
+
+void lim_ieee80211_pack_ehtop(uint8_t *ie, tDot11fIEeht_op dot11f_eht_op,
+			      tDot11fIEVHTOperation dot11f_vht_op,
+			      tDot11fIEhe_op dot11f_he_op,
+			      tDot11fIEHTInfo dot11f_ht_info)
+{
+	struct wlan_ie_ehtops *ehtop = (struct wlan_ie_ehtops *)ie;
+	uint32_t val;
+	uint32_t i;
+	uint32_t eht_op_info_len = 0;
+	uint32_t ehtoplen;
+	bool diff_chan_width = false;
+
+	if (!ie) {
+		pe_err("ie is null");
+		return;
+	}
+
+	qdf_mem_zero(ehtop, (sizeof(struct wlan_ie_ehtops)));
+
+	ehtop->elem_id = DOT11F_EID_EHT_OP;
+
+	qdf_mem_copy(&ehtop->elem_id_extn, EHT_OP_OUI_TYPE, EHT_OP_OUI_SIZE);
+
+	if (dot11f_he_op.present && dot11f_he_op.oper_info_6g_present &&
+	    (dot11f_he_op.oper_info_6g.info.ch_width !=
+	     dot11f_eht_op.channel_width)) {
+		diff_chan_width = true;
+	} else if (dot11f_vht_op.present &&
+		   (dot11f_vht_op.chanWidth != dot11f_eht_op.channel_width)) {
+		diff_chan_width = true;
+	} else if (dot11f_ht_info.present &&
+		   (dot11f_ht_info.recommendedTxWidthSet !=
+		    dot11f_eht_op.channel_width)) {
+		diff_chan_width = true;
+	}
+
+	if (diff_chan_width) {
+		val = dot11f_eht_op.eht_op_information_present;
+		EHTOP_PARAMS_INFOP_SET_TO_IE(ehtop->ehtop_param, val);
+	}
+
+	val = dot11f_eht_op.eht_default_pe_duration;
+	EHTOP_PARAMS_EHT_DEF_PE_DURATION_SET_TO_IE(ehtop->ehtop_param, val);
+
+	val = dot11f_eht_op.group_addr_bu_indication_limit;
+	EHTOP_PARAMS_GROUP_ADDR_BU_IND_LIMIT_SET_TO_IE(ehtop->ehtop_param, val);
+
+	val = dot11f_eht_op.group_addr_bu_indication_exponent;
+	EHTOP_PARAMS_GROUP_ADDR_BU_IND_EXPONENT_SET_TO_IE(ehtop->ehtop_param,
+							  val);
+
+	val = dot11f_eht_op.basic_rx_max_nss_for_mcs_0_to_7;
+	ehtop_ie_set(&ehtop->basic_mcs_nss_set.max_nss_mcs_0_7,
+		     EHTOP_RX_MCS_NSS_MAP_IDX,
+		     EHTOP_RX_MCS_NSS_MAP_BITS, val);
+	val = dot11f_eht_op.basic_tx_max_nss_for_mcs_0_to_7;
+	ehtop_ie_set(&ehtop->basic_mcs_nss_set.max_nss_mcs_0_7,
+		     EHTOP_TX_MCS_NSS_MAP_IDX,
+		     EHTOP_TX_MCS_NSS_MAP_BITS, val);
+
+	val = dot11f_eht_op.basic_rx_max_nss_for_mcs_8_and_9;
+	ehtop_ie_set(&ehtop->basic_mcs_nss_set.max_nss_mcs_8_9,
+		     EHTOP_RX_MCS_NSS_MAP_IDX,
+		     EHTOP_RX_MCS_NSS_MAP_BITS, val);
+	val = dot11f_eht_op.basic_tx_max_nss_for_mcs_8_and_9;
+	ehtop_ie_set(&ehtop->basic_mcs_nss_set.max_nss_mcs_8_9,
+		     EHTOP_TX_MCS_NSS_MAP_IDX,
+		     EHTOP_TX_MCS_NSS_MAP_BITS, val);
+
+	val = dot11f_eht_op.basic_rx_max_nss_for_mcs_10_and_11;
+	ehtop_ie_set(&ehtop->basic_mcs_nss_set.max_nss_mcs_10_11,
+		     EHTOP_RX_MCS_NSS_MAP_IDX,
+		     EHTOP_RX_MCS_NSS_MAP_BITS, val);
+	val = dot11f_eht_op.basic_tx_max_nss_for_mcs_10_and_11;
+	ehtop_ie_set(&ehtop->basic_mcs_nss_set.max_nss_mcs_10_11,
+		     EHTOP_TX_MCS_NSS_MAP_IDX,
+		     EHTOP_TX_MCS_NSS_MAP_BITS, val);
+
+	val = dot11f_eht_op.basic_rx_max_nss_for_mcs_12_and_13;
+	ehtop_ie_set(&ehtop->basic_mcs_nss_set.max_nss_mcs_12_13,
+		     EHTOP_RX_MCS_NSS_MAP_IDX,
+		     EHTOP_RX_MCS_NSS_MAP_BITS, val);
+	val = dot11f_eht_op.basic_tx_max_nss_for_mcs_12_and_13;
+	ehtop_ie_set(&ehtop->basic_mcs_nss_set.max_nss_mcs_12_13,
+		     EHTOP_TX_MCS_NSS_MAP_IDX,
+		     EHTOP_TX_MCS_NSS_MAP_BITS, val);
+
+	if (EHTOP_PARAMS_INFOP_GET_FROM_IE(ehtop->ehtop_param)) {
+		val = dot11f_eht_op.channel_width;
+		EHTOP_INFO_CHANWIDTH_SET_TO_IE(ehtop->control, val);
+
+		ehtop->ccfs0 = dot11f_eht_op.ccfs0;
+
+		ehtop->ccfs1 = dot11f_eht_op.ccfs1;
+		/*1 byte for Control, 1 byte for CCFS0, 1 bytes for CCFS1*/
+		eht_op_info_len += 3;
+
+		if (dot11f_eht_op.disabled_sub_chan_bitmap_present) {
+			val = dot11f_eht_op.disabled_sub_chan_bitmap_present;
+			EHTOP_PARAMS_DISABLEDSUBCHANBITMAPP_SET_TO_IE(ehtop->ehtop_param, val);
+
+			eht_op_info_len += WLAN_MAX_DISABLED_SUB_CHAN_BITMAP;
+
+			for (i = 0; i < WLAN_MAX_DISABLED_SUB_CHAN_BITMAP; i++)
+				ehtop->disabled_sub_chan_bitmap[i] =
+				dot11f_eht_op.disabled_sub_chan_bitmap[0][i];
+		}
+	}
+
+	ehtop->elem_len = EHTOP_FIXED_LEN + eht_op_info_len;
+	ehtoplen = ehtop->elem_len + WLAN_IE_HDR_LEN;
 }
 
 QDF_STATUS populate_dot11f_eht_operation(struct mac_context *mac_ctx,
@@ -6909,6 +9552,31 @@ QDF_STATUS populate_dot11f_eht_operation(struct mac_context *mac_ctx,
 	qdf_mem_copy(eht_op, &session->eht_op, sizeof(*eht_op));
 
 	eht_op->present = 1;
+
+	eht_op->eht_op_information_present = 1;
+	if (session->ch_width == CH_WIDTH_320MHZ) {
+		eht_op->channel_width = WLAN_EHT_CHWIDTH_320;
+		eht_op->ccfs0 = session->ch_center_freq_seg0;
+		eht_op->ccfs1 = session->ch_center_freq_seg1;
+	} else if (session->ch_width == CH_WIDTH_160MHZ ||
+		   session->ch_width == CH_WIDTH_80P80MHZ) {
+		eht_op->channel_width = WLAN_EHT_CHWIDTH_160;
+		eht_op->ccfs0 = session->ch_center_freq_seg0;
+		eht_op->ccfs1 = session->ch_center_freq_seg1;
+	} else if (session->ch_width == CH_WIDTH_80MHZ) {
+		eht_op->channel_width = WLAN_EHT_CHWIDTH_80;
+		eht_op->ccfs0 = session->ch_center_freq_seg0;
+		eht_op->ccfs1 = 0;
+	} else if (session->ch_width == CH_WIDTH_40MHZ) {
+		eht_op->channel_width = WLAN_EHT_CHWIDTH_40;
+		eht_op->ccfs0 = session->ch_center_freq_seg0;
+		eht_op->ccfs1 = 0;
+	} else if (session->ch_width == CH_WIDTH_20MHZ) {
+		eht_op->channel_width = WLAN_EHT_CHWIDTH_20;
+		eht_op->ccfs0 = session->ch_center_freq_seg0;
+		eht_op->ccfs1 = 0;
+	}
+
 	lim_log_eht_op(mac_ctx, eht_op, session);
 
 	return QDF_STATUS_SUCCESS;
@@ -6916,6 +9584,104 @@ QDF_STATUS populate_dot11f_eht_operation(struct mac_context *mac_ctx,
 #endif /* WLAN_FEATURE_11BE */
 
 #ifdef WLAN_FEATURE_11BE_MLO
+QDF_STATUS
+populate_dot11f_probe_req_mlo_ie(struct mac_context *mac,
+				 struct pe_session *session)
+{
+	struct wlan_mlo_ie *mlo_ie;
+	uint8_t *p_ml_ie, *sta_data;
+	uint16_t len_remaining, sta_len_left;
+	struct wlan_mlo_sta_profile *sta_pro;
+	int num_sta_pro = 0;
+	struct mlo_partner_info partner_info;
+	uint8_t link;
+
+	if (!session || !session->vdev || !session->vdev->mlo_dev_ctx) {
+		pe_err("Null value");
+		return QDF_STATUS_E_NULL_VALUE;
+	}
+
+	mlo_ie = &session->mlo_ie;
+	p_ml_ie = mlo_ie->data;
+	len_remaining = sizeof(mlo_ie->data);
+
+	*p_ml_ie++ = WLAN_ELEMID_EXTN_ELEM;
+	len_remaining--;
+
+	/* set length later */
+	*p_ml_ie++ = 0;
+	len_remaining--;
+
+	*p_ml_ie++ = WLAN_EXTN_ELEMID_MULTI_LINK;
+	len_remaining--;
+
+	/* Set ML IE multi link control bitmap:
+	 * ML probe variant type = 1
+	 * In presence bitmap, set MLD ID presence bit = 1
+	 */
+	mlo_ie->type = WLAN_ML_VARIANT_PROBEREQ;
+	QDF_SET_BITS(*(uint16_t *)p_ml_ie, WLAN_ML_CTRL_TYPE_IDX,
+		     WLAN_ML_CTRL_TYPE_BITS, mlo_ie->type);
+	QDF_SET_BITS(*(uint16_t *)p_ml_ie, WLAN_ML_CTRL_PBM_IDX,
+		     WLAN_ML_CTRL_PBM_BITS, 1);
+
+	p_ml_ie += WLAN_ML_CTRL_SIZE;
+	len_remaining -= WLAN_ML_CTRL_SIZE;
+
+	/* common info length is 2 */
+	*p_ml_ie++ = 2;
+	len_remaining--;
+
+	/* mld id is always 0 for tx link for SAP or AP */
+	*p_ml_ie++ = 0;
+	len_remaining--;
+
+	mlo_ie->num_data = p_ml_ie - mlo_ie->data;
+
+	if (wlan_vdev_mlme_cap_get(session->vdev,
+				   WLAN_VDEV_C_EXCL_STA_PROF_PRB_REQ)) {
+		pe_debug("Do not populate sta profile in MLO IE");
+		goto no_sta_prof;
+	}
+	pe_debug("Populate sta profile in MLO IE");
+
+	partner_info = session->lim_join_req->partner_info;
+	for (link = 0; link < partner_info.num_partner_links; link++) {
+		sta_pro = &mlo_ie->sta_profile[num_sta_pro];
+		sta_data = sta_pro->data;
+		sta_len_left = sizeof(sta_pro->data);
+
+		*sta_data++ = WLAN_ML_LINFO_SUBELEMID_PERSTAPROFILE;
+		sta_len_left--;
+		/* length of subelement, filled at last */
+		*sta_data++ = 0;
+		sta_len_left--;
+
+		QDF_SET_BITS(*(uint16_t *)sta_data,
+			     WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_LINKID_IDX,
+			     WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_LINKID_BITS,
+			     partner_info.partner_link_info[link].link_id);
+
+		QDF_SET_BITS(*(uint16_t *)sta_data,
+			     WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_CMPLTPROF_IDX,
+			     WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_CMPLTPROF_BITS,
+			     1);
+		sta_data += WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_SIZE;
+		sta_len_left -= WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_SIZE;
+
+		sta_pro->num_data = sta_data - sta_pro->data;
+		sta_pro->data[TAG_LEN_POS] = sta_pro->num_data - MIN_IE_LEN;
+
+		num_sta_pro++;
+	}
+
+no_sta_prof:
+	mlo_ie->num_sta_profile = num_sta_pro;
+	session->lim_join_req->is_ml_probe_req_sent = true;
+
+	return QDF_STATUS_SUCCESS;
+}
+
 QDF_STATUS populate_dot11f_assoc_rsp_mlo_ie(struct mac_context *mac_ctx,
 					    struct pe_session *session,
 					    tpDphHashNode sta,
@@ -6923,10 +9689,10 @@ QDF_STATUS populate_dot11f_assoc_rsp_mlo_ie(struct mac_context *mac_ctx,
 {
 	int link;
 	int num_sta_pro = 0;
-	tDot11fIEsta_profile *sta_pro;
+	struct wlan_mlo_ie *mlo_ie;
+	struct wlan_mlo_sta_profile *sta_pro;
 	struct mlo_link_ie_info *link_info;
 	struct mlo_link_ie *link_ie;
-	tDot11fIEmlo_ie *mlo_ie = &frm->mlo_ie;
 	tpSirAssocReq assoc_req;
 	tpSirAssocReq link_assoc_req;
 	const uint8_t *reported_p2p_ie;
@@ -6951,22 +9717,81 @@ QDF_STATUS populate_dot11f_assoc_rsp_mlo_ie(struct mac_context *mac_ctx,
 	tDot11fFfStatus sta_status;
 	tDot11fIEP2PAssocRes sta_p2p_assoc_res;
 	tDot11fIEnon_inheritance sta_non_inheritance;
+	uint8_t common_info_len = 0, len = 0;
+	uint8_t *p_ml_ie;
+	uint16_t len_remaining;
+	uint16_t presence_bitmap = 0;
+	QDF_STATUS status;
 
-	mlo_ie->present = 1;
-	mlo_ie->mld_mac_addr_present = 1;
+	if (!mac_ctx || !session || !frm)
+		return QDF_STATUS_E_NULL_VALUE;
+
+	mlo_ie = &session->mlo_ie;
+
+	p_ml_ie = mlo_ie->data;
+	len_remaining = sizeof(mlo_ie->data);
+
+	*p_ml_ie++ = WLAN_ELEMID_EXTN_ELEM;
+	len_remaining--;
+	/* set length later */
+	*p_ml_ie++ = 0;
+	len_remaining--;
+	*p_ml_ie++ = WLAN_EXTN_ELEMID_MULTI_LINK;
+	len_remaining--;
+
 	mlo_ie->type = 0;
-	qdf_mem_copy(mlo_ie->mld_mac_addr.info.mld_mac_addr,
+	/* Common Info Length*/
+	common_info_len += WLAN_ML_BV_CINFO_LENGTH_SIZE;
+	qdf_mem_copy(mlo_ie->mld_mac_addr,
 		     session->vdev->mlo_dev_ctx->mld_addr.bytes,
-		     sizeof(mlo_ie->mld_mac_addr.info.mld_mac_addr));
+		     sizeof(mlo_ie->mld_mac_addr));
+	common_info_len += QDF_MAC_ADDR_SIZE;
+
 	mlo_ie->link_id_info_present = 1;
-	mlo_ie->link_id_info.info.link_id = wlan_vdev_get_link_id(
-							session->vdev);
+	presence_bitmap |= WLAN_ML_BV_CTRL_PBM_LINKIDINFO_P;
+	mlo_ie->link_id = wlan_vdev_get_link_id(session->vdev);
+	common_info_len += WLAN_ML_BV_CINFO_LINKIDINFO_SIZE;
+
 	mlo_ie->bss_param_change_cnt_present = 1;
-	mlo_ie->bss_param_change_cnt.info.bss_param_change_count =
-		session->mlo_link_info.link_ie.bss_param_change_cnt;
-	mlo_ie->mld_capab_present = 1;
+	presence_bitmap |= WLAN_ML_BV_CTRL_PBM_BSSPARAMCHANGECNT_P;
+	mlo_ie->bss_param_change_count =
+			session->mlo_link_info.link_ie.bss_param_change_cnt;
+	common_info_len += WLAN_ML_BSSPARAMCHNGCNT_SIZE;
+
+	mlo_ie->mld_capab_and_op_present = 0;
+	mlo_ie->mld_id_present = 0;
+	mlo_ie->ext_mld_capab_and_op_present = 0;
+
+	mlo_ie->common_info_length = common_info_len;
+
+	QDF_SET_BITS(*(uint16_t *)p_ml_ie, WLAN_ML_CTRL_TYPE_IDX,
+		     WLAN_ML_CTRL_TYPE_BITS, mlo_ie->type);
+	QDF_SET_BITS(*(uint16_t *)p_ml_ie, WLAN_ML_CTRL_PBM_IDX,
+		     WLAN_ML_CTRL_PBM_BITS, presence_bitmap);
+	p_ml_ie += WLAN_ML_CTRL_SIZE;
+	len_remaining -= WLAN_ML_CTRL_SIZE;
+
+	*p_ml_ie++ = common_info_len;
+	len_remaining--;
+
+	qdf_mem_copy(p_ml_ie, mlo_ie->mld_mac_addr, QDF_MAC_ADDR_SIZE);
+	p_ml_ie += QDF_MAC_ADDR_SIZE;
+	len_remaining -= QDF_MAC_ADDR_SIZE;
+
+	QDF_SET_BITS(*p_ml_ie, WLAN_ML_BV_CINFO_LINKIDINFO_LINKID_IDX,
+		     WLAN_ML_BV_CINFO_LINKIDINFO_LINKID_BITS, mlo_ie->link_id);
+	p_ml_ie++;
+	len_remaining--;
+
+	*p_ml_ie++ = mlo_ie->bss_param_change_count;
+	len_remaining--;
+
+	mlo_ie->num_data = p_ml_ie - mlo_ie->data;
 
 	assoc_req = session->parsedAssocReq[sta->assocId];
+	if (!assoc_req)
+		goto no_partner;
+
 	for (link = 0; link < assoc_req->mlo_info.num_partner_links; link++) {
 		lle_mode = 0;
 		sta_pro = &mlo_ie->sta_profile[num_sta_pro];
@@ -6990,37 +9815,56 @@ QDF_STATUS populate_dot11f_assoc_rsp_mlo_ie(struct mac_context *mac_ctx,
 		}
 		link_assoc_req =
 			link_session->parsedAssocReq[link_sta->assocId];
-		sta_pro->present = 1;
 		sta_data = sta_pro->data;
 		sta_len_left = sizeof(sta_pro->data);
+
+		*sta_data++ = WLAN_ML_LINFO_SUBELEMID_PERSTAPROFILE;
+		/* set length later */
+		*sta_data++ = 0;
+		sta_len_left -= 2;
+
 		QDF_SET_BITS(
-			*(uint16_t *)sta_pro->data,
+			*(uint16_t *)sta_data,
 			WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_LINKID_IDX,
 			WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_LINKID_BITS,
 			link_id);
 		QDF_SET_BITS(
-			*(uint16_t *)sta_pro->data,
+			*(uint16_t *)sta_data,
 			WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_CMPLTPROF_IDX,
 			WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_CMPLTPROF_BITS,
 			1);
 		QDF_SET_BITS(
-			*(uint16_t *)sta_pro->data,
+			*(uint16_t *)sta_data,
 			WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_MACADDRP_IDX,
 			WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_MACADDRP_BITS,
 			1);
 		QDF_SET_BITS(
-			*(uint16_t *)sta_pro->data,
+			*(uint16_t *)sta_data,
 			WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_BCNINTP_IDX,
 			WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_BCNINTP_BITS,
 			1);
 		QDF_SET_BITS(
-			*(uint16_t *)sta_pro->data,
+			*(uint16_t *)sta_data,
 			WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_DTIMINFOP_IDX,
 			WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_DTIMINFOP_BITS,
 			1);
 		/* sta control */
 		sta_data += 2;
 		sta_len_left -= 2;
+
+		/*
+		 * 1 Bytes for STA Info Length + 6 bytes for STA MAC Address +
+		 * 2 Bytes for Becon Interval + 2 Bytes for DTIM Info
+		 */
+		len = WLAN_ML_BV_LINFO_PERSTAPROF_STAINFO_LENGTH_SIZE +
+		      QDF_MAC_ADDR_SIZE + WLAN_BEACONINTERVAL_LEN +
+		      sizeof(struct wlan_ml_bv_linfo_perstaprof_stainfo_dtiminfo);
+		*sta_data = len;
+
+		/* STA Info Length */
+		sta_data += WLAN_ML_BV_LINFO_PERSTAPROF_STAINFO_LENGTH_SIZE;
+		sta_len_left -= WLAN_ML_BV_LINFO_PERSTAPROF_STAINFO_LENGTH_SIZE;
+
 		/*mac addr*/
 		qdf_mem_copy(sta_data, link_session->self_mac_addr,
 			     QDF_MAC_ADDR_SIZE);
@@ -7460,21 +10304,37 @@ QDF_STATUS populate_dot11f_assoc_rsp_mlo_ie(struct mac_context *mac_ctx,
 			sta_len_left -= sta_len_consumed;
 		}
 		sta_pro->num_data = sta_data - sta_pro->data;
+		if (sta_pro->num_data > WLAN_MAX_IE_LEN + MIN_IE_LEN) {
+			sta_pro->data[TAG_LEN_POS] = WLAN_MAX_IE_LEN;
+			status =
+			    lim_add_frag_ie_for_sta_profile(sta_pro->data,
+							    &sta_pro->num_data);
+			if (status != QDF_STATUS_SUCCESS) {
+				pe_debug("add frg ie for sta profile error.");
+				sta_pro->num_data =
+					WLAN_MAX_IE_LEN + MIN_IE_LEN;
+			}
+		} else {
+			sta_pro->data[TAG_LEN_POS] =
+					sta_pro->num_data - MIN_IE_LEN;
+		}
 		lim_mlo_release_vdev_ref(link_session->vdev);
 		num_sta_pro++;
 	}
+
+no_partner:
 	mlo_ie->num_sta_profile = num_sta_pro;
-	mlo_ie->mld_capabilities.info.max_simultaneous_link_num = num_sta_pro;
+	mlo_ie->mld_capab_and_op_info.max_simultaneous_link_num = num_sta_pro;
 	return QDF_STATUS_SUCCESS;
 }
 
 QDF_STATUS populate_dot11f_bcn_mlo_ie(struct mac_context *mac_ctx,
-				      struct pe_session *session,
-				      tDot11fIEmlo_ie *mlo_ie)
+				      struct pe_session *session)
 {
 	int link;
 	int num_sta_pro = 0;
-	tDot11fIEsta_profile *sta_pro;
+	struct wlan_mlo_ie *mlo_ie;
+	struct wlan_mlo_sta_profile *sta_pro;
 	struct mlo_link_ie *link_ie;
 	uint16_t vdev_count;
 	struct wlan_objmgr_vdev *wlan_vdev_list[WLAN_UMAC_MLO_MAX_VDEVS];
@@ -7485,37 +10345,92 @@ QDF_STATUS populate_dot11f_bcn_mlo_ie(struct mac_context *mac_ctx,
 	uint8_t *sta_data;
 	uint32_t sta_len_left;
 	uint32_t sta_len_consumed;
+	uint8_t common_info_length = 0;
+	uint8_t *p_ml_ie;
+	uint16_t len_remaining;
+	uint16_t presence_bitmap = 0;
+	bool sta_pro_present;
+	QDF_STATUS status;
 
+	if (!mac_ctx || !session)
+		return QDF_STATUS_E_NULL_VALUE;
+
+	mlo_ie = &session->mlo_ie;
+
+	/* Common Info Length */
+	common_info_length += WLAN_ML_BV_CINFO_LENGTH_SIZE;
 	qdf_mem_zero(&mac_ctx->sch.sch_mlo_partner,
 		     sizeof(mac_ctx->sch.sch_mlo_partner));
 	sch_info = &mac_ctx->sch.sch_mlo_partner;
-	mlo_ie->present = 1;
-	mlo_ie->mld_mac_addr_present = 1;
 	mlo_ie->type = 0;
 	tmp_offset += 1; /* Element ID */
 	tmp_offset += 1; /* length */
 	tmp_offset += 1; /* Element ID extension */
 	tmp_offset += 2; /* Multi-link control */
-	qdf_mem_copy(mlo_ie->mld_mac_addr.info.mld_mac_addr,
+	qdf_mem_copy(mlo_ie->mld_mac_addr,
 		     session->vdev->mlo_dev_ctx->mld_addr.bytes,
-		     sizeof(mlo_ie->mld_mac_addr.info.mld_mac_addr));
+		     sizeof(mlo_ie->mld_mac_addr));
+	tmp_offset += 1; /* Common Info Length */
 	tmp_offset += 6; /* mld mac addr */
+	common_info_length += QDF_MAC_ADDR_SIZE;
 	mlo_ie->link_id_info_present = 1;
-	mlo_ie->link_id_info.info.link_id = wlan_vdev_get_link_id(
-						session->vdev);
+	presence_bitmap |= WLAN_ML_BV_CTRL_PBM_LINKIDINFO_P;
+	mlo_ie->link_id = wlan_vdev_get_link_id(session->vdev);
 	tmp_offset += 1; /* link id */
+	common_info_length += WLAN_ML_BV_CINFO_LINKIDINFO_SIZE;
 	mlo_ie->bss_param_change_cnt_present = 1;
-	mlo_ie->bss_param_change_cnt.info.bss_param_change_count =
-		session->mlo_link_info.link_ie.bss_param_change_cnt;
+	presence_bitmap |= WLAN_ML_BV_CTRL_PBM_BSSPARAMCHANGECNT_P;
+	mlo_ie->bss_param_change_count =
+			session->mlo_link_info.link_ie.bss_param_change_cnt;
 	tmp_offset += 1; /* bss parameters change count */
-	mlo_ie->mld_capab_present = 1;
-	tmp_offset += 2; /* mld capabilities */
+	common_info_length += WLAN_ML_BSSPARAMCHNGCNT_SIZE;
+	mlo_ie->mld_capab_and_op_present = 0;
+	mlo_ie->mld_id_present = 0;
+	mlo_ie->ext_mld_capab_and_op_present = 0;
 	sch_info->num_links = 0;
 
 	lim_get_mlo_vdev_list(session, &vdev_count, wlan_vdev_list);
-	mlo_ie->mld_capabilities.info.max_simultaneous_link_num =
+	mlo_ie->mld_capab_and_op_info.max_simultaneous_link_num =
 							vdev_count - 1;
+
+	mlo_ie->common_info_length = common_info_length;
 	sch_info->mlo_ie_link_info_ofst = tmp_offset;
+
+	p_ml_ie = mlo_ie->data;
+	len_remaining = sizeof(mlo_ie->data);
+
+	*p_ml_ie++ = WLAN_ELEMID_EXTN_ELEM;
+	len_remaining--;
+	*p_ml_ie++ = 0;
+	len_remaining--;
+	*p_ml_ie++ = WLAN_EXTN_ELEMID_MULTI_LINK;
+	len_remaining--;
+
+	QDF_SET_BITS(*(uint16_t *)p_ml_ie, WLAN_ML_CTRL_TYPE_IDX,
+		     WLAN_ML_CTRL_TYPE_BITS, mlo_ie->type);
+	QDF_SET_BITS(*(uint16_t *)p_ml_ie, WLAN_ML_CTRL_PBM_IDX,
+		     WLAN_ML_CTRL_PBM_BITS, presence_bitmap);
+	p_ml_ie += WLAN_ML_CTRL_SIZE;
+	len_remaining -= WLAN_ML_CTRL_SIZE;
+
+	*p_ml_ie++ = common_info_length;
+	len_remaining--;
+
+	qdf_mem_copy(p_ml_ie, mlo_ie->mld_mac_addr, QDF_MAC_ADDR_SIZE);
+	p_ml_ie += QDF_MAC_ADDR_SIZE;
+	len_remaining -= QDF_MAC_ADDR_SIZE;
+
+	QDF_SET_BITS(*p_ml_ie, WLAN_ML_BV_CINFO_LINKIDINFO_LINKID_IDX,
+		     WLAN_ML_BV_CINFO_LINKIDINFO_LINKID_BITS,
+		     mlo_ie->link_id);
+	p_ml_ie++;
+	len_remaining--;
+
+	*p_ml_ie++ = mlo_ie->bss_param_change_count;
+	len_remaining--;
+
+	mlo_ie->num_data = p_ml_ie - mlo_ie->data;
+
 	for (link = 0; link < vdev_count; link++) {
 		if (!wlan_vdev_list[link])
 			continue;
@@ -7539,12 +10454,15 @@ QDF_STATUS populate_dot11f_bcn_mlo_ie(struct mac_context *mac_ctx,
 		tmp_info->vdev_id = wlan_vdev_get_id(wlan_vdev_list[link]);
 		tmp_info->beacon_interval =
 			link_session->beaconParams.beaconInterval;
-		sta_pro->present = 0;
+		sta_pro_present = false;
 		sta_data = sta_pro->data;
 		sta_len_left = sizeof(sta_pro->data);
+		*sta_data++ = WLAN_ML_LINFO_SUBELEMID_PERSTAPROFILE;
+		*sta_data++ = 0;
+		sta_data += 2; /* sta control */
+		sta_len_left -= 4;
 		tmp_offset = 1; /* sub element id */
 		tmp_offset += 1; /* length */
-		sta_data += 2; /* sta control */
 		if (link_ie->link_csa.present) {
 			sta_len_consumed = 0;
 			dot11f_pack_ie_chan_switch_ann(mac_ctx,
@@ -7553,7 +10471,7 @@ QDF_STATUS populate_dot11f_bcn_mlo_ie(struct mac_context *mac_ctx,
 						       &sta_len_consumed);
 			sta_data += sta_len_consumed;
 			sta_len_left -= sta_len_consumed;
-			sta_pro->present = 1;
+			sta_pro_present = true;
 			tmp_info->csa_ext_csa_exist = true;
 		}
 		if (link_ie->link_ecsa.present) {
@@ -7565,7 +10483,7 @@ QDF_STATUS populate_dot11f_bcn_mlo_ie(struct mac_context *mac_ctx,
 							   &sta_len_consumed);
 			sta_data += sta_len_consumed;
 			sta_len_left -= sta_len_consumed;
-			sta_pro->present = 1;
+			sta_pro_present = true;
 			tmp_info->csa_ext_csa_exist = true;
 		}
 		if (link_ie->link_quiet.present) {
@@ -7575,7 +10493,7 @@ QDF_STATUS populate_dot11f_bcn_mlo_ie(struct mac_context *mac_ctx,
 					     &sta_len_consumed);
 			sta_data += sta_len_consumed;
 			sta_len_left -= sta_len_consumed;
-			sta_pro->present = 1;
+			sta_pro_present = true;
 		}
 		if (link_ie->link_swt_time.present) {
 			sta_len_consumed = 0;
@@ -7584,15 +10502,30 @@ QDF_STATUS populate_dot11f_bcn_mlo_ie(struct mac_context *mac_ctx,
 				sta_len_left, &sta_len_consumed);
 			sta_data += sta_len_consumed;
 			sta_len_left -= sta_len_consumed;
-			sta_pro->present = 1;
+			sta_pro_present = true;
 		}
-		if (sta_pro->present) {
+		if (sta_pro_present) {
 			sta_pro->num_data = sta_data - sta_pro->data;
+			if (sta_pro->num_data > WLAN_MAX_IE_LEN + MIN_IE_LEN) {
+				sta_pro->data[TAG_LEN_POS] = WLAN_MAX_IE_LEN;
+				status =
+				  lim_add_frag_ie_for_sta_profile(sta_pro->data,
+							    &sta_pro->num_data);
+				if (status != QDF_STATUS_SUCCESS) {
+					pe_debug("STA profile flag error");
+					sta_pro->num_data =
+						  WLAN_MAX_IE_LEN + MIN_IE_LEN;
+				}
+			} else {
+				sta_pro->data[TAG_LEN_POS] =
+						sta_pro->num_data - MIN_IE_LEN;
+			}
 			QDF_SET_BITS(
-				*(uint16_t *)sta_pro->data,
+				*(uint16_t *)(sta_pro->data + MIN_IE_LEN),
 				WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_LINKID_IDX,
 				WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_LINKID_BITS,
 				wlan_vdev_get_link_id(link_session->vdev));
+
 			num_sta_pro++;
 			tmp_offset += 2; /* sta control */
 			tmp_info->link_info_sta_prof_ofst = tmp_offset;
@@ -7635,12 +10568,12 @@ void populate_dot11f_mlo_rnr(struct mac_context *mac_ctx,
 			continue;
 		}
 		if (!rnr_populated) {
-			populate_dot11f_rnr_tbtt_info_10(mac_ctx, session,
+			populate_dot11f_rnr_tbtt_info_16(mac_ctx, session,
 							 link_session, dot11f);
 			pe_debug("mlo vdev id %d populate vdev id %d link id %d op class %d chan num %d in RNR IE",
 				 wlan_vdev_get_id(session->vdev),
 				 wlan_vdev_get_id(wlan_vdev_list[link]),
-				 dot11f->tbtt_info.tbtt_info_10.link_id,
+				 dot11f->tbtt_info.tbtt_info_16.link_id,
 				 dot11f->op_class, dot11f->channel_num);
 			rnr_populated = true;
 		}
@@ -7648,7 +10581,7 @@ void populate_dot11f_mlo_rnr(struct mac_context *mac_ctx,
 	}
 }
 
-void populate_dot11f_rnr_tbtt_info_10(struct mac_context *mac_ctx,
+void populate_dot11f_rnr_tbtt_info_16(struct mac_context *mac_ctx,
 				      struct pe_session *pe_session,
 				      struct pe_session *rnr_session,
 				      tDot11fIEreduced_neighbor_report *dot11f)
@@ -7683,89 +10616,101 @@ void populate_dot11f_rnr_tbtt_info_10(struct mac_context *mac_ctx,
 	dot11f->channel_num = wlan_reg_freq_to_chan(mac_ctx->pdev,
 						    rnr_session->curr_op_freq);
 	dot11f->tbtt_info_count = 0;
-	dot11f->tbtt_info_len = 10;
-	qdf_mem_copy(dot11f->tbtt_info.tbtt_info_10.bssid,
+	dot11f->tbtt_info_len = 16;
+	qdf_mem_copy(dot11f->tbtt_info.tbtt_info_16.bssid,
 		     rnr_session->self_mac_addr, sizeof(tSirMacAddr));
-	dot11f->tbtt_info.tbtt_info_10.mld_id = 0;
-	dot11f->tbtt_info.tbtt_info_10.link_id = wlan_vdev_get_link_id(
+	dot11f->tbtt_info.tbtt_info_16.mld_id = 0;
+	dot11f->tbtt_info.tbtt_info_16.link_id = wlan_vdev_get_link_id(
 							rnr_session->vdev);
-	dot11f->tbtt_info.tbtt_info_10.bss_param_change_cnt =
+	dot11f->tbtt_info.tbtt_info_16.bss_param_change_cnt =
 		rnr_session->mlo_link_info.link_ie.bss_param_change_cnt;
-}
-
-QDF_STATUS
-populate_dot11f_probe_req_mlo_ie(struct mac_context *mac_ctx,
-				 struct pe_session *session,
-				 tDot11fIEmlo_ie *mlo_ie)
-{
-	uint8_t *mld_addr;
-
-	mlo_ie->present = 1;
-	mlo_ie->type = 1;
-	mlo_ie->mld_mac_addr_present = 1;
-	mld_addr = wlan_vdev_mlme_get_mldaddr(session->vdev);
-	qdf_mem_copy(&mlo_ie->mld_mac_addr.info.mld_mac_addr, mld_addr,
-		     sizeof(mlo_ie->mld_mac_addr.info.mld_mac_addr));
-	mlo_ie->link_id_info_present = 0;
-
-	return QDF_STATUS_SUCCESS;
 }
 
 QDF_STATUS
 populate_dot11f_mlo_caps(struct mac_context *mac_ctx,
 			 struct pe_session *session,
-			 tDot11fIEmlo_ie *mlo_ie)
+			 struct wlan_mlo_ie *mlo_ie)
 {
 	uint8_t *mld_addr;
+	uint8_t common_info_len = 0;
 
-	mlo_ie->present = 1;
 	mlo_ie->type = 0;
-	mlo_ie->mld_mac_addr_present = 1;
+	/* Common Info Length */
+	common_info_len += WLAN_ML_BV_CINFO_LENGTH_SIZE;
 	mld_addr = wlan_vdev_mlme_get_mldaddr(session->vdev);
-	qdf_mem_copy(&mlo_ie->mld_mac_addr.info.mld_mac_addr, mld_addr,
-		     sizeof(mlo_ie->mld_mac_addr.info.mld_mac_addr));
+	qdf_mem_copy(&mlo_ie->mld_mac_addr, mld_addr,
+		     sizeof(mlo_ie->mld_mac_addr));
+	common_info_len += QDF_MAC_ADDR_SIZE;
 	mlo_ie->link_id_info_present = 0;
 
 	mlo_ie->bss_param_change_cnt_present = 0;
 	mlo_ie->medium_sync_delay_info_present = 0;
-	mlo_ie->eml_capab_present = 0;
-	mlo_ie->mld_capab_present = 1;
+
+	if (wlan_vdev_mlme_cap_get(session->vdev, WLAN_VDEV_C_EMLSR_CAP)) {
+		mlo_ie->eml_capab_present = 1;
+		mlo_ie->eml_capabilities_info.emlmr_support = 0;
+		mlo_ie->eml_capabilities_info.emlsr_support = 1;
+		common_info_len += WLAN_ML_BV_CINFO_EMLCAP_SIZE;
+	} else {
+		mlo_ie->eml_capab_present = 0;
+	}
+
+	common_info_len += WLAN_ML_BV_CINFO_MLDCAPANDOP_SIZE;
+	mlo_ie->ext_mld_capab_and_op_present = 0;
+	mlo_ie->mld_id_present = 0;
+	mlo_ie->mld_capab_and_op_present = 1;
+	mlo_ie->mld_capab_and_op_info.tid_link_map_supported =
+		wlan_mlme_get_t2lm_negotiation_supported(mac_ctx->psoc);
 	mlo_ie->reserved = 0;
 	mlo_ie->reserved_1 = 0;
+	mlo_ie->common_info_length = common_info_len;
 
 	return QDF_STATUS_SUCCESS;
 }
 
 QDF_STATUS
-sir_convert_mlo_probe_rsp_frame2_struct(tDot11fProbeResponse *pr,
-					tpSirMultiLink_IE mlo_ie_ptr)
+sir_convert_mlo_probe_rsp_frame2_struct(uint8_t *ml_ie,
+					uint32_t ml_ie_total_len,
+					struct sir_multi_link_ie *mlo_ie_ptr)
 {
-	if (!pr)
+	bool link_id_found;
+	uint8_t link_id;
+	bool bss_param_change_cnt_found;
+	uint8_t bss_param_change_cnt;
+	struct qdf_mac_addr mld_mac_addr;
+	uint8_t *sta_prof;
+
+	if (!ml_ie)
 		return QDF_STATUS_E_NULL_VALUE;
 
-	if (!pr->mlo_ie.present) {
-		pe_err("MLO IE not present");
+	if (!ml_ie_total_len)
 		return QDF_STATUS_E_NULL_VALUE;
-	}
 
-	qdf_mem_zero((uint8_t *)mlo_ie_ptr, sizeof(tSirMultiLink_IE));
+	qdf_mem_zero((uint8_t *)mlo_ie_ptr, sizeof(*mlo_ie_ptr));
 
-	mlo_ie_ptr->mlo_ie.present = pr->mlo_ie.present;
-	mlo_ie_ptr->mlo_ie.mld_mac_addr_present =
-			pr->mlo_ie.mld_mac_addr_present;
-	qdf_mem_copy(&mlo_ie_ptr->mlo_ie.mld_mac_addr.info.mld_mac_addr,
-		     &pr->mlo_ie.mld_mac_addr.info.mld_mac_addr,
+	util_get_mlie_common_info_len(ml_ie, ml_ie_total_len,
+				      &mlo_ie_ptr->mlo_ie.common_info_length);
+
+	util_get_bvmlie_mldmacaddr(ml_ie, ml_ie_total_len, &mld_mac_addr);
+	qdf_mem_copy(mlo_ie_ptr->mlo_ie.mld_mac_addr, mld_mac_addr.bytes,
 		     QDF_MAC_ADDR_SIZE);
 
-	mlo_ie_ptr->mlo_ie.link_id_info_present =
-				pr->mlo_ie.link_id_info_present;
-	mlo_ie_ptr->mlo_ie.link_id_info.info.link_id =
-				pr->mlo_ie.link_id_info.info.link_id;
+	util_get_bvmlie_primary_linkid(ml_ie, ml_ie_total_len,
+				       &link_id_found, &link_id);
+	mlo_ie_ptr->mlo_ie.link_id_info_present = link_id_found;
+	mlo_ie_ptr->mlo_ie.link_id = link_id;
 
+	util_get_bvmlie_bssparamchangecnt(ml_ie, ml_ie_total_len,
+					  &bss_param_change_cnt_found,
+					  &bss_param_change_cnt);
 	mlo_ie_ptr->mlo_ie.bss_param_change_cnt_present =
-			pr->mlo_ie.bss_param_change_cnt_present;
-	mlo_ie_ptr->mlo_ie.bss_param_change_cnt.info.bss_param_change_count =
-		pr->mlo_ie.bss_param_change_cnt.info.bss_param_change_count;
+						bss_param_change_cnt_found;
+	mlo_ie_ptr->mlo_ie.bss_param_change_count = bss_param_change_cnt;
+	mlo_ie_ptr->mlo_ie_present = true;
+	sta_prof = ml_ie + sizeof(struct wlan_ie_multilink) +
+		   mlo_ie_ptr->mlo_ie.common_info_length;
+	lim_store_mlo_ie_raw_info(ml_ie, sta_prof,
+				  ml_ie_total_len, &mlo_ie_ptr->mlo_ie);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -7777,6 +10722,8 @@ QDF_STATUS populate_dot11f_twt_extended_caps(struct mac_context *mac_ctx,
 					     tDot11fIEExtCap *dot11f)
 {
 	struct s_ext_cap *p_ext_cap;
+	bool twt_responder = false;
+	bool twt_requestor = false;
 
 	if (pe_session->opmode == QDF_STA_MODE &&
 	    !pe_session->enable_session_twt_support) {
@@ -7787,15 +10734,17 @@ QDF_STATUS populate_dot11f_twt_extended_caps(struct mac_context *mac_ctx,
 	p_ext_cap = (struct s_ext_cap *)dot11f->bytes;
 	dot11f->present = 1;
 
-	if (pe_session->opmode == QDF_STA_MODE)
+	if (pe_session->opmode == QDF_STA_MODE) {
+		wlan_twt_get_requestor_cfg(mac_ctx->psoc, &twt_requestor);
 		p_ext_cap->twt_requestor_support =
-			mac_ctx->mlme_cfg->he_caps.dot11_he_cap.twt_request &&
-			twt_get_requestor_flag(mac_ctx);
+			twt_requestor && twt_get_requestor_flag(mac_ctx);
+	}
 
-	if (pe_session->opmode == QDF_SAP_MODE)
+	if (pe_session->opmode == QDF_SAP_MODE) {
+		wlan_twt_get_responder_cfg(mac_ctx->psoc, &twt_responder);
 		p_ext_cap->twt_responder_support =
-			mac_ctx->mlme_cfg->he_caps.dot11_he_cap.twt_responder &&
-			twt_get_responder_flag(mac_ctx);
+			twt_responder && twt_get_responder_flag(mac_ctx);
+	}
 
 	dot11f->num_bytes = lim_compute_ext_cap_ie_length(dot11f);
 	if (!dot11f->num_bytes) {
@@ -7839,6 +10788,7 @@ QDF_STATUS wlan_parse_bss_description_ies(struct mac_context *mac_ctx,
 					  tDot11fBeaconIEs *ie_struct)
 {
 	int ie_len = wlan_get_ielen_from_bss_description(bss_desc);
+	QDF_STATUS status;
 
 	if (ie_len <= 0 || !ie_struct) {
 		pe_err("BSS description has invalid IE : %d", ie_len);
@@ -7848,6 +10798,25 @@ QDF_STATUS wlan_parse_bss_description_ies(struct mac_context *mac_ctx,
 			  (mac_ctx, (uint8_t *)bss_desc->ieFields,
 			  ie_len, ie_struct, false))) {
 		pe_err("Beacon IE parsing failed");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	status = lim_strip_and_decode_eht_op((uint8_t *)bss_desc->ieFields,
+					     ie_len, &ie_struct->eht_op,
+					     ie_struct->VHTOperation,
+					     ie_struct->he_op,
+					     ie_struct->HTInfo);
+	if (status != QDF_STATUS_SUCCESS) {
+		pe_err("Failed to extract eht op");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	status = lim_strip_and_decode_eht_cap((uint8_t *)bss_desc->ieFields,
+					      ie_len, &ie_struct->eht_cap,
+					      ie_struct->he_cap,
+					      bss_desc->chan_freq, false);
+	if (status != QDF_STATUS_SUCCESS) {
+		pe_err("Failed to extract eht cap");
 		return QDF_STATUS_E_FAILURE;
 	}
 
@@ -7882,7 +10851,6 @@ void
 wlan_populate_basic_rates(tSirMacRateSet *rate_set, bool is_ofdm_rates,
 			  bool is_basic_rates)
 {
-	int i = 0;
 	uint8_t ofdm_rates[8] = {
 		SIR_MAC_RATE_6,
 		SIR_MAC_RATE_9,
@@ -7908,9 +10876,9 @@ wlan_populate_basic_rates(tSirMacRateSet *rate_set, bool is_ofdm_rates,
 			rate_set->rate[2] |= WLAN_DOT11_BASIC_RATE_MASK;
 			rate_set->rate[4] |= WLAN_DOT11_BASIC_RATE_MASK;
 		}
-		for (i = 0; i < rate_set->numRates; i++)
-			QDF_TRACE(QDF_MODULE_ID_SME, QDF_TRACE_LEVEL_DEBUG,
-			("Default OFDM rate is %2x"), rate_set->rate[i]);
+		pe_debug("Default OFDM Rates");
+		QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
+				   rate_set->rate, rate_set->numRates);
 	} else {
 		rate_set->numRates = 4;
 		qdf_mem_copy(rate_set->rate, cck_rates, sizeof(cck_rates));
@@ -7920,9 +10888,9 @@ wlan_populate_basic_rates(tSirMacRateSet *rate_set, bool is_ofdm_rates,
 			rate_set->rate[2] |= WLAN_DOT11_BASIC_RATE_MASK;
 			rate_set->rate[3] |= WLAN_DOT11_BASIC_RATE_MASK;
 		}
-		for (i = 0; i < rate_set->numRates; i++)
-			QDF_TRACE(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
-			("Default CCK rate is %2x"), rate_set->rate[i]);
+		pe_debug("Default CCK Rates");
+		QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
+				   rate_set->rate, rate_set->numRates);
 	}
 }
 
@@ -8532,7 +11500,7 @@ wlan_get_ielen_from_bss_description(struct bss_description *bss_desc)
 	}
 
 	/*
-	 * Length of BSS desription is without length of
+	 * Length of BSS description is without length of
 	 * length itself and length of pointer
 	 * that holds ieFields
 	 *
@@ -8556,8 +11524,9 @@ QDF_STATUS populate_dot11f_btm_extended_caps(struct mac_context *mac_ctx,
 {
 	struct s_ext_cap *p_ext_cap;
 	QDF_STATUS  status;
+	bool is_disable_btm;
+	struct cm_roam_values_copy temp;
 
-	pe_debug("enter");
 	dot11f->num_bytes = DOT11F_IE_EXTCAP_MAX_LEN;
 	p_ext_cap = (struct s_ext_cap *)dot11f->bytes;
 	dot11f->present = 1;
@@ -8565,15 +11534,38 @@ QDF_STATUS populate_dot11f_btm_extended_caps(struct mac_context *mac_ctx,
 	status = cm_akm_roam_allowed(mac_ctx->psoc, pe_session->vdev);
 	if (QDF_IS_STATUS_ERROR(status)) {
 		p_ext_cap->bss_transition = 0;
-		pe_debug("Disable btm for roaming not suppprted");
+		pe_debug("vdev:%d, Disable btm for roaming not suppprted",
+			 pe_session->vdev_id);
 	}
 
+	wlan_cm_roam_cfg_get_value(mac_ctx->psoc, pe_session->vdev_id,
+				   IS_DISABLE_BTM, &temp);
+	is_disable_btm = temp.bool_value;
+	if (is_disable_btm) {
+		pe_debug("vdev:%d, Disable BTM as BTM roam disabled by user",
+			 pe_session->vdev_id);
+		p_ext_cap->bss_transition = 0;
+	}
+
+	if (!pe_session->lim_join_req)
+		goto compute_len;
+
+	if (p_ext_cap->bss_transition && !cm_is_open_mode(pe_session->vdev) &&
+	    pe_session->lim_join_req->bssDescription.mbo_oce_enabled_ap &&
+	    !pe_session->limRmfEnabled) {
+		pe_debug("vdev:%d, Disable BTM as MBO AP doesn't support PMF",
+			 pe_session->vdev_id);
+		p_ext_cap->bss_transition = 0;
+	}
+
+compute_len:
 	dot11f->num_bytes = lim_compute_ext_cap_ie_length(dot11f);
 	if (!dot11f->num_bytes) {
 		dot11f->present = 0;
 		pe_debug("ext ie length become 0, disable the ext caps");
 	}
 
+	wlan_cm_set_assoc_btm_cap(pe_session->vdev, p_ext_cap->bss_transition);
 	return QDF_STATUS_SUCCESS;
 }
 
@@ -8644,18 +11636,21 @@ populate_dot11f_mlo_partner_sta_cap(struct mac_context *mac,
 
 QDF_STATUS populate_dot11f_auth_mlo_ie(struct mac_context *mac_ctx,
 				       struct pe_session *pe_session,
-				       tDot11fIEmlo_ie *mlo_ie)
+				       struct wlan_mlo_ie *mlo_ie)
 {
 	struct qdf_mac_addr *mld_addr;
+	uint8_t *p_ml_ie;
+	uint16_t len_remaining;
 
 	pe_debug("Populate Auth MLO IEs");
 
-	mlo_ie->present = 1;
-	mlo_ie->mld_mac_addr_present = 1;
 	mlo_ie->type = 0;
 
-	mld_addr = (struct qdf_mac_addr *)wlan_vdev_mlme_get_mldaddr(pe_session->vdev);
+	mlo_ie->common_info_length = WLAN_ML_BV_CINFO_LENGTH_SIZE;
+	mld_addr = (struct qdf_mac_addr *)wlan_vdev_mlme_get_mldaddr(
+							pe_session->vdev);
 	qdf_mem_copy(&mlo_ie->mld_mac_addr, mld_addr, QDF_MAC_ADDR_SIZE);
+	mlo_ie->common_info_length += QDF_MAC_ADDR_SIZE;
 
 	pe_debug("MLD mac addr: " QDF_MAC_ADDR_FMT, mld_addr);
 
@@ -8663,9 +11658,48 @@ QDF_STATUS populate_dot11f_auth_mlo_ie(struct mac_context *mac_ctx,
 	mlo_ie->bss_param_change_cnt_present = 0;
 	mlo_ie->medium_sync_delay_info_present = 0;
 	mlo_ie->eml_capab_present = 0;
-	mlo_ie->mld_capab_present = 0;
+	mlo_ie->mld_capab_and_op_present = 0;
+	mlo_ie->mld_id_present = 0;
+	mlo_ie->ext_mld_capab_and_op_present = 0;
+
+	p_ml_ie = mlo_ie->data;
+	len_remaining = sizeof(mlo_ie->data);
+
+	*p_ml_ie++ = WLAN_ELEMID_EXTN_ELEM;
+	len_remaining--;
+	*p_ml_ie++ = 0;
+	len_remaining--;
+	*p_ml_ie++ = WLAN_EXTN_ELEMID_MULTI_LINK;
+	len_remaining--;
+
+	QDF_SET_BITS(*(uint16_t *)p_ml_ie, WLAN_ML_CTRL_TYPE_IDX,
+		     WLAN_ML_CTRL_TYPE_BITS, mlo_ie->type);
+	p_ml_ie += WLAN_ML_CTRL_SIZE;
+	len_remaining -= WLAN_ML_CTRL_SIZE;
+
+	*p_ml_ie++ = mlo_ie->common_info_length;
+	len_remaining--;
+
+	qdf_mem_copy(p_ml_ie, mlo_ie->mld_mac_addr, QDF_MAC_ADDR_SIZE);
+	p_ml_ie += QDF_MAC_ADDR_SIZE;
+	len_remaining -= QDF_MAC_ADDR_SIZE;
+
+	mlo_ie->num_data = p_ml_ie - mlo_ie->data;
 
 	return QDF_STATUS_SUCCESS;
+}
+
+static inline void
+populate_dot11f_use_reporting_bss_ext_cap(tDot11fIEExtCap *reporting_ext_cap,
+					  tDot11fIEExtCap *reported_ext_cap)
+{
+	struct s_ext_cap *reporting_caps, *reported_caps;
+
+	reporting_caps = (struct s_ext_cap *)&reporting_ext_cap->bytes[0];
+	reported_caps = (struct s_ext_cap *)&reported_ext_cap->bytes[0];
+
+	if (reported_caps->scs != reporting_caps->scs)
+		reported_caps->scs = reporting_caps->scs;
 }
 
 QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
@@ -8674,8 +11708,8 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 {
 	uint8_t link;
 	uint8_t num_sta_prof = 0, total_sta_prof;
-	tDot11fIEmlo_ie *mlo_ie;
-	tDot11fIEsta_profile *sta_prof;
+	struct wlan_mlo_ie *mlo_ie;
+	struct wlan_mlo_sta_profile *sta_prof;
 	struct mlo_link_info *link_info = NULL;
 	struct mlo_partner_info *partner_info;
 	struct qdf_mac_addr *mld_addr;
@@ -8691,8 +11725,11 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 	uint8_t chan;
 	uint8_t op_class;
 	uint8_t *p_sta_prof;
+	uint8_t *p_ml_ie;
 	uint32_t len_consumed;
-	uint8_t len_remaining;
+	uint16_t len_remaining, len;
+	QDF_STATUS status;
+	struct wlan_objmgr_psoc *psoc;
 	tDot11fIEnon_inheritance sta_prof_non_inherit;
 	tDot11fFfCapabilities mlo_cap;
 	tDot11fIEHTCaps ht_caps;
@@ -8703,36 +11740,157 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 	tDot11fIEeht_cap eht_caps;
 	tDot11fIESuppRates supp_rates;
 	tDot11fIEExtSuppRates ext_supp_rates;
+	struct wlan_mlo_eml_cap eml_cap = {0};
+	uint16_t presence_bitmap = 0;
+	bool is_2g;
+	uint32_t value = 0;
+	uint8_t *ppet, cb_mode;
+	uint8_t *eht_cap_ie = NULL;
+	bool sta_prof_he_ie = false;
 
-	if (!frm)
+	if (!mac_ctx || !pe_session || !frm)
 		return QDF_STATUS_E_NULL_VALUE;
+
+	psoc = wlan_vdev_get_psoc(pe_session->vdev);
+	if (!psoc) {
+		pe_err("Invalid psoc");
+		return QDF_STATUS_E_FAILURE;
+	}
 
 	pe_debug("Populate Assoc req MLO IEs");
 
-	mlo_ie = &frm->mlo_ie;
+	mlo_ie = &pe_session->mlo_ie;
 
-	mlo_ie->present = 1;
-	mlo_ie->mld_mac_addr_present = 1;
 	mlo_ie->type = 0;
-	mld_addr = (struct qdf_mac_addr *)wlan_vdev_mlme_get_mldaddr(pe_session->vdev);
-	qdf_mem_copy(&mlo_ie->mld_mac_addr.info.mld_mac_addr,
-		     mld_addr,
-		     QDF_MAC_ADDR_SIZE);
-	mlo_ie->link_id_info_present = 0;
+	mlo_ie->common_info_length = WLAN_ML_BV_CINFO_LENGTH_SIZE;
+	mld_addr =
+	    (struct qdf_mac_addr *)wlan_vdev_mlme_get_mldaddr(pe_session->vdev);
+	qdf_mem_copy(&mlo_ie->mld_mac_addr, mld_addr, QDF_MAC_ADDR_SIZE);
+	mlo_ie->common_info_length += QDF_MAC_ADDR_SIZE;
 
+	mlo_ie->link_id_info_present = 0;
 	mlo_ie->bss_param_change_cnt_present = 0;
 	mlo_ie->medium_sync_delay_info_present = 0;
 	mlo_ie->eml_capab_present = 0;
-	mlo_ie->mld_capab_present = 0;
+	mlo_ie->mld_capab_and_op_present = 1;
+	mlo_ie->mld_id_present = 0;
+	mlo_ie->ext_mld_capab_and_op_present = 0;
+
+	if (!pe_session->lim_join_req)
+		return QDF_STATUS_E_FAILURE;
+
+	partner_info = &pe_session->lim_join_req->partner_info;
+
+	if (mlo_ie->mld_capab_and_op_present) {
+		presence_bitmap |= WLAN_ML_BV_CTRL_PBM_MLDCAPANDOP_P;
+		mlo_ie->common_info_length += WLAN_ML_BV_CINFO_MLDCAPANDOP_SIZE;
+		mlo_ie->mld_capab_and_op_info.max_simultaneous_link_num =
+			QDF_MIN(partner_info->num_partner_links,
+				wlan_mlme_get_sta_mlo_simultaneous_links(psoc));
+		pe_debug("max_simultaneous_link_num %d",
+			 mlo_ie->mld_capab_and_op_info.max_simultaneous_link_num);
+		mlo_ie->mld_capab_and_op_info.srs_support = 0;
+		mlo_ie->mld_capab_and_op_info.tid_link_map_supported =
+			wlan_mlme_get_t2lm_negotiation_supported(mac_ctx->psoc);
+		mlo_ie->mld_capab_and_op_info.str_freq_separation = 0;
+		mlo_ie->mld_capab_and_op_info.aar_support = 0;
+	}
+
+	/* Check if STA supports EMLSR and vendor command prefers EMLSR mode */
+	if (wlan_vdev_mlme_cap_get(pe_session->vdev, WLAN_VDEV_C_EMLSR_CAP)) {
+		wlan_mlme_get_eml_params(psoc, &eml_cap);
+		mlo_ie->eml_capab_present = 1;
+		presence_bitmap |= WLAN_ML_BV_CTRL_PBM_EMLCAP_P;
+		mlo_ie->common_info_length += WLAN_ML_BV_CINFO_EMLCAP_SIZE;
+		mlo_ie->eml_capabilities_info.emlsr_support =
+						eml_cap.emlsr_supp;
+		mlo_ie->eml_capabilities_info.emlmr_support =
+						eml_cap.emlmr_supp;
+		mlo_ie->eml_capabilities_info.transition_timeout = 0;
+		mlo_ie->eml_capabilities_info.emlsr_padding_delay =
+						eml_cap.emlsr_pad_delay;
+		mlo_ie->eml_capabilities_info.emlsr_transition_delay =
+						eml_cap.emlsr_trans_delay;
+	}
+
+	p_ml_ie = mlo_ie->data;
+	len_remaining = sizeof(mlo_ie->data);
+
+	/* element ID, length and extension element ID */
+	*p_ml_ie++ = WLAN_ELEMID_EXTN_ELEM;
+	len_remaining--;
+	/* length will set later */
+	*p_ml_ie++ = 0;
+	len_remaining--;
+	*p_ml_ie++ = WLAN_EXTN_ELEMID_MULTI_LINK;
+	len_remaining--;
+
+	QDF_SET_BITS(*(uint16_t *)p_ml_ie, WLAN_ML_CTRL_TYPE_IDX,
+		     WLAN_ML_CTRL_TYPE_BITS, mlo_ie->type);
+	QDF_SET_BITS(*(uint16_t *)p_ml_ie, WLAN_ML_CTRL_PBM_IDX,
+		     WLAN_ML_CTRL_PBM_BITS, presence_bitmap);
+	p_ml_ie += WLAN_ML_CTRL_SIZE;
+	len_remaining -= WLAN_ML_CTRL_SIZE;
+
+	*p_ml_ie++ = mlo_ie->common_info_length;
+	len_remaining--;
+
+	qdf_mem_copy(p_ml_ie, mld_addr, QDF_MAC_ADDR_SIZE);
+	p_ml_ie += QDF_MAC_ADDR_SIZE;
+	len_remaining -= QDF_MAC_ADDR_SIZE;
+
+	if (mlo_ie->eml_capab_present) {
+		QDF_SET_BITS(*(uint16_t *)p_ml_ie,
+		     WLAN_ML_BV_CINFO_EMLCAP_EMLSRSUPPORT_IDX,
+		     WLAN_ML_BV_CINFO_EMLCAP_EMLSRSUPPORT_BITS,
+		     mlo_ie->eml_capabilities_info.emlsr_support);
+		QDF_SET_BITS(*(uint16_t *)p_ml_ie,
+		     WLAN_ML_BV_CINFO_EMLCAP_EMLSR_PADDINGDELAY_IDX,
+		     WLAN_ML_BV_CINFO_EMLCAP_EMLSR_PADDINGDELAY_BITS,
+		     mlo_ie->eml_capabilities_info.emlsr_padding_delay);
+		QDF_SET_BITS(*(uint16_t *)p_ml_ie,
+		     WLAN_ML_BV_CINFO_EMLCAP_EMLSRTRANSDELAY_IDX,
+		     WLAN_ML_BV_CINFO_EMLCAP_EMLSRTRANSDELAY_BITS,
+		     mlo_ie->eml_capabilities_info.emlsr_transition_delay);
+		QDF_SET_BITS(*(uint16_t *)p_ml_ie,
+		     WLAN_ML_BV_CINFO_EMLCAP_EMLMRSUPPORT_IDX,
+		     WLAN_ML_BV_CINFO_EMLCAP_EMLMRSUPPORT_BITS,
+		     mlo_ie->eml_capabilities_info.emlmr_support);
+		QDF_SET_BITS(*(uint16_t *)p_ml_ie,
+		     WLAN_ML_BV_CINFO_EMLCAP_EMLMRDELAY_IDX,
+		     WLAN_ML_BV_CINFO_EMLCAP_EMLMRDELAY_BITS,
+		     mlo_ie->eml_capabilities_info.emlmr_delay);
+		QDF_SET_BITS(*(uint16_t *)p_ml_ie,
+		     WLAN_ML_BV_CINFO_EMLCAP_TRANSTIMEOUT_IDX,
+		     WLAN_ML_BV_CINFO_EMLCAP_TRANSTIMEOUT_BITS,
+		     mlo_ie->eml_capabilities_info.transition_timeout);
+
+		p_ml_ie += WLAN_ML_BV_CINFO_EMLCAP_SIZE;
+		len_remaining -= WLAN_ML_BV_CINFO_EMLCAP_SIZE;
+	}
+
+	pe_debug("EMLSR support: %d, padding delay: %d, transition delay: %d",
+		 mlo_ie->eml_capabilities_info.emlsr_support,
+		 mlo_ie->eml_capabilities_info.emlsr_padding_delay,
+		 mlo_ie->eml_capabilities_info.emlsr_transition_delay);
+
+	if (mlo_ie->mld_capab_and_op_present) {
+		QDF_SET_BITS(*(uint16_t *)p_ml_ie,
+		     WLAN_ML_BV_CINFO_MLDCAPANDOP_MAXSIMULLINKS_IDX,
+		     WLAN_ML_BV_CINFO_MLDCAPANDOP_MAXSIMULLINKS_BITS,
+		     mlo_ie->mld_capab_and_op_info.max_simultaneous_link_num);
+		QDF_SET_BITS(*(uint16_t *)p_ml_ie,
+		     WLAN_ML_BV_CINFO_MLDCAPANDOP_TIDTOLINKMAPNEGSUPPORT_IDX,
+		     WLAN_ML_BV_CINFO_MLDCAPANDOP_TIDTOLINKMAPNEGSUPPORT_BITS,
+		     mlo_ie->mld_capab_and_op_info.tid_link_map_supported);
+		p_ml_ie += WLAN_ML_BV_CINFO_MLDCAPANDOP_SIZE;
+		len_remaining -= WLAN_ML_BV_CINFO_MLDCAPANDOP_SIZE;
+	}
+
+	mlo_ie->num_data = p_ml_ie - mlo_ie->data;
 
 	/* find out number of links from bcn or prb rsp */
-	total_sta_prof = 1;
-	if (wlan_mlme_is_sta_single_mlo_conn(
-				wlan_vdev_get_psoc(pe_session->vdev))) {
-		pe_debug("Single link mlo connection is enabled for mlo sta");
-		total_sta_prof = 0;
-	}
-	partner_info = &pe_session->lim_join_req->partner_info;
+	total_sta_prof = partner_info->num_partner_links;
 
 	mlo_dev_ctx = pe_session->vdev->mlo_dev_ctx;
 	if (!mlo_dev_ctx) {
@@ -8754,9 +11912,13 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 
 		sta_prof = &mlo_ie->sta_profile[num_sta_prof];
 		link_info = &partner_info->partner_link_info[link];
-		sta_prof->present = 1;
 		p_sta_prof = sta_prof->data;
 		len_remaining = sizeof(sta_prof->data);
+
+		/* subelement ID 0, length(sta_prof->num_data - 2) */
+		*p_sta_prof++ = WLAN_ML_LINFO_SUBELEMID_PERSTAPROFILE;
+		*p_sta_prof++ = 0;
+		len_remaining -= 2;
 
 		qdf_mem_zero(non_inher_ie_lists, sizeof(non_inher_ie_lists));
 		qdf_mem_zero(non_inher_ext_ie_lists,
@@ -8764,21 +11926,32 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 		non_inher_len = 0;
 		non_inher_ext_len = 0;
 
-		QDF_SET_BITS(*(uint16_t *)sta_prof->data,
+		QDF_SET_BITS(*(uint16_t *)(sta_prof->data + MIN_IE_LEN),
 			     WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_LINKID_IDX,
 			     WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_LINKID_BITS,
 			     link_info->link_id);
-		QDF_SET_BITS(*(uint16_t *)sta_prof->data,
+		QDF_SET_BITS(*(uint16_t *)(sta_prof->data + MIN_IE_LEN),
 			     WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_CMPLTPROF_IDX,
 			     WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_CMPLTPROF_BITS,
 			     1);
-		QDF_SET_BITS(*(uint16_t *)sta_prof->data,
+		QDF_SET_BITS(*(uint16_t *)(sta_prof->data + MIN_IE_LEN),
 			     WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_MACADDRP_IDX,
 			     WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_MACADDRP_BITS,
 			     1);
 		/* 2 Bytes for sta control field*/
 		p_sta_prof += 2;
 		len_remaining -= 2;
+
+		/* 1 Bytes for STA Info Length + 6 bytes for STA MAC Address*/
+		len = WLAN_ML_BV_LINFO_PERSTAPROF_STAINFO_LENGTH_SIZE +
+		      QDF_MAC_ADDR_SIZE;
+		*p_sta_prof = len;
+
+		/* 1 Byte for STA Info Length */
+		p_sta_prof += WLAN_ML_BV_LINFO_PERSTAPROF_STAINFO_LENGTH_SIZE;
+		len_remaining -=
+			WLAN_ML_BV_LINFO_PERSTAPROF_STAINFO_LENGTH_SIZE;
+
 		/* Copying sta mac address in sta info field */
 		qdf_mem_copy(p_sta_prof, vdev->vdev_mlme.macaddr,
 			     QDF_MAC_ADDR_SIZE);
@@ -8791,20 +11964,20 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 		/* TBD : populate beacon_interval, dtim_info
 		 * nstr_link_pair_present, nstr_bitmap_size
 		 */
-		QDF_SET_BITS(*(uint16_t *)sta_prof->data,
+		QDF_SET_BITS(*(uint16_t *)(sta_prof->data + MIN_IE_LEN),
 			     WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_BCNINTP_IDX,
 			     WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_BCNINTP_BITS,
 			     0);
-		QDF_SET_BITS(*(uint16_t *)sta_prof->data,
+		QDF_SET_BITS(*(uint16_t *)(sta_prof->data + MIN_IE_LEN),
 			     WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_DTIMINFOP_IDX,
 			     WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_DTIMINFOP_BITS,
 			     0);
 		QDF_SET_BITS(
-			*(uint16_t *)sta_prof->data,
+			*(uint16_t *)(sta_prof->data + MIN_IE_LEN),
 			WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_NSTRLINKPRP_IDX,
 			WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_NSTRLINKPRP_BITS,
 			0);
-		QDF_SET_BITS(*(uint16_t *)sta_prof->data,
+		QDF_SET_BITS(*(uint16_t *)(sta_prof->data + MIN_IE_LEN),
 			     WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_NSTRBMSZ_IDX,
 			     WLAN_ML_BV_LINFO_PERSTAPROF_STACTRL_NSTRBMSZ_BITS,
 			     0);
@@ -8845,9 +12018,10 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 			       QDF_MAC_ADDR_REF(link_info->link_addr.bytes));
 			continue;
 		}
-		chan_freq = wlan_reg_chan_opclass_to_freq(chan, op_class,
-							  true);
-		if (WLAN_REG_IS_24GHZ_CH_FREQ(chan_freq)) {
+		chan_freq = wlan_reg_chan_opclass_to_freq_auto(chan, op_class,
+							       false);
+		is_2g = WLAN_REG_IS_24GHZ_CH_FREQ(chan_freq);
+		if (is_2g) {
 			wlan_populate_basic_rates(&b_rates, false, true);
 			wlan_populate_basic_rates(&e_rates, true, false);
 		} else {
@@ -8873,7 +12047,19 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 						DOT11F_EID_SUPPRATES;
 		}
 
-		populate_dot11f_ht_caps(mac_ctx, NULL, &ht_caps);
+		if (!WLAN_REG_IS_6GHZ_CHAN_FREQ(chan_freq)) {
+			cb_mode = lim_get_cb_mode_for_freq(mac_ctx, pe_session,
+							   chan_freq);
+			populate_dot11f_ht_caps(mac_ctx, NULL, &ht_caps);
+			if (!cb_mode) {
+				ht_caps.supportedChannelWidthSet = 0;
+				ht_caps.shortGI40MHz = 0;
+			} else {
+				ht_caps.supportedChannelWidthSet = 1;
+				ht_caps.shortGI40MHz = 1;
+			}
+		}
+
 		if ((ht_caps.present && frm->HTCaps.present &&
 		     qdf_mem_cmp(&ht_caps, &frm->HTCaps, sizeof(ht_caps))) ||
 		     (ht_caps.present && !frm->HTCaps.present)) {
@@ -8907,6 +12093,8 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 		}
 
 		populate_dot11f_ext_cap(mac_ctx, true, &ext_cap, NULL);
+		populate_dot11f_use_reporting_bss_ext_cap(&frm->ExtCap,
+							  &ext_cap);
 		if ((ext_cap.present && frm->ExtCap.present &&
 		     qdf_mem_cmp(&ext_cap, &frm->ExtCap, sizeof(ext_cap))) ||
 		     (ext_cap.present && !frm->ExtCap.present)) {
@@ -8915,11 +12103,12 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 					       len_remaining, &len_consumed);
 			p_sta_prof += len_consumed;
 			len_remaining -= len_consumed;
-		} else if (ext_cap.present && !frm->ExtCap.present) {
+		} else if (!ext_cap.present && frm->ExtCap.present) {
 			non_inher_ie_lists[non_inher_len++] = DOT11F_EID_EXTCAP;
 		}
 
-		populate_dot11f_vht_caps(mac_ctx, NULL, &vht_caps);
+		if (!WLAN_REG_IS_6GHZ_CHAN_FREQ(chan_freq))
+			populate_dot11f_vht_caps(mac_ctx, NULL, &vht_caps);
 		if ((vht_caps.present && frm->VHTCaps.present &&
 		     qdf_mem_cmp(&vht_caps, &frm->VHTCaps, sizeof(vht_caps))) ||
 		     (vht_caps.present && !frm->VHTCaps.present)) {
@@ -8933,7 +12122,24 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 						DOT11F_EID_VHTCAPS;
 		}
 
-		populate_dot11f_he_caps(mac_ctx, NULL, &he_caps);
+		populate_dot11f_he_caps_by_band(mac_ctx, is_2g, &he_caps);
+		if (he_caps.ppet_present) {
+			value = WNI_CFG_HE_PPET_LEN;
+			if (!is_2g)
+				qdf_mem_copy(he_caps.ppet.ppe_threshold.ppe_th,
+					mac_ctx->mlme_cfg->he_caps.he_ppet_5g,
+					value);
+			else
+				qdf_mem_copy(he_caps.ppet.ppe_threshold.ppe_th,
+					mac_ctx->mlme_cfg->he_caps.he_ppet_2g,
+					value);
+
+			ppet = he_caps.ppet.ppe_threshold.ppe_th;
+			he_caps.ppet.ppe_threshold.num_ppe_th =
+				lim_truncate_ppet(ppet, value);
+		} else {
+			he_caps.ppet.ppe_threshold.num_ppe_th = 0;
+		}
 		if ((he_caps.present && frm->he_cap.present &&
 		     qdf_mem_cmp(&he_caps, &frm->he_cap, sizeof(he_caps))) ||
 		     (he_caps.present && !frm->he_cap.present)) {
@@ -8942,12 +12148,15 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 					      len_remaining, &len_consumed);
 			p_sta_prof += len_consumed;
 			len_remaining -= len_consumed;
+			sta_prof_he_ie = true;
 		} else if (frm->he_cap.present && !he_caps.present) {
 			non_inher_ext_ie_lists[non_inher_ext_len++] =
 						WLAN_EXTN_ELEMID_HECAP;
 		}
 
-		populate_dot11f_he_6ghz_cap(mac_ctx, NULL, &he_6ghz_band_cap);
+		if (WLAN_REG_IS_6GHZ_CHAN_FREQ(chan_freq))
+			populate_dot11f_he_6ghz_cap(mac_ctx, NULL,
+						    &he_6ghz_band_cap);
 		if ((he_6ghz_band_cap.present &&
 		     frm->he_6ghz_band_cap.present &&
 		     qdf_mem_cmp(&he_6ghz_band_cap, &frm->he_6ghz_band_cap,
@@ -8965,19 +12174,37 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 			non_inher_ext_ie_lists[non_inher_ext_len++] =
 						WLAN_EXTN_ELEMID_HE_6G_CAP;
 		}
-
-		populate_dot11f_eht_caps(mac_ctx, NULL, &eht_caps);
+		populate_dot11f_eht_caps_by_band(mac_ctx, is_2g, &eht_caps);
 		if ((eht_caps.present && frm->eht_cap.present &&
 		     qdf_mem_cmp(&eht_caps, &frm->eht_cap, sizeof(eht_caps))) ||
-		     (eht_caps.present && !frm->eht_cap.present)) {
-			len_consumed = 0;
-			dot11f_pack_ie_eht_cap(mac_ctx, &eht_caps, p_sta_prof,
-					       len_remaining, &len_consumed);
-			p_sta_prof += len_consumed;
-			len_remaining -= len_consumed;
+		     (eht_caps.present && !frm->eht_cap.present) ||
+		     sta_prof_he_ie) {
+			eht_cap_ie = qdf_mem_malloc(WLAN_MAX_IE_LEN + 2);
+			if (eht_cap_ie) {
+				len_consumed = 0;
+				lim_ieee80211_pack_ehtcap(eht_cap_ie, eht_caps,
+							  he_caps, is_2g);
+				len_consumed = eht_cap_ie[1] + 2;
+
+				qdf_mem_copy(p_sta_prof, eht_cap_ie,
+					     len_consumed);
+				qdf_mem_free(eht_cap_ie);
+				p_sta_prof += len_consumed;
+				len_remaining -= len_consumed;
+			} else {
+				pe_err("malloc failed for eht_cap_ie");
+			}
 		} else if (frm->eht_cap.present && !eht_caps.present) {
+			pe_debug("eht non inher");
 			non_inher_ext_ie_lists[non_inher_ext_len++] =
 						WLAN_EXTN_ELEMID_EHTCAP;
+		} else {
+			pe_debug("eht ie not included");
+		}
+		if (frm->OperatingMode.present) {
+			pe_info("opmode in assoc req, add to non inher list");
+			non_inher_ie_lists[non_inher_len++] =
+						DOT11F_EID_OPERATINGMODE;
 		}
 
 		populate_dot11f_non_inheritance(
@@ -8993,9 +12220,176 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 			len_remaining -= len_consumed;
 		}
 		sta_prof->num_data = p_sta_prof - sta_prof->data;
+		if (sta_prof->num_data > WLAN_MAX_IE_LEN + MIN_IE_LEN) {
+			sta_prof->data[TAG_LEN_POS] = WLAN_MAX_IE_LEN;
+			status =
+			    lim_add_frag_ie_for_sta_profile(sta_prof->data,
+							&sta_prof->num_data);
+			if (status != QDF_STATUS_SUCCESS) {
+				pe_debug("STA profile frag error");
+				sta_prof->num_data =
+						WLAN_MAX_IE_LEN + MIN_IE_LEN;
+			}
+		} else {
+			sta_prof->data[TAG_LEN_POS] =
+					sta_prof->num_data - MIN_IE_LEN;
+		}
 		num_sta_prof++;
 	}
 	mlo_ie->num_sta_profile = num_sta_prof;
+
+	return QDF_STATUS_SUCCESS;
+}
+
+QDF_STATUS populate_dot11f_mlo_ie(struct mac_context *mac_ctx,
+				  struct wlan_objmgr_vdev *vdev,
+				  struct wlan_mlo_ie *mlo_ie)
+{
+	struct qdf_mac_addr *mld_addr;
+	uint8_t *p_ml_ie;
+	uint16_t len_remaining;
+	struct wlan_objmgr_psoc *psoc;
+	struct wlan_mlo_eml_cap eml_cap = {0};
+	uint16_t presence_bitmap = 0;
+	bool emlsr_cap,  emlsr_enabled = false;
+
+	if (!mac_ctx || !mlo_ie)
+		return QDF_STATUS_E_NULL_VALUE;
+
+	psoc = wlan_vdev_get_psoc(vdev);
+	if (!psoc) {
+		pe_err("Invalid psoc");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	pe_debug("Populate MLO common IEs");
+
+	mlo_ie->type = 0;
+	mlo_ie->common_info_length = WLAN_ML_BV_CINFO_LENGTH_SIZE;
+	mld_addr =
+	    (struct qdf_mac_addr *)wlan_vdev_mlme_get_mldaddr(vdev);
+	qdf_mem_copy(&mlo_ie->mld_mac_addr, mld_addr, QDF_MAC_ADDR_SIZE);
+	mlo_ie->common_info_length += QDF_MAC_ADDR_SIZE;
+
+	mlo_ie->link_id_info_present = 0;
+	mlo_ie->bss_param_change_cnt_present = 0;
+	mlo_ie->medium_sync_delay_info_present = 0;
+	mlo_ie->eml_capab_present = 0;
+	mlo_ie->mld_capab_and_op_present = 1;
+	mlo_ie->mld_id_present = 0;
+	mlo_ie->ext_mld_capab_and_op_present = 0;
+
+	if (mlo_ie->mld_capab_and_op_present) {
+		presence_bitmap |= WLAN_ML_BV_CTRL_PBM_MLDCAPANDOP_P;
+		mlo_ie->common_info_length += WLAN_ML_BV_CINFO_MLDCAPANDOP_SIZE;
+		mlo_ie->mld_capab_and_op_info.max_simultaneous_link_num =
+				wlan_mlme_get_sta_mlo_simultaneous_links(psoc);
+		mlo_ie->mld_capab_and_op_info.srs_support = 0;
+		mlo_ie->mld_capab_and_op_info.tid_link_map_supported =
+			wlan_mlme_get_t2lm_negotiation_supported(mac_ctx->psoc);
+		mlo_ie->mld_capab_and_op_info.str_freq_separation = 0;
+		mlo_ie->mld_capab_and_op_info.aar_support = 0;
+	}
+
+	/* Check if HW supports eMLSR mode */
+	emlsr_cap = policy_mgr_is_hw_emlsr_capable(mac_ctx->psoc);
+
+	/* Check if vendor command chooses eMLSR mode */
+	wlan_mlme_get_emlsr_mode_enabled(mac_ctx->psoc, &emlsr_enabled);
+
+	/* Check if STA supports EMLSR and vendor command prefers EMLSR mode */
+	if (emlsr_cap && emlsr_enabled) {
+		wlan_mlme_get_eml_params(psoc, &eml_cap);
+		mlo_ie->eml_capab_present = 1;
+		presence_bitmap |= WLAN_ML_BV_CTRL_PBM_EMLCAP_P;
+		mlo_ie->common_info_length += WLAN_ML_BV_CINFO_EMLCAP_SIZE;
+		mlo_ie->eml_capabilities_info.emlsr_support =
+						eml_cap.emlsr_supp;
+		mlo_ie->eml_capabilities_info.emlmr_support =
+						eml_cap.emlmr_supp;
+		mlo_ie->eml_capabilities_info.transition_timeout = 0;
+		mlo_ie->eml_capabilities_info.emlsr_padding_delay =
+						eml_cap.emlsr_pad_delay;
+		mlo_ie->eml_capabilities_info.emlsr_transition_delay =
+						eml_cap.emlsr_trans_delay;
+	}
+
+	p_ml_ie = mlo_ie->data;
+	len_remaining = sizeof(mlo_ie->data);
+
+	/* element ID, length and extension element ID */
+	*p_ml_ie++ = WLAN_ELEMID_EXTN_ELEM;
+	len_remaining--;
+	/* length will set later */
+	*p_ml_ie++ = 0;
+	len_remaining--;
+	*p_ml_ie++ = WLAN_EXTN_ELEMID_MULTI_LINK;
+	len_remaining--;
+
+	QDF_SET_BITS(*(uint16_t *)p_ml_ie, WLAN_ML_CTRL_TYPE_IDX,
+		     WLAN_ML_CTRL_TYPE_BITS, mlo_ie->type);
+	QDF_SET_BITS(*(uint16_t *)p_ml_ie, WLAN_ML_CTRL_PBM_IDX,
+		     WLAN_ML_CTRL_PBM_BITS, presence_bitmap);
+	p_ml_ie += WLAN_ML_CTRL_SIZE;
+	len_remaining -= WLAN_ML_CTRL_SIZE;
+
+	*p_ml_ie++ = mlo_ie->common_info_length;
+	len_remaining--;
+
+	qdf_mem_copy(p_ml_ie, mld_addr, QDF_MAC_ADDR_SIZE);
+	p_ml_ie += QDF_MAC_ADDR_SIZE;
+	len_remaining -= QDF_MAC_ADDR_SIZE;
+
+	if (mlo_ie->eml_capab_present) {
+		QDF_SET_BITS(*(uint16_t *)p_ml_ie,
+			     WLAN_ML_BV_CINFO_EMLCAP_EMLSRSUPPORT_IDX,
+			     WLAN_ML_BV_CINFO_EMLCAP_EMLSRSUPPORT_BITS,
+			     mlo_ie->eml_capabilities_info.emlsr_support);
+		QDF_SET_BITS(*(uint16_t *)p_ml_ie,
+			     WLAN_ML_BV_CINFO_EMLCAP_EMLSR_PADDINGDELAY_IDX,
+			     WLAN_ML_BV_CINFO_EMLCAP_EMLSR_PADDINGDELAY_BITS,
+			     mlo_ie->eml_capabilities_info.emlsr_padding_delay);
+		QDF_SET_BITS(*(uint16_t *)p_ml_ie,
+			     WLAN_ML_BV_CINFO_EMLCAP_EMLSRTRANSDELAY_IDX,
+			     WLAN_ML_BV_CINFO_EMLCAP_EMLSRTRANSDELAY_BITS,
+			     mlo_ie->eml_capabilities_info.emlsr_transition_delay);
+		QDF_SET_BITS(*(uint16_t *)p_ml_ie,
+			     WLAN_ML_BV_CINFO_EMLCAP_EMLMRSUPPORT_IDX,
+			     WLAN_ML_BV_CINFO_EMLCAP_EMLMRSUPPORT_BITS,
+			     mlo_ie->eml_capabilities_info.emlmr_support);
+		QDF_SET_BITS(*(uint16_t *)p_ml_ie,
+			     WLAN_ML_BV_CINFO_EMLCAP_EMLMRDELAY_IDX,
+			     WLAN_ML_BV_CINFO_EMLCAP_EMLMRDELAY_BITS,
+			     mlo_ie->eml_capabilities_info.emlmr_delay);
+		QDF_SET_BITS(*(uint16_t *)p_ml_ie,
+			     WLAN_ML_BV_CINFO_EMLCAP_TRANSTIMEOUT_IDX,
+			     WLAN_ML_BV_CINFO_EMLCAP_TRANSTIMEOUT_BITS,
+			     mlo_ie->eml_capabilities_info.transition_timeout);
+
+		p_ml_ie += WLAN_ML_BV_CINFO_EMLCAP_SIZE;
+		len_remaining -= WLAN_ML_BV_CINFO_EMLCAP_SIZE;
+	}
+
+	pe_debug("EMLSR support: %d, padding delay: %d, transition delay: %d",
+		 mlo_ie->eml_capabilities_info.emlsr_support,
+		 mlo_ie->eml_capabilities_info.emlsr_padding_delay,
+		 mlo_ie->eml_capabilities_info.emlsr_transition_delay);
+
+	if (mlo_ie->mld_capab_and_op_present) {
+		QDF_SET_BITS(*(uint16_t *)p_ml_ie,
+			     WLAN_ML_BV_CINFO_MLDCAPANDOP_MAXSIMULLINKS_IDX,
+			     WLAN_ML_BV_CINFO_MLDCAPANDOP_MAXSIMULLINKS_BITS,
+			     mlo_ie->mld_capab_and_op_info.max_simultaneous_link_num);
+		QDF_SET_BITS(*(uint16_t *)p_ml_ie,
+			     WLAN_ML_BV_CINFO_MLDCAPANDOP_TIDTOLINKMAPNEGSUPPORT_IDX,
+			     WLAN_ML_BV_CINFO_MLDCAPANDOP_TIDTOLINKMAPNEGSUPPORT_BITS,
+			     mlo_ie->mld_capab_and_op_info.tid_link_map_supported);
+		p_ml_ie += WLAN_ML_BV_CINFO_MLDCAPANDOP_SIZE;
+		len_remaining -= WLAN_ML_BV_CINFO_MLDCAPANDOP_SIZE;
+	}
+
+	mlo_ie->num_data = p_ml_ie - mlo_ie->data;
+	pe_debug("MLO common IEs total len: %d", mlo_ie->num_data);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -9117,5 +12511,35 @@ void populate_dot11f_6g_rnr(struct mac_context *mac_ctx,
 		 wlan_vdev_get_id(session->vdev),
 		 wlan_vdev_get_id(co_session->vdev),
 		 dot11f->op_class, dot11f->channel_num);
+}
+
+QDF_STATUS populate_dot11f_bcn_prot_extcaps(struct mac_context *mac_ctx,
+					    struct pe_session *pe_session,
+					    tDot11fIEExtCap *dot11f)
+{
+	struct s_ext_cap *p_ext_cap;
+
+	/*
+	 * Some legacy STA might not connect with SAP broadcasting
+	 * EXTCAP with size greater than 8bytes.
+	 * In such cases, disable the beacon protection only if
+	 * a) disable_sap_bcn_prot ini is set
+	 * b) The SAP is not operating in 6 GHz or 11be profile
+	 * where BP is mandatory.
+	 */
+	if (pe_session->opmode != QDF_SAP_MODE ||
+	    !wlan_mlme_is_bcn_prot_disabled_for_sap(mac_ctx->psoc) ||
+	    WLAN_REG_IS_6GHZ_CHAN_FREQ(pe_session->curr_op_freq) ||
+	    pe_session->dot11mode > MLME_DOT11_MODE_11AX_ONLY)
+		return QDF_STATUS_SUCCESS;
+
+	p_ext_cap = (struct s_ext_cap *)dot11f->bytes;
+	if (!dot11f->present || !p_ext_cap->beacon_protection_enable)
+		return QDF_STATUS_SUCCESS;
+
+	p_ext_cap->beacon_protection_enable = 0;
+	dot11f->num_bytes = lim_compute_ext_cap_ie_length(dot11f);
+
+	return QDF_STATUS_SUCCESS;
 }
 /* parser_api.c ends here. */

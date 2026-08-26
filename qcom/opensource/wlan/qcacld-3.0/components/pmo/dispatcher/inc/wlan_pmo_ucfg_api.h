@@ -346,7 +346,7 @@ QDF_STATUS ucfg_pmo_flush_arp_offload_req(struct wlan_objmgr_vdev *vdev);
 /**
  * ucfg_pmo_enable_arp_offload_in_fwr(): API to enable arp req in fwr
  * @vdev: objmgr vdev param
- * @trigger: triger reason for enable arp offload
+ * @trigger: trigger reason for enable arp offload
  *
  *  API to enable cache arp req in fwr from pmo vdev priv ctx
  *
@@ -359,7 +359,7 @@ ucfg_pmo_enable_arp_offload_in_fwr(struct wlan_objmgr_vdev *vdev,
 /**
  * ucfg_pmo_disable_arp_offload_in_fwr(): API to disable arp req in fwr
  * @vdev: objmgr vdev param
- * @trigger: triger reason  for disable arp offload
+ * @trigger: trigger reason  for disable arp offload
  *  API to disable cache arp req in fwr
  *
  * Return QDF_STATUS -in case of success else return error
@@ -804,7 +804,7 @@ ucfg_pmo_get_wow_enable(struct wlan_objmgr_psoc *psoc);
 /**
  * ucfg_pmo_set_wow_enable() - Set wow enable type
  * @psoc: pointer to psoc object
- * @val: wow enalbe value
+ * @val: wow enable value
  *
  * Return: None
  */
@@ -1360,14 +1360,6 @@ bool ucfg_pmo_get_moddtim_user_active(struct wlan_objmgr_vdev *vdev);
  * Return: moddtim user value
  */
 uint32_t ucfg_pmo_get_moddtim_user(struct wlan_objmgr_vdev *vdev);
-
-/*
- * ucfg_pmo_get_ssr_frequency_on_pagefault: get ssr frequency on pagefault
- * @psoc: objmgr psoc
- *
- * Return: SSR frequency on pagefault
- */
-uint32_t ucfg_pmo_get_ssr_frequency_on_pagefault(struct wlan_objmgr_psoc *psoc);
 
 /*
  * ucfg_pmo_get_disconnect_sap_tdls_in_wow: get if disconnect sap/p2p_go
@@ -2119,12 +2111,6 @@ ucfg_pmo_get_moddtim_user(struct wlan_objmgr_vdev *vdev)
 	return 0;
 }
 
-static inline uint32_t
-ucfg_pmo_get_ssr_frequency_on_pagefault(struct wlan_objmgr_psoc *psoc)
-{
-	return 0;
-}
-
 static inline bool
 ucfg_pmo_get_disconnect_sap_tdls_in_wow(struct wlan_objmgr_psoc *psoc)
 {
@@ -2390,4 +2376,46 @@ void ucfg_pmo_notify_system_resume(struct wlan_objmgr_psoc *psoc)
 {
 }
 #endif
+
+/**
+ * ucfg_pmo_set_vdev_bridge_addr() - API to set Bridge mac address
+ * @vdev: objmgr vdev
+ * @bridgeaddr: Bridge mac address
+ *
+ * Return: if success pmo vdev ctx else NULL
+ */
+QDF_STATUS ucfg_pmo_set_vdev_bridge_addr(struct wlan_objmgr_vdev *vdev,
+					 struct qdf_mac_addr *bridgeaddr);
+
+/**
+ * ucfg_pmo_get_vdev_bridge_addr() - API to get Bridge mac address
+ * @vdev: objmgr vdev
+ * @bridgeaddr: Bridge mac address
+ *
+ * Return: if success pmo vdev ctx else NULL
+ */
+QDF_STATUS ucfg_pmo_get_vdev_bridge_addr(struct wlan_objmgr_vdev *vdev,
+					 struct qdf_mac_addr *bridgeaddr);
+
+/**
+ * ucfg_pmo_get_ns_offload_enable_dynamic() - get NS offload dynamic enable
+ * @vdev: vdev objmgr handle
+ *
+ * Return: true is NS offload is dynamically disabled else false
+ */
+bool
+ucfg_pmo_get_ns_offload_enable_dynamic(struct wlan_objmgr_vdev *vdev);
+
+/**
+ * ucfg_pmo_set_ns_offload_enable_dynamic() - Set NS offload dynamic enable
+ * @vdev: vdev objmgr handle
+ * @trigger: pmo trigger
+ * @ns_offload_enable_dyn: NS offload enable dynamic
+ *
+ * Return: None
+ */
+void
+ucfg_pmo_set_ns_offload_enable_dynamic(struct wlan_objmgr_vdev *vdev,
+				       enum pmo_offload_trigger trigger,
+				       bool ns_offload_enable_dyn);
 #endif /* end  of _WLAN_PMO_UCFG_API_H_ */

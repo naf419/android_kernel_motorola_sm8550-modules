@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -25,6 +25,7 @@
 #include <wlan_p2p_public_struct.h>
 #include "target_if.h"
 #include "target_if_p2p.h"
+#include "target_if_p2p_mcc_quota.h"
 #include "init_deinit_lmac.h"
 
 static inline struct wlan_lmac_if_p2p_rx_ops *
@@ -444,7 +445,7 @@ static QDF_STATUS target_if_p2p_register_macaddr_rx_filter_evt_handler(
 }
 
 static QDF_STATUS target_if_p2p_set_mac_addr_rx_filter_cmd(
-	struct wlan_objmgr_psoc *psoc, struct p2p_set_mac_filter *param)
+	struct wlan_objmgr_psoc *psoc, struct set_rx_mac_filter *param)
 {
 	wmi_unified_t wmi_handle = lmac_get_wmi_unified_hdl(psoc);
 
@@ -453,7 +454,7 @@ static QDF_STATUS target_if_p2p_set_mac_addr_rx_filter_cmd(
 		return QDF_STATUS_E_INVAL;
 	}
 
-	return wmi_send_set_mac_addr_rx_filter_cmd(wmi_handle, param);
+	return wmi_unified_set_mac_addr_rx_filter(wmi_handle, param);
 }
 
 void target_if_p2p_register_tx_ops(struct wlan_lmac_if_tx_ops *tx_ops)
@@ -476,6 +477,8 @@ void target_if_p2p_register_tx_ops(struct wlan_lmac_if_tx_ops *tx_ops)
 		target_if_p2p_register_macaddr_rx_filter_evt_handler;
 	p2p_tx_ops->set_mac_addr_rx_filter_cmd =
 		target_if_p2p_set_mac_addr_rx_filter_cmd;
+	target_if_mcc_quota_register_tx_ops(tx_ops);
+
 	/* register P2P listen offload callbacks */
 	target_if_p2p_lo_register_tx_ops(p2p_tx_ops);
 }

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -75,7 +75,6 @@
 #include "wlan_hdd_scan.h"
 #include "sme_power_save_api.h"
 #include "wlan_policy_mgr_api.h"
-#include "wlan_hdd_conc_ut.h"
 #include "wlan_hdd_fips.h"
 #include "wlan_hdd_tsf.h"
 #include "wlan_hdd_ocb.h"
@@ -88,7 +87,6 @@
 #include "hif.h"
 #endif
 #include "pld_common.h"
-#include "wlan_hdd_lro.h"
 #include "cds_utils.h"
 #include "wlan_osif_request_manager.h"
 #include "os_if_wifi_pos.h"
@@ -110,11 +108,13 @@
 #include "cfg_mlme_threshold.h"
 #include "wlan_pmo_cfg.h"
 #include "wlan_pmo_ucfg_api.h"
-#include "dp_txrx.h"
+#include "wlan_dp_rx_thread.h"
 #include "wlan_fwol_ucfg_api.h"
 #include "wlan_hdd_unit_test.h"
 #include "wlan_hdd_thermal.h"
 #include "wlan_cm_roam_ucfg_api.h"
+#include "wlan_hdd_object_manager.h"
+#include "wlan_dp_ucfg_api.h"
 
 /* Private ioctls and their sub-ioctls */
 #define WLAN_PRIV_SET_INT_GET_NONE    (SIOCIWFIRSTPRIV + 0)
@@ -607,7 +607,7 @@
  * @OUTPUT: rssi
  *  wlan0	rssi_chk:56
  *
- * This IOTCL used to chek rssi
+ * This IOTCL used to check rssi
  *
  * @E.g: iwpriv wlan0 rssi_chk <value>
  *
@@ -2180,112 +2180,10 @@
 #define WE_LED_FLASHING_PARAM    10
 #endif
 
-/*
- * <ioctl>
- * pm_clist - Increments the index value of the concurrent connection list
- * and update with the input parameters provided.
- *
- * @INPUT: Following 8 arguments:
- * @vdev_id: vdev id
- * @tx_streams: TX streams
- * @rx_streams: RX streams
- * @chain_mask: Chain mask
- * @type: vdev_type
- *    AP:1    STA:2    IBSS:3    Monitor:4    NAN:5    OCB:6    NDI:7
- * @sub_type: vdev_subtype
- *    P2P_Device:1    P2P_Client:2     P2P_GO:3
- *    Proxy_STA:4     Mesh:5           Mesh_11s:6
- * @channel: Channel
- * @mac: Mac id
- *
- * @OUTPUT: None
- *
- * This IOCTL is used to increments the index value of the concurrent connection
- * list and update with the input parameters provided.
- *
- * @E.g: iwpriv wlan0 pm_clist vdev_id tx_streams rx_streams chain_mask type
- *                    sub_type channel mac
- * iwpriv wlan0 pm_clist 1 2 2 1 2 3 10 1
- *
- * Supported Feature: DBS
- *
- * Usage: Internal/External
- *
- * </ioctl>
- */
-#define WE_POLICY_MANAGER_CLIST_CMD    11
 
 /*
- * <ioctl>
- * pm_dlist - Delete the index from the concurrent connection list that is
- * present in the given vdev_id.
- *
- * @INPUT: delete_all, vdev_id
- * @delete_all: delete all indices
- * @vdev_id: vdev id
- *
- * @OUTPUT: None
- *
- * This IOCTL is used to delete the index from the concurrent connection list
- * that is present in the given vdev_id.
- *
- * @E.g: iwpriv wlan0 pm_dlist delete_all vdev_id
- * iwpriv wlan0 pm_dlist 0 1
- *
- * Supported Feature: DBS
- *
- * Usage: Internal/External
- *
- * </ioctl>
+ * Sequence Numbers 11-14, 16, 17-20 are not in use.
  */
-#define WE_POLICY_MANAGER_DLIST_CMD    12
-
-/*
- * <ioctl>
- * pm_dbs - Set dbs capability and system preference
- *
- * @INPUT: dbs, system_pref
- * @dbs: Value of DBS capability to be set
- * @system_pref: System preference
- *     0:PM_THROUGHPUT 1: PM_POWERSAVE 2: PM_LATENCY
- *
- * @OUTPUT: None
- *
- * This IOCTL is used to set dbs capability and system preference.
- *
- * @E.g: iwpriv wlan0 pm_dbs dbs system_pref
- * iwpriv wlan0 pm_dbs 1 0
- *
- * Supported Feature: DBS
- *
- * Usage: Internal/External
- *
- * </ioctl>
- */
-#define WE_POLICY_MANAGER_DBS_CMD      13
-
-/*
- * <ioctl>
- * pm_pcl - Set pcl for concurrency mode.
- *
- * @INPUT: policy_mgr_con_mode
- * @policy_mgr_con_mode: concurrency mode for PCL table
- *     0:STA  1:SAP  2:P2P_Client  3:P2P_GO  4:IBSS
- *
- * @OUTPUT: None
- *
- * This IOCTL is used to set pcl for concurrency mode.
- *
- * @E.g: iwpriv wlan0 pm_pcl policy_mgr_con_mode
- * iwpriv wlan0 pm_pcl 0
- *
- * Supported Feature: DBS
- *
- * Usage: Internal/External
- *
- * </ioctl>
- */
-#define WE_POLICY_MANAGER_PCL_CMD      14
 
 /*
  * <ioctl>
@@ -2306,139 +2204,6 @@
  * </ioctl>
  */
 #define WE_POLICY_MANAGER_CINFO_CMD    15
-
-/*
- * <ioctl>
- * pm_ulist - Updates the index value of the concurrent connection list
- * with the input parameters provided.
- *
- * @INPUT: Following 8 arguments:
- * @vdev_id: vdev id
- * @tx_streams: TX streams
- * @rx_streams: RX streams
- * @chain_mask: Chain mask
- * @type: vdev_type
- *    AP:1    STA:2    IBSS:3    Monitor:4    NAN:5    OCB:6    NDI:7
- * @sub_type: vdev_subtype
- *    P2P_Device:1    P2P_Client:2     P2P_GO:3
- *    Proxy_STA:4     Mesh:5           Mesh_11s:6
- * @channel: Channel
- * @mac: Mac id
- *
- * @OUTPUT: None
- *
- * This IOCTL is used to updates the index value of the concurrent
- * connection list with the input parameters provided.
- *
- * @E.g: iwpriv wlan0 pm_ulist vdev_id tx_streams rx_streams chain_mask type
- *                    sub_type channel mac
- * iwpriv wlan0 pm_ulist 1 2 2 1 2 3 10 1
- *
- * Supported Feature: DBS
- *
- * Usage: Internal/External
- *
- * </ioctl>
- */
-#define WE_POLICY_MANAGER_ULIST_CMD    16
-
-/*
- * <ioctl>
- * pm_query_action - Initiate actions needed on current connections as
- * per the channel provided.
- *
- * @INPUT: channel
- * @channel: Channel on which new connection will be.
- *
- * @OUTPUT: None
- *
- * This IOCTL is used to initiate actions needed on current connections
- * as per the channel provided.
- *
- * @E.g: iwpriv wlan0 pm_query_action channel
- * iwpriv wlan0 pm_query_action 6
- *
- * Supported Feature: DBS
- *
- * Usage: Internal/External
- *
- * </ioctl>
- */
-#define WE_POLICY_MANAGER_QUERY_ACTION_CMD    17
-
-/*
- * <ioctl>
- * pm_query_allow - Checks for allowed concurrency combination
- *
- * @INPUT: mode, channel, bandwidth
- * @mode:	new connection mode
- *     0:STA  1:SAP  2:P2P_Client  3:P2P_GO  4:IBSS
- * @channel: channel on which new connection is coming up
- * @bandwidth: Bandwidth requested by the connection
- *     0:None    1:5MHz    2:10MHz      3:20MHz
- *     4:40MHz   5:80MHz   6:80+80MHz   7:160MHz
- *
- * @OUTPUT: None
- *
- * This IOCTL is used to checks for allowed concurrency combination.
- *
- * @E.g: iwpriv wlan0 pm_query_allow mode channel bandwidth
- * iwpriv wlan0 pm_query_allow 0 6 4
- *
- * Supported Feature: DBS
- *
- * Usage: Internal/External
- *
- * </ioctl>
- */
-#define WE_POLICY_MANAGER_QUERY_ALLOW_CMD    18
-
-/*
- * <ioctl>
- * pm_run_scenario - Create scenario with number of connections provided.
- *
- * @INPUT: num_of_conn
- * @num_of_conn: the number of connections (values: 1~3)
- *
- * @OUTPUT: None
- *
- * This IOCTL is used to create scenario with the number of connections
- * provided.
- *
- * @E.g: iwpriv wlan0 pm_run_scenario num_of_conn
- * iwpriv wlan0 pm_run_scenario 1
- *
- * Supported Feature: DBS
- *
- * Usage: Internal/External
- *
- * </ioctl>
- */
-#define WE_POLICY_MANAGER_SCENARIO_CMD 19
-
-/*
- * <ioctl>
- * pm_set_hw_mode - Set hardware for single/dual mac.
- *
- * @INPUT: hw_mode
- *     0:single mac     1:dual mac
- *     2: 2x2 5g + 1x1 2g dbs mode
- *     3: 2x2 2g + 1x1 5g dbs mode
- *
- * @OUTPUT: None
- *
- * This IOCTL is used to set hardware for single/dual mac.
- *
- * @E.g: iwpriv wlan0 pm_set_hw_mode hw_mode
- * iwpriv wlan0 pm_set_hw_mode 1
- *
- * Supported Feature: DBS
- *
- * Usage: Internal/External
- *
- * </ioctl>
- */
-#define WE_POLICY_SET_HW_MODE_CMD 20
 
 /*
  * <ioctl>
@@ -2528,6 +2293,10 @@
  */
 #define WE_SET_TXRX_STATS    24
 
+
+/* for moto SAR features, support tx pwr limit settings on mimo device */
+#define WE_SET_MIMO_TX_POWER 32
+#define WE_SET_MIMO_TX_POWER_DBS 33
 
 #ifdef FEATURE_WLAN_TDLS
 #undef  MAX_VAR_ARGS
@@ -3024,6 +2793,7 @@ void hdd_wlan_get_stats(struct hdd_adapter *adapter, uint16_t *length,
 			char *buffer, uint16_t buf_len)
 {
 	struct hdd_tx_rx_stats *stats = &adapter->hdd_stats.tx_rx_stats;
+	struct dp_tx_rx_stats *dp_stats;
 	uint32_t len = 0;
 	uint32_t total_rx_pkt = 0, total_rx_dropped = 0;
 	uint32_t total_rx_delv = 0, total_rx_refused = 0;
@@ -3033,17 +2803,39 @@ void hdd_wlan_get_stats(struct hdd_adapter *adapter, uint16_t *length,
 	uint32_t total_tx_classified_ac[WLAN_MAX_AC] = {0};
 	uint32_t total_tx_dropped_ac[WLAN_MAX_AC] = {0};
 	int i = 0;
-	uint8_t ac;
+	uint8_t ac, rx_ol_con = 0, rx_ol_low_tput = 0;
 	struct hdd_context *hdd_ctx = adapter->hdd_ctx;
+	struct wlan_objmgr_vdev *vdev;
+
+	vdev = hdd_objmgr_get_vdev_by_user(adapter, WLAN_DP_ID);
+	if (!vdev)
+		return;
+
+	dp_stats = qdf_mem_malloc(sizeof(*dp_stats));
+	if (!dp_stats) {
+		hdd_objmgr_put_vdev_by_user(vdev, WLAN_DP_ID);
+		return;
+	}
+
+	if (ucfg_dp_get_txrx_stats(adapter->vdev, dp_stats)) {
+		hdd_objmgr_put_vdev_by_user(vdev, WLAN_DP_ID);
+		hdd_err("Unable to get stats from DP component");
+		qdf_mem_free(dp_stats);
+		return;
+	}
+	hdd_objmgr_put_vdev_by_user(vdev, WLAN_DP_ID);
+
+	ucfg_dp_get_disable_rx_ol_val(hdd_ctx->psoc,
+				      &rx_ol_con, &rx_ol_low_tput);
 
 	for (; i < NUM_CPUS; i++) {
-		total_rx_pkt += stats->per_cpu[i].rx_packets;
-		total_rx_dropped += stats->per_cpu[i].rx_dropped;
-		total_rx_delv += stats->per_cpu[i].rx_delivered;
-		total_rx_refused += stats->per_cpu[i].rx_refused;
-		total_tx_pkt += stats->per_cpu[i].tx_called;
-		total_tx_dropped += stats->per_cpu[i].tx_dropped;
-		total_tx_orphaned += stats->per_cpu[i].tx_orphaned;
+		total_rx_pkt += dp_stats->per_cpu[i].rx_packets;
+		total_rx_dropped += dp_stats->per_cpu[i].rx_dropped;
+		total_rx_delv += dp_stats->per_cpu[i].rx_delivered;
+		total_rx_refused += dp_stats->per_cpu[i].rx_refused;
+		total_tx_pkt += dp_stats->per_cpu[i].tx_called;
+		total_tx_dropped += dp_stats->per_cpu[i].tx_dropped;
+		total_tx_orphaned += dp_stats->per_cpu[i].tx_orphaned;
 		for (ac = 0; ac < WLAN_MAX_AC; ac++) {
 			total_tx_classified_ac[ac] +=
 					 stats->per_cpu[i].tx_classified_ac[ac];
@@ -3074,25 +2866,25 @@ void hdd_wlan_get_stats(struct hdd_adapter *adapter, uint16_t *length,
 			total_tx_classified_ac[SME_AC_VO],
 			qdf_system_ticks(),
 			total_rx_pkt, total_rx_dropped,
-			qdf_atomic_read(&stats->rx_usolict_arp_n_mcast_drp),
+			qdf_atomic_read(&dp_stats->rx_usolict_arp_n_mcast_drp),
 			total_rx_delv,
 			total_rx_refused,
-			stats->rx_aggregated, stats->rx_non_aggregated,
-			stats->rx_gro_flush_skip,
-			stats->rx_gro_low_tput_flush,
-			qdf_atomic_read(&hdd_ctx->disable_rx_ol_in_concurrency),
-			qdf_atomic_read(&hdd_ctx->disable_rx_ol_in_low_tput));
+			dp_stats->rx_aggregated, dp_stats->rx_non_aggregated,
+			dp_stats->rx_gro_flush_skip,
+			dp_stats->rx_gro_low_tput_flush,
+			rx_ol_con,
+			rx_ol_low_tput);
 
 	for (i = 0; i < NUM_CPUS; i++) {
-		if (stats->per_cpu[i].rx_packets == 0)
+		if (dp_stats->per_cpu[i].rx_packets == 0)
 			continue;
 		len += scnprintf(buffer + len, buf_len - len,
 				 "Rx CPU[%d]:"
 				 "packets %u, dropped %u, delivered %u, refused %u\n",
-				 i, stats->per_cpu[i].rx_packets,
-				 stats->per_cpu[i].rx_dropped,
-				 stats->per_cpu[i].rx_delivered,
-				 stats->per_cpu[i].rx_refused);
+				 i, dp_stats->per_cpu[i].rx_packets,
+				 dp_stats->per_cpu[i].rx_dropped,
+				 dp_stats->per_cpu[i].rx_delivered,
+				 dp_stats->per_cpu[i].rx_refused);
 	}
 
 	len += scnprintf(buffer + len, buf_len - len,
@@ -3108,6 +2900,7 @@ void hdd_wlan_get_stats(struct hdd_adapter *adapter, uint16_t *length,
 	len += cdp_stats(cds_get_context(QDF_MODULE_ID_SOC),
 			 adapter->vdev_id, &buffer[len], (buf_len - len));
 	*length = len + 1;
+	qdf_mem_free(dp_stats);
 }
 
 /**
@@ -3199,7 +2992,7 @@ static int hdd_we_dump_stats(struct hdd_adapter *adapter, int value)
 }
 
 /**
- * iw_get_linkspeed() - Get current link speed ioctl
+ * __iw_get_linkspeed() - Get current link speed ioctl
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -3248,6 +3041,15 @@ static int __iw_get_linkspeed(struct net_device *dev,
 	return 0;
 }
 
+/**
+ * iw_get_linkspeed() - Get current link speed ioctl
+ * @dev: device upon which the ioctl was received
+ * @info: ioctl request information
+ * @wrqu: ioctl request data
+ * @extra: extra ioctl buffer
+ *
+ * Return: 0 on success, non-zero on error
+ */
 static int iw_get_linkspeed(struct net_device *dev,
 			    struct iw_request_info *info,
 			    union iwreq_data *wrqu, char *extra)
@@ -3625,15 +3427,13 @@ static int hdd_we_set_power(struct hdd_adapter *adapter, int value)
 	switch (value) {
 	case 1:
 		/* Enable PowerSave */
-		ucfg_mlme_set_user_ps(hdd_ctx->psoc, adapter->vdev_id, true);
-		sme_ps_enable_disable(mac_handle, adapter->vdev_id,
-				      SME_PS_ENABLE);
+		sme_ps_set_powersave(hdd_ctx->mac_handle, adapter->vdev_id,
+				     true, 0, true);
 		return 0;
 	case 2:
 		/* Disable PowerSave */
-		sme_ps_enable_disable(mac_handle, adapter->vdev_id,
-				      SME_PS_DISABLE);
-		ucfg_mlme_set_user_ps(hdd_ctx->psoc, adapter->vdev_id, false);
+		sme_ps_set_powersave(hdd_ctx->mac_handle, adapter->vdev_id,
+				     false, 0, true);
 		return 0;
 	case 3:
 		/* Enable UASPD */
@@ -5010,7 +4810,7 @@ static setint_getnone_fn hdd_get_setint_getnone_cb(int param)
 }
 
 /**
- * iw_setint_getnone() - Generic "set integer" private ioctl handler
+ * __iw_setint_getnone() - Generic "set integer" private ioctl handler
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -5054,6 +4854,15 @@ static int __iw_setint_getnone(struct net_device *dev,
 	return ret;
 }
 
+/**
+ * iw_setint_getnone() - Generic "set integer" private ioctl handler
+ * @dev: device upon which the ioctl was received
+ * @info: ioctl request information
+ * @wrqu: ioctl request data
+ * @extra: ioctl extra data
+ *
+ * Return: 0 on success, non-zero on error
+ */
 static int iw_setint_getnone(struct net_device *dev,
 			     struct iw_request_info *info,
 			     union iwreq_data *wrqu,
@@ -5146,8 +4955,9 @@ static int iw_setnone_get_threeint(struct net_device *dev,
 
 	return errno;
 }
+
 /**
- * iw_setchar_getnone() - Generic "set string" private ioctl handler
+ * __iw_setchar_getnone() - Generic "set string" private ioctl handler
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -5287,6 +5097,15 @@ static int __iw_setchar_getnone(struct net_device *dev,
 	return ret;
 }
 
+/**
+ * iw_setchar_getnone() - Generic "set string" private ioctl handler
+ * @dev: device upon which the ioctl was received
+ * @info: ioctl request information
+ * @wrqu: ioctl request data
+ * @extra: ioctl extra data
+ *
+ * Return: 0 on success, non-zero on error
+ */
 static int iw_setchar_getnone(struct net_device *dev,
 			      struct iw_request_info *info,
 			      union iwreq_data *wrqu, char *extra)
@@ -5306,7 +5125,7 @@ static int iw_setchar_getnone(struct net_device *dev,
 }
 
 /**
- * iw_setnone_getint() - Generic "get integer" private ioctl handler
+ * __iw_setnone_getint() - Generic "get integer" private ioctl handler
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -5797,6 +5616,15 @@ static int __iw_setnone_getint(struct net_device *dev,
 	return ret;
 }
 
+/**
+ * iw_setnone_getint() - Generic "get integer" private ioctl handler
+ * @dev: device upon which the ioctl was received
+ * @info: ioctl request information
+ * @wrqu: ioctl request data
+ * @extra: ioctl extra data
+ *
+ * Return: 0 on success, non-zero on error
+ */
 static int iw_setnone_getint(struct net_device *dev,
 			     struct iw_request_info *info,
 			     union iwreq_data *wrqu, char *extra)
@@ -5856,7 +5684,7 @@ static int hdd_set_fwtest(int argc, int cmd, int value)
 }
 
 /**
- * iw_set_three_ints_getnone() - Generic "set 3 params" private ioctl handler
+ * __iw_set_three_ints_getnone() - Generic "set 3 params" private ioctl handler
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -5934,6 +5762,15 @@ static int __iw_set_three_ints_getnone(struct net_device *dev,
 	return ret;
 }
 
+/**
+ * iw_set_three_ints_getnone() - Generic "set 3 params" private ioctl handler
+ * @dev: device upon which the ioctl was received
+ * @info: ioctl request information
+ * @wrqu: ioctl request data
+ * @extra: ioctl extra data
+ *
+ * Return: 0 on success, non-zero on error
+ */
 int iw_set_three_ints_getnone(struct net_device *dev,
 			      struct iw_request_info *info,
 			      union iwreq_data *wrqu, char *extra)
@@ -6034,7 +5871,7 @@ static int hdd_get_sta_cxn_info(struct hdd_context *hdd_ctx,
 #endif
 
 /**
- * iw_get_char_setnone() - Generic "get string" private ioctl handler
+ * __iw_get_char_setnone() - Generic "get string" private ioctl handler
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -6532,6 +6369,15 @@ static int __iw_get_char_setnone(struct net_device *dev,
 	return ret;
 }
 
+/**
+ * iw_get_char_setnone() - Generic "get string" private ioctl handler
+ * @dev: device upon which the ioctl was received
+ * @info: ioctl request information
+ * @wrqu: ioctl request data
+ * @extra: ioctl extra data
+ *
+ * Return: 0 on success, non-zero on error
+ */
 static int iw_get_char_setnone(struct net_device *dev,
 			       struct iw_request_info *info,
 			       union iwreq_data *wrqu, char *extra)
@@ -6551,7 +6397,7 @@ static int iw_get_char_setnone(struct net_device *dev,
 }
 
 /**
- * iw_setnone_getnone() - Generic "action" private ioctl handler
+ * __iw_setnone_getnone() - Generic "action" private ioctl handler
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -6627,7 +6473,7 @@ static int __iw_setnone_getnone(struct net_device *dev,
 		/*
 		 * 1.OBSS Scan is mandatory while operating in 2.4GHz
 		 * 2.OBSS scan is stopped by Firmware during the disassociation
-		 * 3.OBSS stop comamnd is added for debugging purpose
+		 * 3.OBSS stop command is added for debugging purpose
 		 */
 		if (!mac_handle) {
 			hdd_err("mac_handle context is NULL");
@@ -6644,6 +6490,15 @@ static int __iw_setnone_getnone(struct net_device *dev,
 	return ret;
 }
 
+/**
+ * iw_setnone_getnone() - Generic "action" private ioctl handler
+ * @dev: device upon which the ioctl was received
+ * @info: ioctl request information
+ * @wrqu: ioctl request data
+ * @extra: ioctl extra data
+ *
+ * Return: 0 on success, non-zero on error
+ */
 static int iw_setnone_getnone(struct net_device *dev,
 			      struct iw_request_info *info,
 			      union iwreq_data *wrqu, char *extra)
@@ -6661,343 +6516,6 @@ static int iw_setnone_getnone(struct net_device *dev,
 
 	return errno;
 }
-
-#ifdef MPC_UT_FRAMEWORK
-static void
-hdd_policy_mgr_set_hw_mode_ut(struct hdd_context *hdd_ctx,
-			      struct hdd_adapter *adapter, int cmd)
-{
-	enum hw_mode_ss_config mac0_ss;
-	enum hw_mode_bandwidth mac0_bw;
-	enum hw_mode_ss_config mac1_ss;
-	enum hw_mode_bandwidth mac1_bw;
-	enum hw_mode_mac_band_cap mac0_band_cap;
-	enum hw_mode_dbs_capab dbs;
-	enum policy_mgr_conc_next_action action;
-
-	switch (cmd) {
-	case 0:
-		hdd_debug("set hw mode for single mac");
-		mac0_ss = HW_MODE_SS_2x2;
-		mac0_bw = HW_MODE_80_MHZ;
-		mac1_ss = HW_MODE_SS_0x0;
-		mac1_bw = HW_MODE_BW_NONE;
-		mac0_band_cap = HW_MODE_MAC_BAND_NONE;
-		dbs = HW_MODE_DBS_NONE;
-		action = PM_SINGLE_MAC;
-		break;
-	case 1:
-		hdd_debug("set hw mode for dual mac");
-		mac0_ss = HW_MODE_SS_1x1;
-		mac0_bw = HW_MODE_80_MHZ;
-		mac1_ss = HW_MODE_SS_1x1;
-		mac1_bw = HW_MODE_40_MHZ;
-		mac0_band_cap = HW_MODE_MAC_BAND_NONE;
-		dbs = HW_MODE_DBS;
-		action = PM_DBS;
-		break;
-	case 2:
-		hdd_debug("set hw mode for 2x2 5g + 1x1 2g");
-		mac0_ss = HW_MODE_SS_2x2;
-		mac0_bw = HW_MODE_80_MHZ;
-		mac1_ss = HW_MODE_SS_1x1;
-		mac1_bw = HW_MODE_40_MHZ;
-		mac0_band_cap = HW_MODE_MAC_BAND_5G;
-		dbs = HW_MODE_DBS;
-		action = PM_DBS1;
-		break;
-	case 3:
-		hdd_debug("set hw mode for 2x2 2g + 1x1 5g");
-		mac0_ss = HW_MODE_SS_2x2;
-		mac0_bw = HW_MODE_40_MHZ;
-		mac1_ss = HW_MODE_SS_1x1;
-		mac1_bw = HW_MODE_40_MHZ;
-		mac0_band_cap = HW_MODE_MAC_BAND_2G;
-		dbs = HW_MODE_DBS;
-		action = PM_DBS2;
-		break;
-	default:
-		hdd_err("unknown cmd %d", cmd);
-		return;
-	}
-	policy_mgr_pdev_set_hw_mode(hdd_ctx->psoc, adapter->vdev_id,
-				    mac0_ss, mac0_bw, mac1_ss, mac1_bw,
-				    mac0_band_cap, dbs, HW_MODE_AGILE_DFS_NONE,
-				    HW_MODE_SBS_NONE,
-				    POLICY_MGR_UPDATE_REASON_UT, PM_NOP,
-				    action, POLICY_MGR_DEF_REQ_ID);
-}
-
-static int iw_get_policy_manager_ut_ops(struct hdd_context *hdd_ctx,
-			struct hdd_adapter *adapter, int sub_cmd, int *apps_args)
-{
-	switch (sub_cmd) {
-	case WE_POLICY_MANAGER_CLIST_CMD:
-	{
-		hdd_debug("<iwpriv wlan0 pm_clist> is called");
-		if ((apps_args[0] < 0) || (apps_args[1] < 0) ||
-		    (apps_args[2] < 0) || (apps_args[3] < 0) ||
-		    (apps_args[4] < 0) || (apps_args[5] < 0) ||
-		    (apps_args[6] < 0)) {
-			hdd_err("Invalid input params received for the IOCTL");
-			return 0;
-		}
-		policy_mgr_incr_connection_count_utfw(hdd_ctx->psoc,
-			apps_args[0], apps_args[1], apps_args[2], apps_args[3],
-			apps_args[4], apps_args[5], apps_args[6]);
-	}
-	break;
-
-	case WE_POLICY_MANAGER_DLIST_CMD:
-	{
-		hdd_debug("<iwpriv wlan0 pm_dlist> is called");
-		if ((apps_args[0] < 0) || (apps_args[1] < 0)) {
-			hdd_err("Invalid input params received for the IOCTL");
-			return 0;
-		}
-		policy_mgr_decr_connection_count_utfw(hdd_ctx->psoc,
-			apps_args[0], apps_args[1]);
-	}
-	break;
-
-	case WE_POLICY_MANAGER_ULIST_CMD:
-	{
-		hdd_debug("<iwpriv wlan0 pm_ulist> is called");
-		if ((apps_args[0] < 0) || (apps_args[1] < 0) ||
-		    (apps_args[2] < 0) || (apps_args[3] < 0) ||
-		    (apps_args[4] < 0) || (apps_args[5] < 0) ||
-		    (apps_args[6] < 0) || (apps_args[7] < 0)) {
-			hdd_err("Invalid input params received for the IOCTL");
-			return 0;
-		}
-		policy_mgr_update_connection_info_utfw(
-			hdd_ctx->psoc,
-			apps_args[0], apps_args[1], apps_args[2], apps_args[3],
-			apps_args[4], apps_args[5],
-			wlan_reg_legacy_chan_to_freq(hdd_ctx->pdev,
-						     apps_args[6]),
-						     apps_args[7]);
-	}
-	break;
-
-	case WE_POLICY_MANAGER_DBS_CMD:
-	{
-		hdd_debug("<iwpriv wlan0 pm_dbs> is called");
-		if (apps_args[0] == 0)
-			policy_mgr_set_dbs_cap_ut(hdd_ctx->psoc, 0);
-		else
-			policy_mgr_set_dbs_cap_ut(hdd_ctx->psoc, 1);
-
-		wma_enable_dbs_service_ut();
-		if (apps_args[1] >= PM_THROUGHPUT &&
-			apps_args[1] <= PM_LATENCY) {
-			hdd_debug("setting system pref to [%d]\n",
-				  apps_args[1]);
-			ucfg_policy_mgr_set_sys_pref(hdd_ctx->psoc,
-						     apps_args[1]);
-		}
-	}
-	break;
-
-	case WE_POLICY_MANAGER_PCL_CMD:
-	{
-		uint32_t pcl[NUM_CHANNELS] = {0};
-		uint8_t weight_list[NUM_CHANNELS] = {0};
-		uint32_t pcl_len = 0, i = 0;
-
-		hdd_debug("<iwpriv wlan0 pm_pcl> is called");
-
-		if (apps_args[0] < 0) {
-			hdd_err("Invalid input param received for the IOCTL");
-			return 0;
-		}
-		policy_mgr_get_pcl(hdd_ctx->psoc, apps_args[0],
-				   pcl, &pcl_len,
-				   weight_list, QDF_ARRAY_SIZE(weight_list));
-		hdd_debug("PCL Freq list for role[%d] is {", apps_args[0]);
-		for (i = 0 ; i < pcl_len; i++)
-			hdd_debug(" %d, ", pcl[i]);
-		hdd_debug("}--------->\n");
-	}
-	break;
-
-	case WE_POLICY_SET_HW_MODE_CMD:
-	{
-		hdd_debug("pm_set_hw_mode cmd %d", apps_args[0]);
-		hdd_policy_mgr_set_hw_mode_ut(hdd_ctx, adapter, apps_args[0]);
-	}
-	break;
-
-	case WE_POLICY_MANAGER_QUERY_ACTION_CMD:
-	{
-		hdd_debug("<iwpriv wlan0 pm_query_action> is called");
-		if (apps_args[0] < 0) {
-			hdd_err("Invalid input params received for the IOCTL");
-			return 0;
-		}
-		policy_mgr_current_connections_update(
-			hdd_ctx->psoc, adapter->vdev_id,
-			wlan_reg_legacy_chan_to_freq(hdd_ctx->pdev,
-						     apps_args[0]),
-			POLICY_MGR_UPDATE_REASON_UT, POLICY_MGR_DEF_REQ_ID);
-	}
-	break;
-
-	case WE_POLICY_MANAGER_QUERY_ALLOW_CMD:
-	{
-		bool allow;
-
-		hdd_debug("<iwpriv wlan0 pm_query_allow> is called");
-		if ((apps_args[0] < 0) || (apps_args[1] < 0) ||
-		    (apps_args[2] < 0)) {
-			hdd_err("Invalid input params received for the IOCTL");
-			return 0;
-		}
-		allow = policy_mgr_allow_concurrency(
-				hdd_ctx->psoc, apps_args[0],
-				wlan_reg_legacy_chan_to_freq(hdd_ctx->pdev,
-							     apps_args[1]),
-				apps_args[2],
-				policy_mgr_get_conc_ext_flags(adapter->vdev,
-							      false));
-		hdd_debug("allow %d {0 = don't allow, 1 = allow}", allow);
-	}
-	break;
-
-	case WE_POLICY_MANAGER_SCENARIO_CMD:
-	{
-#define FREQ_2G_A 2437
-#define FREQ_2G_B 2462
-#define FREQ_5G_LOW 5180
-#define FREQ_5G_HIGH 5745
-#define FREQ_6G_A 5975
-#define FREQ_6G_B 6135
-		clean_report(hdd_ctx);
-		if (apps_args[0] == 1) {
-			wlan_hdd_one_connection_scenario(hdd_ctx);
-		} else if (apps_args[0] == 2) {
-			wlan_hdd_two_connections_scenario(
-				hdd_ctx, FREQ_2G_A, POLICY_MGR_TWO_TWO);
-			wlan_hdd_two_connections_scenario(
-				hdd_ctx, FREQ_2G_A, POLICY_MGR_ONE_ONE);
-			wlan_hdd_two_connections_scenario(
-				hdd_ctx, FREQ_5G_LOW, POLICY_MGR_ONE_ONE);
-			wlan_hdd_two_connections_scenario(
-				hdd_ctx, FREQ_5G_LOW, POLICY_MGR_TWO_TWO);
-			wlan_hdd_two_connections_scenario(
-				hdd_ctx, FREQ_5G_HIGH, POLICY_MGR_ONE_ONE);
-			wlan_hdd_two_connections_scenario(
-				hdd_ctx, FREQ_5G_HIGH, POLICY_MGR_TWO_TWO);
-			wlan_hdd_two_connections_scenario(
-				hdd_ctx, FREQ_6G_A, POLICY_MGR_ONE_ONE);
-			wlan_hdd_two_connections_scenario(
-				hdd_ctx, FREQ_6G_A, POLICY_MGR_TWO_TWO);
-		} else if (apps_args[0] == 3) {
-			/* PM_STA_SAP_SCC_24_1x1 */
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_2G_A, FREQ_2G_A,
-				POLICY_MGR_ONE_ONE, 1);
-			/* PM_STA_SAP_SCC_24_2x2 */
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_2G_A, FREQ_2G_A,
-				POLICY_MGR_TWO_TWO, 1);
-			/* PM_STA_SAP_MCC_24_1x1 */
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_2G_A, FREQ_2G_B,
-				POLICY_MGR_ONE_ONE, 1);
-			/* PM_STA_SAP_MCC_24_2x2 */
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_2G_A, FREQ_2G_B,
-				POLICY_MGR_TWO_TWO, 1);
-			/* PM_STA_SAP_SCC_5_1x1 */
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_5G_LOW, FREQ_5G_LOW,
-				POLICY_MGR_ONE_ONE, 1);
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_5G_HIGH, FREQ_5G_HIGH,
-				POLICY_MGR_ONE_ONE, 1);
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_6G_A, FREQ_6G_A,
-				POLICY_MGR_ONE_ONE, 1);
-			/* PM_STA_SAP_SCC_5_2x2 */
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_5G_LOW, FREQ_5G_LOW,
-				POLICY_MGR_TWO_TWO, 1);
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_5G_HIGH, FREQ_5G_HIGH,
-				POLICY_MGR_TWO_TWO, 1);
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_6G_A, FREQ_6G_A,
-				POLICY_MGR_TWO_TWO, 1);
-			/* PM_STA_SAP_MCC_5_1x1 */
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_5G_LOW, FREQ_5G_HIGH,
-				POLICY_MGR_ONE_ONE, 1);
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_5G_LOW, FREQ_6G_A,
-				POLICY_MGR_ONE_ONE, 1);
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_6G_A, FREQ_6G_B,
-				POLICY_MGR_ONE_ONE, 1);
-			/* PM_STA_SAP_MCC_5_2x2 */
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_5G_LOW, FREQ_5G_HIGH,
-				POLICY_MGR_TWO_TWO, 1);
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_5G_LOW, FREQ_6G_A,
-				POLICY_MGR_TWO_TWO, 1);
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_6G_A, FREQ_6G_B,
-				POLICY_MGR_TWO_TWO, 1);
-			/* PM_STA_SAP_MCC_24_5_1x1 */
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_2G_A, FREQ_5G_HIGH,
-				POLICY_MGR_ONE_ONE, 1);
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_2G_A, FREQ_6G_A,
-				POLICY_MGR_ONE_ONE, 1);
-			/* PM_STA_SAP_MCC_24_5_2x2 */
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_2G_A, FREQ_5G_HIGH,
-				POLICY_MGR_TWO_TWO, 1);
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_2G_A, FREQ_6G_A,
-				POLICY_MGR_TWO_TWO, 1);
-			/* PM_STA_SAP_DBS_1x1 */
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_2G_A, FREQ_5G_HIGH,
-				POLICY_MGR_ONE_ONE, 0);
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_2G_A, FREQ_6G_A,
-				POLICY_MGR_ONE_ONE, 0);
-			/* PM_STA_SAP_DBS_2x2 */
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_2G_A, FREQ_5G_HIGH,
-				POLICY_MGR_TWO_TWO, 0);
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_2G_A, FREQ_6G_A,
-				POLICY_MGR_TWO_TWO, 0);
-			/* PM_STA_SAP_SBS_5_1x1 or PM_STA_SAP_SBS_5_2x2 */
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_5G_LOW, FREQ_5G_HIGH,
-				POLICY_MGR_ONE_ONE, 0);
-			wlan_hdd_three_connections_scenario(
-				hdd_ctx, FREQ_5G_LOW, FREQ_6G_A,
-				POLICY_MGR_ONE_ONE, 0);
-		}
-		print_report(hdd_ctx);
-	}
-	break;
-	}
-	return 0;
-}
-#else
-static int iw_get_policy_manager_ut_ops(struct hdd_context *hdd_ctx,
-			struct hdd_adapter *adapter, int sub_cmd, int *apps_args)
-{
-	return 0;
-}
-#endif
 
 /**
  * hdd_ch_avoid_unit_cmd - unit test ch avoidance
@@ -7304,24 +6822,6 @@ static int __iw_set_var_ints_getnone(struct net_device *dev,
 		}
 	}
 	break;
-	case WE_POLICY_MANAGER_CLIST_CMD:
-	case WE_POLICY_MANAGER_DLIST_CMD:
-	case WE_POLICY_MANAGER_ULIST_CMD:
-	case WE_POLICY_MANAGER_DBS_CMD:
-	case WE_POLICY_MANAGER_PCL_CMD:
-	case WE_POLICY_SET_HW_MODE_CMD:
-	case WE_POLICY_MANAGER_QUERY_ACTION_CMD:
-	case WE_POLICY_MANAGER_QUERY_ALLOW_CMD:
-	case WE_POLICY_MANAGER_SCENARIO_CMD:
-	{
-		if (!hdd_ctx->config->is_unit_test_framework_enabled) {
-			hdd_warn_rl("UT framework is disabled");
-			return -EINVAL;
-		}
-		iw_get_policy_manager_ut_ops(hdd_ctx, adapter,
-				sub_cmd, apps_args);
-	}
-	break;
 	case WE_SET_CHAN_AVOID:
 	{
 		hdd_ch_avoid_unit_cmd(hdd_ctx, num_args, apps_args);
@@ -7451,6 +6951,134 @@ static int __iw_set_var_ints_getnone(struct net_device *dev,
 		break;
 	}
 #endif /* FW_THERMAL_THROTTLE_SUPPORT */
+
+	/* for moto SAR features, support tx pwr limit settings on mimo device */
+	case WE_SET_MIMO_TX_POWER:
+	{
+		struct sar_limit_cmd_params *sar_limit_cmd;
+		mac_handle_t mac_handle = hdd_ctx->mac_handle;
+		int ret = -EINVAL;
+		uint32_t num_limit_rows = 4;
+		struct sar_limit_cmd_row *row;
+
+		if (!mac_handle)
+			return -EINVAL;
+
+		sar_limit_cmd = qdf_mem_malloc(sizeof(struct sar_limit_cmd_params));
+		if (!sar_limit_cmd)
+			return -ENOMEM;
+
+		sar_limit_cmd->commit_limits = 1;
+		sar_limit_cmd->sar_enable = WMI_SAR_FEATURE_ON_USER_DEFINED;
+
+		row = qdf_mem_malloc(sizeof(*row) * num_limit_rows);
+		if (!row) {
+			qdf_mem_free(sar_limit_cmd);
+			hdd_err("Failed to allocate memory for sar_limit_row_list");
+			return -EINVAL;
+		}
+
+		//Below band/chain/limit_value number will get from Modem
+		//either CCK or OFDM, set the validity_bitmap as WMI_SAR_BAND_ID_VALID_MASK |WMI_SAR_CHAIN_ID_VALID_MASK
+		row[0].band_id = WMI_SAR_2G_ID; //WMI_SAR_2G_ID - 0; WMI_SAR_5G_ID - 1
+		row[0].chain_id = 0;
+		row[0].mod_id = WMI_SAR_MOD_OFDM;
+		row[0].limit_value = apps_args[0];
+		row[0].validity_bitmap = WMI_SAR_BAND_ID_VALID_MASK |WMI_SAR_CHAIN_ID_VALID_MASK;
+
+		row[1].band_id = WMI_SAR_2G_ID; //WMI_SAR_2G_ID - 0; WMI_SAR_5G_ID - 1
+		row[1].chain_id = 1;
+		row[1].mod_id = WMI_SAR_MOD_OFDM;
+		row[1].limit_value = apps_args[1];
+		row[1].validity_bitmap = WMI_SAR_BAND_ID_VALID_MASK |WMI_SAR_CHAIN_ID_VALID_MASK;
+
+		row[2].band_id = WMI_SAR_5G_ID; //WMI_SAR_2G_ID - 0; WMI_SAR_5G_ID - 1
+		row[2].chain_id = 0;
+		row[2].mod_id = WMI_SAR_MOD_OFDM;
+		row[2].limit_value = apps_args[2];
+		row[2].validity_bitmap = WMI_SAR_BAND_ID_VALID_MASK |WMI_SAR_CHAIN_ID_VALID_MASK |WMI_SAR_MOD_ID_VALID_MASK;
+
+		row[3].band_id = WMI_SAR_5G_ID; //WMI_SAR_2G_ID - 0; WMI_SAR_5G_ID - 1
+		row[3].chain_id = 1;
+		row[3].mod_id = WMI_SAR_MOD_OFDM;
+		row[3].limit_value = apps_args[3];
+		row[3].validity_bitmap = WMI_SAR_BAND_ID_VALID_MASK |WMI_SAR_CHAIN_ID_VALID_MASK |WMI_SAR_MOD_ID_VALID_MASK;
+
+		sar_limit_cmd->num_limit_rows = num_limit_rows;
+		sar_limit_cmd->sar_limit_row_list = row;
+		hdd_info("change pwr limit to [%d, %d, %d, %d].",
+					 row[0].limit_value, row[1].limit_value, row[2].limit_value, row[3].limit_value);
+		if (sme_set_sar_power_limits(mac_handle,sar_limit_cmd)
+		    != QDF_STATUS_SUCCESS) {
+			hdd_err("Setting maximum tx power failed");
+			if(sar_limit_cmd) {
+				qdf_mem_free(sar_limit_cmd->sar_limit_row_list);
+				qdf_mem_free(sar_limit_cmd);
+			}
+			ret = -EIO;
+			break;
+		}
+		else{
+			/* save settings in hdd_ctx, so can restore configs after SSR */
+			//hdd_store_sar_config(hdd_ctx, sar_limit_cmd);
+			hdd_info("Setting maximum tx power successful");
+		}
+		if(sar_limit_cmd) {qdf_mem_free(sar_limit_cmd);}
+		if(row) {qdf_mem_free(row);}
+	}
+	break;
+
+	case WE_SET_MIMO_TX_POWER_DBS:
+	{
+		struct sar_limit_cmd_params *sar_limit_cmd;
+		mac_handle_t mac_handle = hdd_ctx->mac_handle;
+		int ret = -EINVAL;
+		uint32_t num_limit_rows = 2;
+		struct sar_limit_cmd_row *row;
+		if (!mac_handle)
+			return -EINVAL;
+		sar_limit_cmd = qdf_mem_malloc(sizeof(struct sar_limit_cmd_params));
+		if (!sar_limit_cmd)
+			return -ENOMEM;
+		sar_limit_cmd->commit_limits = 1;
+		sar_limit_cmd->sar_enable = WMI_SAR_FEATURE_ON_SAR_V3;
+
+		row = qdf_mem_malloc(sizeof(*row) * num_limit_rows);
+		if (!row) {
+			qdf_mem_free(sar_limit_cmd);
+			hdd_err("Failed to allocate memory for sar_limit_row_list");
+			return -EINVAL;
+		}
+		row[0].chain_id = 0;
+		row[0].limit_value = apps_args[0];
+		row[0].validity_bitmap = WMI_SAR_CHAIN_ID_VALID_MASK;
+
+		row[1].chain_id = 1;
+		row[1].limit_value = apps_args[0];
+		row[1].validity_bitmap = WMI_SAR_CHAIN_ID_VALID_MASK;
+
+		sar_limit_cmd->num_limit_rows = num_limit_rows;
+		sar_limit_cmd->sar_limit_row_list = row;
+		hdd_info("SAR index being passed is %d %d",row[0].limit_value, row[1].limit_value);
+
+		if (sme_set_sar_power_limits(mac_handle,sar_limit_cmd)
+			!= QDF_STATUS_SUCCESS) {
+			hdd_err("Setting maximum tx power for DBS failed");
+			if(sar_limit_cmd) {
+				qdf_mem_free(sar_limit_cmd->sar_limit_row_list);
+				qdf_mem_free(sar_limit_cmd);
+			}
+			ret = -EIO;
+			break;
+		}
+		else {
+			hdd_info("Setting maximum tx power successful");
+		}
+		if(sar_limit_cmd) {qdf_mem_free(sar_limit_cmd);}
+		if(row) {qdf_mem_free(row);}
+	}
+	break;
+
 	default:
 	{
 		hdd_err("Invalid IOCTL command %d", sub_cmd);
@@ -7466,7 +7094,7 @@ static int __iw_set_var_ints_getnone(struct net_device *dev,
  * @dev: pointer to net_device structure
  * @info: pointer to iw_request_info structure
  * @wrqu: pointer to iwreq_data
- * @extra; extra
+ * @extra: extra
  *
  * Return: 0 on success, error number otherwise
  *
@@ -7548,7 +7176,7 @@ int iw_set_var_ints_getnone(struct net_device *dev,
 }
 
 /**
- * iw_add_tspec - Add TSpec private ioctl handler
+ * __iw_add_tspec - Add TSpec private ioctl handler
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -7579,7 +7207,7 @@ static int __iw_add_tspec(struct net_device *dev, struct iw_request_info *info,
 	if (0 != ret)
 		return ret;
 
-	/* make sure the application is sufficiently priviledged */
+	/* make sure the application is sufficiently privileged */
 	/* note that the kernel will do this for "set" ioctls, but since */
 	/* this ioctl wants to return status to user space it must be */
 	/* defined as a "get" ioctl */
@@ -7710,6 +7338,15 @@ static int __iw_add_tspec(struct net_device *dev, struct iw_request_info *info,
 	return 0;
 }
 
+/**
+ * iw_add_tspec - Add TSpec private ioctl handler
+ * @dev: device upon which the ioctl was received
+ * @info: ioctl request information
+ * @wrqu: ioctl request data
+ * @extra: ioctl extra data
+ *
+ * Return: 0 on success, non-zero on error
+ */
 static int iw_add_tspec(struct net_device *dev,
 			struct iw_request_info *info,
 			union iwreq_data *wrqu, char *extra)
@@ -7729,7 +7366,7 @@ static int iw_add_tspec(struct net_device *dev,
 }
 
 /**
- * iw_del_tspec - Delete TSpec private ioctl handler
+ * __iw_del_tspec - Delete TSpec private ioctl handler
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -7758,7 +7395,7 @@ static int __iw_del_tspec(struct net_device *dev, struct iw_request_info *info,
 	if (0 != ret)
 		return ret;
 
-	/* make sure the application is sufficiently priviledged */
+	/* make sure the application is sufficiently privileged */
 	/* note that the kernel will do this for "set" ioctls, but since */
 	/* this ioctl wants to return status to user space it must be */
 	/* defined as a "get" ioctl */
@@ -7782,6 +7419,15 @@ static int __iw_del_tspec(struct net_device *dev, struct iw_request_info *info,
 	return 0;
 }
 
+/**
+ * iw_del_tspec - Delete TSpec private ioctl handler
+ * @dev: device upon which the ioctl was received
+ * @info: ioctl request information
+ * @wrqu: ioctl request data
+ * @extra: ioctl extra data
+ *
+ * Return: 0 on success, non-zero on error
+ */
 static int iw_del_tspec(struct net_device *dev,
 			struct iw_request_info *info,
 			union iwreq_data *wrqu, char *extra)
@@ -7801,7 +7447,7 @@ static int iw_del_tspec(struct net_device *dev,
 }
 
 /**
- * iw_get_tspec - Get TSpec private ioctl handler
+ * __iw_get_tspec - Get TSpec private ioctl handler
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -7847,6 +7493,15 @@ static int __iw_get_tspec(struct net_device *dev, struct iw_request_info *info,
 	return 0;
 }
 
+/**
+ * iw_get_tspec - Get TSpec private ioctl handler
+ * @dev: device upon which the ioctl was received
+ * @info: ioctl request information
+ * @wrqu: ioctl request data
+ * @extra: ioctl extra data
+ *
+ * Return: 0 on success, non-zero on error
+ */
 static int iw_get_tspec(struct net_device *dev,
 			struct iw_request_info *info,
 			union iwreq_data *wrqu, char *extra)
@@ -7866,7 +7521,7 @@ static int iw_get_tspec(struct net_device *dev,
 }
 
 /**
- * iw_set_fties - Set FT IEs private ioctl handler
+ * __iw_set_fties - Set FT IEs private ioctl handler
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -7919,6 +7574,19 @@ static int __iw_set_fties(struct net_device *dev, struct iw_request_info *info,
 	return 0;
 }
 
+/**
+ * iw_set_fties - Set FT IEs private ioctl handler
+ * @dev: device upon which the ioctl was received
+ * @info: ioctl request information
+ * @wrqu: ioctl request data
+ * @extra: ioctl extra data
+ *
+ * Each time the supplicant has the auth_request or reassoc request
+ * IEs ready they are pushed to the driver. The driver will in turn
+ * use it to send out the auth req and reassoc req for 11r FT Assoc.
+ *
+ * Return: 0 on success, non-zero on error
+ */
 static int iw_set_fties(struct net_device *dev,
 			struct iw_request_info *info,
 			union iwreq_data *wrqu, char *extra)
@@ -7966,7 +7634,7 @@ static int iw_set_dynamic_mcbc_filter(struct net_device *dev,
 }
 
 /**
- * iw_set_host_offload - Set host offload ioctl handler
+ * __iw_set_host_offload - Set host offload ioctl handler
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -8050,6 +7718,15 @@ static int __iw_set_host_offload(struct net_device *dev,
 	return 0;
 }
 
+/**
+ * iw_set_host_offload - Set host offload ioctl handler
+ * @dev: device upon which the ioctl was received
+ * @info: ioctl request information
+ * @wrqu: ioctl request data
+ * @extra: ioctl extra data
+ *
+ * Return: 0 on success, non-zero on error
+ */
 static int iw_set_host_offload(struct net_device *dev,
 			       struct iw_request_info *info,
 			       union iwreq_data *wrqu, char *extra)
@@ -8069,7 +7746,7 @@ static int iw_set_host_offload(struct net_device *dev,
 }
 
 /**
- * iw_set_keepalive_params - Set keepalive params ioctl handler
+ * __iw_set_keepalive_params - Set keepalive params ioctl handler
  * @dev: device upon which the ioctl was received
  * @info: ioctl request information
  * @wrqu: ioctl request data
@@ -8146,6 +7823,15 @@ static int __iw_set_keepalive_params(struct net_device *dev,
 	return 0;
 }
 
+/**
+ * iw_set_keepalive_params - Set keepalive params ioctl handler
+ * @dev: device upon which the ioctl was received
+ * @info: ioctl request information
+ * @wrqu: ioctl request data
+ * @extra: ioctl extra data
+ *
+ * Return: 0 on success, non-zero on error
+ */
 static int iw_set_keepalive_params(struct net_device *dev,
 				   struct iw_request_info *info,
 				   union iwreq_data *wrqu,
@@ -8168,8 +7854,8 @@ static int iw_set_keepalive_params(struct net_device *dev,
 #ifdef WLAN_FEATURE_PACKET_FILTERING
 /**
  * validate_packet_filter_params_size() - Validate the size of the params rcvd
- * @priv_data: Pointer to the priv data from user space
  * @request: Pointer to the struct containing the copied data from user space
+ * @length: length of the request
  *
  * Return: False on invalid length, true otherwise
  */
@@ -8314,7 +8000,11 @@ static int iw_set_packet_filter_params(struct net_device *dev,
 
 static int hdd_get_wlan_stats(struct hdd_adapter *adapter)
 {
-	return wlan_hdd_get_station_stats(adapter);
+	int stats = wlan_hdd_get_station_stats(adapter);
+
+	wlan_hdd_get_peer_rx_rate_stats(adapter);
+
+	return stats;
 }
 
 static int __iw_get_statistics(struct net_device *dev,
@@ -8693,10 +8383,9 @@ static int __iw_set_pno(struct net_device *dev,
 			goto exit;
 		}
 
-		hdd_debug("PNO len %d ssid %.*s auth %d encry %d channel count %d offset %d",
-			  req.networks_list[i].ssid.length,
-			  req.networks_list[i].ssid.length,
-			  req.networks_list[i].ssid.ssid,
+		hdd_debug("PNO ssid " QDF_SSID_FMT " auth %d encry %d channel count %d offset %d",
+			  QDF_SSID_REF(req.networks_list[i].ssid.length,
+				       req.networks_list[i].ssid.ssid),
 			  req.networks_list[i].authentication,
 			  req.networks_list[i].encryption,
 			  req.networks_list[i].pno_chan_list.num_chan, offset);
@@ -10028,52 +9717,6 @@ static const struct iw_priv_args we_private_args[] = {
 	 0,
 	 "pm_cinfo"},
 
-#ifdef MPC_UT_FRAMEWORK
-	{WE_POLICY_MANAGER_CLIST_CMD,
-	 IW_PRIV_TYPE_INT | MAX_VAR_ARGS,
-	 0,
-	 "pm_clist"},
-
-	{WE_POLICY_MANAGER_DLIST_CMD,
-	 IW_PRIV_TYPE_INT | MAX_VAR_ARGS,
-	 0,
-	 "pm_dlist"},
-
-	{WE_POLICY_MANAGER_DBS_CMD,
-	 IW_PRIV_TYPE_INT | MAX_VAR_ARGS,
-	 0,
-	 "pm_dbs"},
-
-	{WE_POLICY_MANAGER_PCL_CMD,
-	 IW_PRIV_TYPE_INT | MAX_VAR_ARGS,
-	 0,
-	 "pm_pcl"},
-
-	{WE_POLICY_MANAGER_ULIST_CMD,
-	 IW_PRIV_TYPE_INT | MAX_VAR_ARGS,
-	 0,
-	 "pm_ulist"},
-
-	{WE_POLICY_MANAGER_QUERY_ACTION_CMD,
-	 IW_PRIV_TYPE_INT | MAX_VAR_ARGS,
-	 0,
-	 "pm_query_action"},
-
-	{WE_POLICY_MANAGER_QUERY_ALLOW_CMD,
-	 IW_PRIV_TYPE_INT | MAX_VAR_ARGS,
-	 0,
-	 "pm_query_allow"},
-
-	{WE_POLICY_MANAGER_SCENARIO_CMD,
-	 IW_PRIV_TYPE_INT | MAX_VAR_ARGS,
-	 0,
-	 "pm_run_scenario"},
-
-	{WE_POLICY_SET_HW_MODE_CMD,
-	 IW_PRIV_TYPE_INT | MAX_VAR_ARGS,
-	 0,
-	 "pm_set_hw_mode"},
-#endif
 	{WE_UNIT_TEST_CMD,
 	 IW_PRIV_TYPE_INT | MAX_VAR_ARGS,
 	 0,
@@ -10095,6 +9738,15 @@ static const struct iw_priv_args we_private_args[] = {
 	 0,
 	 "ch_avoid"},
 #endif
+	/* for moto SAR features, support tx pwr limit settings on mimo device */
+	{WE_SET_MIMO_TX_POWER,
+	 IW_PRIV_TYPE_INT | MAX_VAR_ARGS,
+	 0,
+	 "setTxPowerM"},
+	{WE_SET_MIMO_TX_POWER_DBS,
+	 IW_PRIV_TYPE_INT | MAX_VAR_ARGS,
+	 0,
+	 "setTxPowerMDbs"},
 	/* handlers for main ioctl */
 	{WLAN_PRIV_FIPS_TEST,
 	 IW_PRIV_TYPE_BYTE | WE_MAX_STR_LEN,

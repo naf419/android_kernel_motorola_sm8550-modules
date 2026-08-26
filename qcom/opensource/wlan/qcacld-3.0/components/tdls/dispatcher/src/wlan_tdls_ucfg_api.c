@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -33,7 +33,7 @@
 #include <wlan_objmgr_cmn.h>
 #include "wlan_policy_mgr_api.h"
 #include "wlan_scan_ucfg_api.h"
-#include "wlan_tdls_cfg.h"
+#include "cfg_tdls.h"
 #include "cfg_ucfg_api.h"
 #include "wlan_tdls_api.h"
 
@@ -202,6 +202,8 @@ static QDF_STATUS tdls_object_init_params(
 			cfg_get(psoc, CFG_TDLS_PUAPSD_PEER_TRAFFIC_RSP_TIMEOUT);
 	tdls_soc_obj->tdls_configs.tdls_pre_off_chan_num =
 			cfg_get(psoc, CFG_TDLS_PREFERRED_OFF_CHANNEL_NUM);
+	tdls_soc_obj->tdls_configs.tdls_pre_off_chan_freq_6g =
+			cfg_get(psoc, CFG_TDLS_PREFERRED_OFF_CHANNEL_FREQ_6G);
 	tdls_soc_obj->tdls_configs.tdls_pre_off_chan_bw =
 			cfg_get(psoc, CFG_TDLS_PREFERRED_OFF_CHANNEL_BW);
 	tdls_soc_obj->tdls_configs.tdls_peer_kickout_threshold =
@@ -318,6 +320,38 @@ QDF_STATUS ucfg_tdls_psoc_open(struct wlan_objmgr_psoc *psoc)
 	return status;
 }
 
+void ucfg_tdls_update_fw_wideband_capability(struct wlan_objmgr_psoc *psoc,
+					     bool is_fw_tdls_wideband_capable)
+{
+	struct tdls_soc_priv_obj *soc_obj;
+
+	soc_obj = wlan_objmgr_psoc_get_comp_private_obj(psoc,
+							WLAN_UMAC_COMP_TDLS);
+	if (!soc_obj) {
+		tdls_err("Failed to get tdls psoc component");
+		return;
+	}
+
+	soc_obj->fw_tdls_wideband_capability = is_fw_tdls_wideband_capable;
+}
+
+bool ucfg_tdls_is_fw_wideband_capable(struct wlan_objmgr_psoc *psoc)
+{
+	struct tdls_soc_priv_obj *soc_obj;
+
+	soc_obj = wlan_objmgr_psoc_get_comp_private_obj(psoc,
+							WLAN_UMAC_COMP_TDLS);
+	if (!soc_obj) {
+		tdls_err("Failed to get tdls psoc component");
+		return false;
+	}
+
+	tdls_debug("FW wideband capability %d",
+		   soc_obj->fw_tdls_wideband_capability);
+
+	return soc_obj->fw_tdls_wideband_capability;
+}
+
 #ifdef WLAN_FEATURE_11AX
 void ucfg_tdls_update_fw_11ax_capability(struct wlan_objmgr_psoc *psoc,
 					 bool is_fw_tdls_11ax_capable)
@@ -334,6 +368,21 @@ void ucfg_tdls_update_fw_11ax_capability(struct wlan_objmgr_psoc *psoc,
 	soc_obj->fw_tdls_11ax_capability = is_fw_tdls_11ax_capable;
 }
 
+void ucfg_update_fw_tdls_6g_capability(struct wlan_objmgr_psoc *psoc,
+				       bool is_fw_tdls_6g_capable)
+{
+	struct tdls_soc_priv_obj *soc_obj;
+
+	soc_obj = wlan_objmgr_psoc_get_comp_private_obj(psoc,
+							WLAN_UMAC_COMP_TDLS);
+	if (!soc_obj) {
+		tdls_err("Failed to get tdls psoc component");
+		return;
+	}
+
+	soc_obj->fw_tdls_6g_capability = is_fw_tdls_6g_capable;
+}
+
 bool  ucfg_tdls_is_fw_11ax_capable(struct wlan_objmgr_psoc *psoc)
 {
 	struct tdls_soc_priv_obj *soc_obj;
@@ -347,6 +396,21 @@ bool  ucfg_tdls_is_fw_11ax_capable(struct wlan_objmgr_psoc *psoc)
 	tdls_debug("FW 11AX capability %d", soc_obj->fw_tdls_11ax_capability);
 
 	return soc_obj->fw_tdls_11ax_capability;
+}
+
+bool  ucfg_tdls_is_fw_6g_capable(struct wlan_objmgr_psoc *psoc)
+{
+	struct tdls_soc_priv_obj *soc_obj;
+
+	soc_obj = wlan_objmgr_psoc_get_comp_private_obj(psoc,
+							WLAN_UMAC_COMP_TDLS);
+	if (!soc_obj) {
+		tdls_err("Failed to get tdls psoc component");
+		return false;
+	}
+	tdls_debug("FW 6g capability %d", soc_obj->fw_tdls_6g_capability);
+
+	return soc_obj->fw_tdls_6g_capability;
 }
 #endif
 
@@ -394,6 +458,10 @@ QDF_STATUS ucfg_tdls_update_config(struct wlan_objmgr_psoc *psoc,
 	soc_obj->tdls_dp_vdev_update = req->tdls_dp_vdev_update;
 	soc_obj->tdls_osif_init_cb = req->tdls_osif_init_cb;
 	soc_obj->tdls_osif_deinit_cb = req->tdls_osif_deinit_cb;
+	soc_obj->tdls_osif_update_cb.tdls_osif_conn_update =
+	       req->tdls_osif_update_cb.tdls_osif_conn_update;
+	soc_obj->tdls_osif_update_cb.tdls_osif_disconn_update =
+	       req->tdls_osif_update_cb.tdls_osif_disconn_update;
 	tdls_pm_call_backs.tdls_notify_increment_session =
 			tdls_notify_increment_session;
 
@@ -417,8 +485,7 @@ QDF_STATUS ucfg_tdls_update_config(struct wlan_objmgr_psoc *psoc,
 
 	soc_obj->tdls_last_mode = soc_obj->tdls_current_mode;
 	if (TDLS_IS_BUFFER_STA_ENABLED(tdls_feature_flags) ||
-	    TDLS_IS_SLEEP_STA_ENABLED(tdls_feature_flags) ||
-	    TDLS_IS_OFF_CHANNEL_ENABLED(tdls_feature_flags))
+	    TDLS_IS_SLEEP_STA_ENABLED(tdls_feature_flags))
 		soc_obj->max_num_tdls_sta =
 			WLAN_TDLS_STA_P_UAPSD_OFFCHAN_MAX_NUM;
 
@@ -885,6 +952,23 @@ QDF_STATUS ucfg_tdls_notify_reset_adapter(struct wlan_objmgr_vdev *vdev)
 	return status;
 }
 
+void ucfg_tdls_notify_sta_connect(uint8_t vdev_id,
+				  bool tdls_chan_swit_prohibited,
+				  bool tdls_prohibited,
+				  struct wlan_objmgr_vdev *vdev)
+{
+	wlan_tdls_notify_sta_connect(vdev_id, tdls_chan_swit_prohibited,
+				     tdls_prohibited, vdev);
+}
+
+void ucfg_tdls_notify_sta_disconnect(uint8_t vdev_id,
+				     bool lfr_roam, bool user_disconnect,
+				     struct wlan_objmgr_vdev *vdev)
+{
+	wlan_tdls_notify_sta_disconnect(vdev_id, lfr_roam, user_disconnect,
+					vdev);
+}
+
 QDF_STATUS ucfg_tdls_set_operating_mode(
 			struct tdls_set_mode_params *set_mode_params)
 {
@@ -1132,6 +1216,11 @@ void  wlan_tdls_notify_connect_failure(struct wlan_objmgr_psoc *psoc)
 void ucfg_tdls_notify_connect_failure(struct wlan_objmgr_psoc *psoc)
 {
 	return wlan_tdls_notify_connect_failure(psoc);
+}
+
+uint16_t ucfg_get_tdls_conn_peer_count(struct wlan_objmgr_vdev *vdev)
+{
+	return tdls_get_connected_peer_count_from_vdev(vdev);
 }
 
 struct wlan_objmgr_vdev *ucfg_get_tdls_vdev(struct wlan_objmgr_psoc *psoc,

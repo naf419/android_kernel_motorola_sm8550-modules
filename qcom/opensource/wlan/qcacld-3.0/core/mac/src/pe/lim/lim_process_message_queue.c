@@ -82,6 +82,9 @@ static void lim_process_sae_msg_sta(struct mac_context *mac,
 				    struct pe_session *session,
 				    struct sir_sae_msg *sae_msg)
 {
+	struct wlan_crypto_pmksa *pmksa;
+	uint8_t *rsn_ie_buf;
+
 	switch (session->limMlmState) {
 	case eLIM_MLM_WT_SAE_AUTH_STATE:
 		/* SAE authentication is completed.
@@ -92,15 +95,45 @@ static void lim_process_sae_msg_sta(struct mac_context *mac,
 							eLIM_AUTH_SAE_TIMER);
 		lim_sae_auth_cleanup_retry(mac, session->vdev_id);
 		/* success */
-		if (sae_msg->sae_status == IEEE80211_STATUS_SUCCESS)
+		if (sae_msg->sae_status == STATUS_SUCCESS) {
+			uint8_t zero_pmkid[PMKID_LEN] = {0};
+
+			if (!qdf_mem_cmp(sae_msg->pmkid, zero_pmkid,
+					 PMKID_LEN)) {
+				pe_debug("pmkid not received in ext auth");
+				goto restore_auth_state;
+			}
+
+			pmksa = qdf_mem_malloc(sizeof(*pmksa));
+			if (!pmksa)
+				goto restore_auth_state;
+
+			rsn_ie_buf = qdf_mem_malloc(WLAN_MAX_IE_LEN + 2);
+			if (!rsn_ie_buf) {
+				qdf_mem_free(pmksa);
+				goto restore_auth_state;
+			}
+
+			qdf_mem_copy(pmksa->pmkid, sae_msg->pmkid, PMKID_LEN);
+			qdf_mem_copy(pmksa->bssid.bytes, sae_msg->peer_mac_addr,
+				     QDF_MAC_ADDR_SIZE);
+
+			qdf_mem_zero(session->lim_join_req->rsnIE.rsnIEdata,
+				     WLAN_MAX_IE_LEN + 2);
+			lim_update_connect_rsn_ie(session, rsn_ie_buf, pmksa);
+
+			qdf_mem_free(pmksa);
+			qdf_mem_free(rsn_ie_buf);
+restore_auth_state:
 			lim_restore_from_auth_state(mac,
 						    eSIR_SME_SUCCESS,
 						    STATUS_SUCCESS,
 						    session);
-		else
+		} else {
 			lim_restore_from_auth_state(mac, sae_msg->result_code,
 						    sae_msg->sae_status,
 						    session);
+		}
 		break;
 	default:
 		/* SAE msg is received in unexpected state */
@@ -141,7 +174,7 @@ static void lim_process_sae_msg_ap(struct mac_context *mac,
 
 	assoc_req = &sta_pre_auth_ctx->assoc_req;
 
-	if (sae_msg->sae_status != IEEE80211_STATUS_SUCCESS) {
+	if (sae_msg->sae_status != STATUS_SUCCESS) {
 		pe_debug("SAE authentication failed for "
 			 QDF_MAC_ADDR_FMT " status: %u",
 			 QDF_MAC_ADDR_REF(sae_msg->peer_mac_addr),
@@ -149,10 +182,11 @@ static void lim_process_sae_msg_ap(struct mac_context *mac,
 		if (assoc_req->present) {
 			pe_debug("Assoc req cached; clean it up");
 			lim_process_assoc_cleanup(mac, session,
-						  assoc_req->assoc_req,
 						  assoc_req->sta_ds,
 						  assoc_req->assoc_req_copied);
 			assoc_req->present = false;
+			lim_free_assoc_req_frm_buf(assoc_req->assoc_req);
+			qdf_mem_free(assoc_req->assoc_req);
 		}
 		lim_delete_pre_auth_node(mac, sae_msg->peer_mac_addr);
 		return;
@@ -178,11 +212,13 @@ static void lim_process_sae_msg_ap(struct mac_context *mac,
 						  &assoc_req_copied,
 						  assoc_req->dup_entry, false,
 						  assoc_req->partner_peer_idx);
-		if (!assoc_ind_sent)
+		if (!assoc_ind_sent) {
 			lim_process_assoc_cleanup(mac, session,
-						  assoc_req->assoc_req,
 						  assoc_req->sta_ds,
 						  assoc_req_copied);
+			lim_free_assoc_req_frm_buf(assoc_req->assoc_req);
+			qdf_mem_free(assoc_req->assoc_req);
+		}
 	}
 }
 
@@ -455,65 +491,6 @@ scan_ie_send_fail:
 }
 
 /**
- * lim_process_hw_mode_trans_ind() - Process set HW mode transition indication
- * @mac: Global MAC pointer
- * @body: Set HW mode response in cm_hw_mode_trans_ind format
- *
- * Process the set HW mode transition indication and post the message
- * to SME to invoke the HDD callback
- * command list
- *
- * Return: None
- */
-static void lim_process_hw_mode_trans_ind(struct mac_context *mac, void *body)
-{
-	struct cm_hw_mode_trans_ind *ind, *param;
-	uint32_t len, i;
-	struct scheduler_msg msg = {0};
-
-	ind = (struct cm_hw_mode_trans_ind *)body;
-	if (!ind) {
-		pe_err("Set HW mode trans ind param is NULL");
-		return;
-	}
-
-	len = sizeof(*param);
-
-	param = qdf_mem_malloc(len);
-	if (!param)
-		return;
-
-	param->old_hw_mode_index = ind->old_hw_mode_index;
-	param->new_hw_mode_index = ind->new_hw_mode_index;
-	param->num_vdev_mac_entries = ind->num_vdev_mac_entries;
-
-	for (i = 0; i < ind->num_vdev_mac_entries; i++) {
-		param->vdev_mac_map[i].vdev_id =
-			ind->vdev_mac_map[i].vdev_id;
-		param->vdev_mac_map[i].mac_id =
-			ind->vdev_mac_map[i].mac_id;
-	}
-
-	param->num_freq_map = ind->num_freq_map;
-	for (i = 0; i < param->num_freq_map; i++) {
-		param->mac_freq_map[i].mac_id =
-			ind->mac_freq_map[i].mac_id;
-		param->mac_freq_map[i].start_freq =
-			ind->mac_freq_map[i].start_freq;
-		param->mac_freq_map[i].end_freq =
-			ind->mac_freq_map[i].end_freq;
-	}
-	/* TODO: Update this HW mode info in any UMAC params, if needed */
-
-	msg.type = eWNI_SME_HW_MODE_TRANS_IND;
-	msg.bodyptr = param;
-	msg.bodyval = 0;
-	pe_err("Send eWNI_SME_HW_MODE_TRANS_IND to SME");
-	lim_sys_process_mmh_msg_api(mac, &msg);
-	return;
-}
-
-/**
  * def_msg_decision() - Should a message be deferred?
  * @mac_ctx: The global MAC context
  * @lim_msg: The message to check for potential deferral
@@ -598,8 +575,7 @@ static bool def_msg_decision(struct mac_context *mac_ctx,
 				 lim_msg_str(lim_msg->type));
 			/* Defer processing this message */
 			if (lim_defer_msg(mac_ctx, lim_msg) != TX_SUCCESS) {
-				QDF_TRACE(QDF_MODULE_ID_PE, LOGE,
-					  FL("Unable to Defer Msg"));
+				pe_err("Unable to Defer Msg");
 				lim_log_session_states(mac_ctx);
 				lim_handle_defer_msg_error(mac_ctx, lim_msg);
 			}
@@ -1053,14 +1029,12 @@ static void lim_handle_unknown_a2_index_frames(struct mac_context *mac_ctx,
 	mac_hdr = WMA_GET_RX_MPDUHEADER3A(rx_pkt_buffer);
 
 	if (IEEE80211_IS_MULTICAST(mac_hdr->addr2)) {
-		QDF_TRACE(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
-			FL("Ignoring A2 Invalid Packet received for MC/BC:"));
+		pe_debug("Ignoring A2 Invalid Packet received for MC/BC:");
 		lim_print_mac_addr(mac_ctx, mac_hdr->addr2, LOGD);
 		return;
 	}
-	QDF_TRACE(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
-			FL("type=0x%x, subtype=0x%x"),
-		mac_hdr->fc.type, mac_hdr->fc.subType);
+	pe_debug("type=0x%x, subtype=0x%x",
+		 mac_hdr->fc.type, mac_hdr->fc.subType);
 	/* Currently only following type and subtype are handled.
 	 * If there are more combinations, then add switch-case
 	 * statements.
@@ -1071,6 +1045,73 @@ static void lim_handle_unknown_a2_index_frames(struct mac_context *mac_ctx,
 		lim_process_action_frame(mac_ctx, rx_pkt_buffer, session_entry);
 #endif
 	return;
+}
+
+static bool
+lim_is_ignore_btm_frame(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id,
+			tSirMacFrameCtl fc, uint8_t *body, uint16_t frm_len)
+{
+	bool is_sta_roam_disabled_by_p2p, is_mbo_wo_pmf, is_disable_btm;
+	uint8_t action_id, category, token = 0;
+	tpSirMacActionFrameHdr action_hdr;
+	struct cm_roam_values_copy temp;
+
+	/*
+	 * Drop BTM frame, if BTM roam disabled by userspace via vendor
+	 * command QCA_WLAN_VENDOR_ATTR_CONFIG_BTM_SUPPORT
+	 */
+	wlan_cm_roam_cfg_get_value(psoc, vdev_id, IS_DISABLE_BTM, &temp);
+	is_disable_btm = temp.bool_value;
+	if (is_disable_btm) {
+		pe_debug("Drop BTM frame. vdev:%d BTM roam disabled by user",
+			 vdev_id);
+		return true;
+	}
+
+	/*
+	 * Drop BTM frame received on STA interface if concurrent
+	 * P2P connection is active and p2p_disable_roam ini is
+	 * enabled. This will help to avoid scan triggered by
+	 * userspace after processing the BTM frame from AP so the
+	 * audio glitches are not seen in P2P connection.
+	 */
+	is_sta_roam_disabled_by_p2p = cfg_p2p_is_roam_config_disabled(psoc) &&
+		(policy_mgr_mode_specific_connection_count(psoc,
+							   PM_P2P_CLIENT_MODE,
+							   NULL) ||
+		 policy_mgr_mode_specific_connection_count(psoc,
+							   PM_P2P_GO_MODE,
+							   NULL));
+
+	is_mbo_wo_pmf = wlan_cm_is_mbo_ap_without_pmf(psoc, vdev_id);
+	if (!is_sta_roam_disabled_by_p2p && !is_mbo_wo_pmf)
+		return false;
+
+	action_hdr = (tpSirMacActionFrameHdr)body;
+
+	if (frm_len < sizeof(*action_hdr) || !action_hdr ||
+	    fc.type != SIR_MAC_MGMT_FRAME || fc.subType != SIR_MAC_MGMT_ACTION)
+		return false;
+
+	action_id = action_hdr->actionID;
+	category = action_hdr->category;
+	if (category == ACTION_CATEGORY_WNM &&
+	    (action_id == WNM_BSS_TM_QUERY ||
+	     action_id == WNM_BSS_TM_REQUEST ||
+	     action_id == WNM_BSS_TM_RESPONSE)) {
+		if (frm_len >= sizeof(*action_hdr) + 1)
+			token = *(body + sizeof(*action_hdr));
+		if (is_mbo_wo_pmf) {
+			pe_debug("Drop the BTM frame as it's received from MBO AP without PMF, vdev %d",
+				 vdev_id);
+		} else {
+			pe_debug("Drop the BTM frame as p2p session is active, vdev %d",
+				 vdev_id);
+		}
+		return true;
+	}
+
+	return false;
 }
 
 /**
@@ -1100,7 +1141,7 @@ lim_check_mgmt_registered_frames(struct mac_context *mac_ctx, uint8_t *buff_desc
 	uint8_t type, sub_type;
 	bool match = false;
 	tpSirMacActionFrameHdr action_hdr;
-	uint8_t actionID, category;
+	uint8_t actionID, category, vdev_id = WLAN_INVALID_VDEV_ID;
 	QDF_STATUS qdf_status;
 
 	hdr = WMA_GET_RX_MAC_HEADER(buff_desc);
@@ -1121,9 +1162,7 @@ lim_check_mgmt_registered_frames(struct mac_context *mac_ctx, uint8_t *buff_desc
 		if ((type == SIR_MAC_MGMT_FRAME)
 		    && (fc.type == SIR_MAC_MGMT_FRAME)
 		    && (sub_type == SIR_MAC_MGMT_RESERVED15)) {
-			QDF_TRACE(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
-				FL
-				("rcvd frm match for SIR_MAC_MGMT_RESERVED15"));
+			pe_debug("rcvd frm match for SIR_MAC_MGMT_RESERVED15");
 			match = true;
 			break;
 		}
@@ -1154,19 +1193,10 @@ lim_check_mgmt_registered_frames(struct mac_context *mac_ctx, uint8_t *buff_desc
 	if (match) {
 		pe_debug("rcvd frame match with registered frame params");
 
-		/*
-		 * Drop BTM frame received on STA interface if concurrent
-		 * P2P connection is active and p2p_disable_roam ini is
-		 * enabled. This will help to avoid scan triggered by
-		 * userspace after processing the BTM frame from AP so the
-		 * audio glitches are not seen in P2P connection.
-		 */
-		if (cfg_p2p_is_roam_config_disabled(mac_ctx->psoc) &&
-		    session_entry && LIM_IS_STA_ROLE(session_entry) &&
-		    (policy_mgr_mode_specific_connection_count(mac_ctx->psoc,
-						PM_P2P_CLIENT_MODE, NULL) ||
-		     policy_mgr_mode_specific_connection_count(mac_ctx->psoc,
-						PM_P2P_GO_MODE, NULL))) {
+		if (session_entry && LIM_IS_STA_ROLE(session_entry) &&
+		    lim_is_ignore_btm_frame(mac_ctx->psoc,
+					    session_entry->vdev_id, fc, body,
+					    frm_len)) {
 			if (frm_len >= sizeof(*action_hdr) && action_hdr &&
 			    fc.type == SIR_MAC_MGMT_FRAME &&
 			    fc.subType == SIR_MAC_MGMT_ACTION) {
@@ -1176,17 +1206,21 @@ lim_check_mgmt_registered_frames(struct mac_context *mac_ctx, uint8_t *buff_desc
 				    (actionID == WNM_BSS_TM_QUERY ||
 				     actionID == WNM_BSS_TM_REQUEST ||
 				     actionID == WNM_BSS_TM_RESPONSE)) {
-					pe_debug("p2p session active drop BTM frame");
+					pe_debug("Drop the BTM frame as p2p session is active or rcvd from MBO AP without PMF, vdev %d",
+						 session_entry->vdev_id);
 					return match;
 				}
 			}
 		}
+		if (session_entry)
+			vdev_id = session_entry->vdev_id;
+
 		/* Indicate this to SME */
 		lim_send_sme_mgmt_frame_ind(mac_ctx, hdr->fc.subType,
 			(uint8_t *) hdr,
 			WMA_GET_RX_PAYLOAD_LEN(buff_desc) +
-			sizeof(tSirMacMgmtHdr), mgmt_frame->sessionId,
-			WMA_GET_RX_FREQ(buff_desc), session_entry,
+			sizeof(tSirMacMgmtHdr), vdev_id,
+			WMA_GET_RX_FREQ(buff_desc),
 			WMA_GET_RX_RSSI_NORMALIZED(buff_desc),
 			RXMGMT_FLAG_NONE);
 
@@ -1305,19 +1339,24 @@ lim_handle80211_frames(struct mac_context *mac, struct scheduler_msg *limMsg,
 	QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_ERROR, pHdr,
 			   WMA_GET_RX_MPDU_HEADER_LEN(pRxPacketInfo));
 #endif
-	if (mac->mlme_cfg->gen.debug_packet_log & 0x1) {
-		if ((fc.type == SIR_MAC_MGMT_FRAME) &&
+	if (fc.type == SIR_MAC_MGMT_FRAME) {
+		if ((mac->mlme_cfg->gen.debug_packet_log &
+		    DEBUG_PKTLOG_TYPE_MGMT) &&
 		    (fc.subType != SIR_MAC_MGMT_PROBE_REQ) &&
 		    (fc.subType != SIR_MAC_MGMT_PROBE_RSP) &&
-		    (fc.subType != SIR_MAC_MGMT_BEACON)) {
+		    (fc.subType != SIR_MAC_MGMT_BEACON) &&
+		    (fc.subType != SIR_MAC_MGMT_ACTION)) {
 			pe_debug("RX MGMT - Type %hu, SubType %hu, seq num[%d]",
-				   fc.type,
-				   fc.subType,
-				   ((pHdr->seqControl.seqNumHi <<
-				   HIGH_SEQ_NUM_OFFSET) |
-				   pHdr->seqControl.seqNumLo));
+				 fc.type, fc.subType,
+				 ((pHdr->seqControl.seqNumHi << HIGH_SEQ_NUM_OFFSET) |
+				 pHdr->seqControl.seqNumLo));
+			QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE,
+					   QDF_TRACE_LEVEL_DEBUG, pHdr,
+					   WMA_GET_RX_PAYLOAD_LEN(pRxPacketInfo)
+					   + SIR_MAC_HDR_LEN_3A);
 		}
 	}
+
 #ifdef FEATURE_WLAN_EXTSCAN
 	if (WMA_IS_EXTSCAN_SCAN_SRC(pRxPacketInfo) ||
 		WMA_IS_EPNO_SCAN_SRC(pRxPacketInfo)) {
@@ -1419,7 +1458,7 @@ lim_handle80211_frames(struct mac_context *mac, struct scheduler_msg *limMsg,
 
 		case SIR_MAC_MGMT_ASSOC_RSP:
 			lim_process_assoc_rsp_frame(mac, pRxPacketInfo,
-						    ASSOC_FRAME_LEN,
+						    WMA_GET_RX_PAYLOAD_LEN(pRxPacketInfo),
 						    LIM_ASSOC,
 						    pe_session);
 			break;
@@ -1441,7 +1480,7 @@ lim_handle80211_frames(struct mac_context *mac, struct scheduler_msg *limMsg,
 
 		case SIR_MAC_MGMT_REASSOC_RSP:
 			lim_process_assoc_rsp_frame(mac, pRxPacketInfo,
-						    ASSOC_FRAME_LEN,
+						    WMA_GET_RX_PAYLOAD_LEN(pRxPacketInfo),
 						    LIM_REASSOC,
 						    pe_session);
 			break;
@@ -1483,6 +1522,19 @@ lim_handle80211_frames(struct mac_context *mac, struct scheduler_msg *limMsg,
 				lim_process_action_frame_no_session(mac,
 								    pRxPacketInfo);
 			else {
+				if (mac->mlme_cfg->gen.debug_packet_log &
+				    DEBUG_PKTLOG_TYPE_ACTION) {
+					pe_debug("RX MGMT - Type %hu, SubType %hu, seq num[%d]",
+						 fc.type, fc.subType,
+						 ((pHdr->seqControl.seqNumHi << HIGH_SEQ_NUM_OFFSET) |
+						 pHdr->seqControl.seqNumLo));
+					QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE,
+							   QDF_TRACE_LEVEL_DEBUG,
+							   pHdr,
+							   WMA_GET_RX_PAYLOAD_LEN(pRxPacketInfo)
+							   + SIR_MAC_HDR_LEN_3A);
+				}
+
 				if (WMA_GET_RX_UNKNOWN_UCAST
 					    (pRxPacketInfo))
 					lim_handle_unknown_a2_index_frames
@@ -1519,6 +1571,46 @@ end:
 		     (void *)limMsg->bodyptr);
 	return;
 } /*** end lim_handle80211_frames() ***/
+
+QDF_STATUS lim_handle_frame_genby_mbssid(uint8_t *frame, uint32_t frame_len,
+					 uint8_t frm_subtype, char *bssid)
+{
+	struct mac_context *mac_ctx;
+	struct pe_session *session;
+	uint8_t sessionid;
+	t_packetmeta meta_data;
+
+	mac_ctx = cds_get_context(QDF_MODULE_ID_PE);
+	if (!mac_ctx) {
+		pe_err("mac ctx is null");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	session = pe_find_session_by_bssid(mac_ctx, bssid, &sessionid);
+	if (!session)
+		return QDF_STATUS_E_INVAL;
+
+	meta_data.mpdu_hdr_ptr = frame;
+	meta_data.mpdu_data_ptr = frame + sizeof(struct wlan_frame_hdr);
+	meta_data.mpdu_data_len = frame_len - sizeof(struct wlan_frame_hdr);
+
+	if (frm_subtype == MGMT_SUBTYPE_BEACON) {
+		pe_debug("Gen beacon frame for critical update feature");
+		if (session->limSmeState == eLIM_SME_LINK_EST_STATE ||
+		    session->limSmeState == eLIM_SME_NORMAL_STATE)
+			sch_beacon_process(mac_ctx, (uint8_t *)&meta_data,
+					   session);
+		else
+			lim_process_beacon_frame(mac_ctx, (uint8_t *)&meta_data,
+						 session);
+	} else if (frm_subtype == MGMT_SUBTYPE_PROBE_RESP) {
+		pe_debug("Gen Probe rsp frame for critical update feature");
+		lim_process_probe_rsp_frame(mac_ctx, (uint8_t *)&meta_data,
+						      session);
+	}
+
+	return QDF_STATUS_SUCCESS;
+}
 
 void lim_process_abort_scan_ind(struct mac_context *mac_ctx,
 	uint8_t vdev_id, uint32_t scan_id, uint32_t scan_requestor_id)
@@ -1689,18 +1781,16 @@ static void lim_process_messages(struct mac_context *mac_ctx,
 		lim_handle80211_frames(mac_ctx, &new_msg, &defer_msg);
 
 		if (defer_msg == true) {
-			QDF_TRACE(QDF_MODULE_ID_PE, LOGD,
-					FL("Defer Msg type=%x"), msg->type);
+			pe_debug("Defer Msg type=%x", msg->type);
 			if (lim_defer_msg(mac_ctx, msg) != TX_SUCCESS) {
-				QDF_TRACE(QDF_MODULE_ID_PE, LOGE,
-						FL("Unable to Defer Msg"));
+				pe_err("Unable to Defer Msg %x", msg->type);
 				lim_log_session_states(mac_ctx);
 				lim_decrement_pending_mgmt_count(mac_ctx);
 				cds_pkt_return_packet(body_ptr);
 			}
 		} else {
 			/* PE is not deferring this 802.11 frame so we need to
-			 * call cds_pkt_return. Asumption here is when Rx mgmt
+			 * call cds_pkt_return. Assumption here is when Rx mgmt
 			 * frame processing is done, cds packet could be
 			 * freed here.
 			 */
@@ -1761,6 +1851,7 @@ static void lim_process_messages(struct mac_context *mac_ctx,
 	case WNI_SME_UPDATE_MU_EDCA_PARAMS:
 	case eWNI_SME_UPDATE_SESSION_EDCA_TXQ_PARAMS:
 	case WNI_SME_CFG_ACTION_FRM_HE_TB_PPDU:
+	case eWNI_SME_VDEV_PAUSE_IND:
 		/* These messages are from HDD.No need to respond to HDD */
 		lim_process_normal_hdd_msg(mac_ctx, msg, false);
 		break;
@@ -1864,9 +1955,6 @@ static void lim_process_messages(struct mac_context *mac_ctx,
 							session_entry);
 		}
 		break;
-	case SIR_LIM_PROBE_HB_FAILURE_TIMEOUT:
-		lim_handle_heart_beat_failure_timeout(mac_ctx);
-		break;
 	case SIR_LIM_CNF_WAIT_TIMEOUT:
 		/* Does not receive CNF or dummy packet */
 		lim_handle_cnf_wait_timeout(mac_ctx, (uint16_t) msg->bodyval);
@@ -1919,9 +2007,6 @@ static void lim_process_messages(struct mac_context *mac_ctx,
 	case WMA_AGGR_QOS_RSP:
 		lim_process_ft_aggr_qos_rsp(mac_ctx, msg);
 		break;
-	case WMA_RX_CHN_STATUS_EVENT:
-		lim_process_rx_channel_status_event(mac_ctx, msg->bodyptr);
-		break;
 	case WMA_DFS_BEACON_TX_SUCCESS_IND:
 		lim_process_beacon_tx_success_ind(mac_ctx, msg->type,
 				(void *)msg->bodyptr);
@@ -1950,7 +2035,7 @@ static void lim_process_messages(struct mac_context *mac_ctx,
 				(uint8_t)msg->bodyval;
 			/*
 			 * if message comes for DFS channel, no need to update:
-			 * 1) We wont have MCC with DFS channels. so no need to
+			 * 1) We won't have MCC with DFS channels. so no need to
 			 *    add Q2Q IE
 			 * 2) We cannot end up in DFS channel SCC by channel
 			 *    switch from non DFS MCC scenario, so no need to
@@ -1960,9 +2045,10 @@ static void lim_process_messages(struct mac_context *mac_ctx,
 			 *    restart, in such a case, beacon params will be
 			 *    reset and thus will not contain Q2Q IE, by default
 			 */
-			if (wlan_reg_get_channel_state_for_freq(
+			if (wlan_reg_get_channel_state_for_pwrmode(
 				mac_ctx->pdev,
-				session_entry->curr_op_freq) !=
+				session_entry->curr_op_freq,
+				REG_CURRENT_PWR_MODE) !=
 				CHANNEL_STATE_DFS) {
 				beacon_params.bss_idx = session_entry->vdev_id;
 				beacon_params.beaconInterval =
@@ -2017,11 +2103,6 @@ static void lim_process_messages(struct mac_context *mac_ctx,
 		qdf_mem_free((void *)msg->bodyptr);
 		msg->bodyptr = NULL;
 		break;
-	case SIR_HAL_PDEV_HW_MODE_TRANS_IND:
-		lim_process_hw_mode_trans_ind(mac_ctx, msg->bodyptr);
-		qdf_mem_free((void *)msg->bodyptr);
-		msg->bodyptr = NULL;
-		break;
 	case SIR_HAL_PDEV_MAC_CFG_RESP:
 		lim_process_dual_mac_cfg_resp(mac_ctx, msg->bodyptr);
 		qdf_mem_free((void *)msg->bodyptr);
@@ -2048,6 +2129,11 @@ static void lim_process_messages(struct mac_context *mac_ctx,
 		break;
 	case eWNI_SME_SET_HE_BSS_COLOR:
 		lim_process_set_he_bss_color(mac_ctx, msg->bodyptr);
+		qdf_mem_free((void *)msg->bodyptr);
+		msg->bodyptr = NULL;
+		break;
+	case eWNI_SME_RECONFIG_OBSS_SCAN_PARAM:
+		lim_reconfig_obss_scan_param(mac_ctx, msg->bodyptr);
 		qdf_mem_free((void *)msg->bodyptr);
 		msg->bodyptr = NULL;
 		break;
@@ -2101,6 +2187,11 @@ static void lim_process_messages(struct mac_context *mac_ctx,
 		break;
 	case CM_ABORT_CONN_TIMER:
 		lim_deactivate_timers_for_vdev(mac_ctx, msg->bodyval);
+		break;
+	case WIFI_POS_PASN_PEER_DELETE_ALL:
+		lim_process_pasn_delete_all_peers(mac_ctx, msg->bodyptr);
+		qdf_mem_free(msg->bodyptr);
+		msg->bodyptr = NULL;
 		break;
 	default:
 		qdf_mem_free((void *)msg->bodyptr);
@@ -2200,7 +2291,7 @@ static void lim_process_normal_hdd_msg(struct mac_context *mac_ctx,
 		 * 1. If we are in learn mode and we receive any of these
 		 * messages, you have to come out of scan and process the
 		 * message, hence dont defer the message here. In handler,
-		 * these message could be defered till we actually come out of
+		 * these message could be deferred till we actually come out of
 		 * scan mode.
 		 * 2. If radar is detected, you might have to defer all of
 		 * these messages except Stop BSS request/ Switch channel
@@ -2232,7 +2323,7 @@ static void lim_process_normal_hdd_msg(struct mac_context *mac_ctx,
 	} else {
 		/*
 		 * These messages are from HDD.Since these requests may also be
-		 * generated internally within LIM module, need to distinquish
+		 * generated internally within LIM module, need to distinguish
 		 * and send response to host
 		 */
 		if (rsp_reqd)
@@ -2321,11 +2412,9 @@ void lim_log_session_states(struct mac_context *mac_ctx)
 
 	for (i = 0; i < mac_ctx->lim.maxBssId; i++) {
 		if (mac_ctx->lim.gpSession[i].valid) {
-			QDF_TRACE(QDF_MODULE_ID_PE, LOGD,
-				FL("sysRole(%d) Session (%d)"),
+			pe_debug("sysRole(%d) Session (%d)",
 				mac_ctx->lim.gLimSystemRole, i);
-			QDF_TRACE(QDF_MODULE_ID_PE, LOGD,
-				FL("SME: Curr %s,Prev %s,MLM: Curr %s,Prev %s"),
+			pe_debug("SME: Curr %s,Prev %s,MLM: Curr %s,Prev %s",
 				lim_sme_state_str(
 				mac_ctx->lim.gpSession[i].limSmeState),
 				lim_sme_state_str(
