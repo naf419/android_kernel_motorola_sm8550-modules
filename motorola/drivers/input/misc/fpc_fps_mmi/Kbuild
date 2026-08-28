@@ -11,6 +11,14 @@ $(warning define SUPPORT_PIN_CTRL)
 EXTRA_CFLAGS += -DSUPPORT_PIN_CTRL
 endif
 
+# if building as external module, Kconfig options defined
+# externally are ignored when making the final .config file
+# and this driver doesn't even have a Kconfig,
+# so set some defaults here:
+ifeq ($(CONFIG_ARCH_KHAJE), y)
+        CONFIG_INPUT_MISC_FPC1020_SAVE_TO_CLASS_DEVICE=y
+endif
+
 ifneq ($(filter m y,$(CONFIG_INPUT_MISC_FPC1020_SAVE_TO_CLASS_DEVICE)),)
 	EXTRA_CFLAGS += -DCONFIG_INPUT_MISC_FPC1020_SAVE_TO_CLASS_DEVICE
 endif
