@@ -18,12 +18,12 @@ typedef s32 HFI_S32;
 typedef u64 HFI_U64;
 typedef u32 HFI_BOOL;
 
-#ifndef MIN
-#define  MIN(x, y) (((x) < (y)) ? (x) : (y))
+#ifndef AR50_MIN
+#define  AR50_MIN(x, y) (((x) < (y)) ? (x) : (y))
 #endif
 
-#ifndef MAX
-#define  MAX(x, y) (((x) > (y)) ? (x) : (y))
+#ifndef AR50_MAX
+#define  AR50_MAX(x, y) (((x) > (y)) ? (x) : (y))
 #endif
 
 #define HFI_ALIGNMENT_4096 (4096)
@@ -226,7 +226,7 @@ typedef u32 HFI_BOOL;
 	do { \
 		HFI_U32 _height = HFI_ALIGN(frame_height, \
 				BUFFER_ALIGNMENT_32_BYTES);  \
-		_size = MIN((((_height + 15) >> 4) * 3 * 4), H264D_MAX_SLICE) *\
+		_size = AR50_MIN((((_height + 15) >> 4) * 3 * 4), H264D_MAX_SLICE) *\
 					  SIZE_H264D_BSE_CMD_PER_BUF; \
 	} while (0)
 
@@ -234,7 +234,7 @@ typedef u32 HFI_BOOL;
 	do { \
 		HFI_U32 _height = HFI_ALIGN(frame_height, \
 				BUFFER_ALIGNMENT_32_BYTES); \
-		_size = MIN((((_height + 15) >> 4) * 3 * 4), H264D_MAX_SLICE) * \
+		_size = AR50_MIN((((_height + 15) >> 4) * 3 * 4), H264D_MAX_SLICE) * \
 					SIZE_H264D_VPP_CMD_PER_BUF; \
 		if (_size > VPP_CMD_MAX_SIZE) \
 			_size = VPP_CMD_MAX_SIZE; \
@@ -412,7 +412,7 @@ typedef u32 HFI_BOOL;
 		LCU_MAX_SIZE_PELS) / LCU_MIN_SIZE_PELS) * \
 		(HFI_ALIGN(frame_height, LCU_MAX_SIZE_PELS) /\
 		LCU_MIN_SIZE_PELS)) * NUM_HW_PIC_BUF, VENUS_DMA_ALIGNMENT);  \
-		_size = MIN(_size, H265D_MAX_SLICE + 1);          \
+		_size = AR50_MIN(_size, H265D_MAX_SLICE + 1);          \
 		_size = 2 * _size * SIZE_H265D_BSE_CMD_PER_BUF;     \
 	} while (0)
 
@@ -422,7 +422,7 @@ typedef u32 HFI_BOOL;
 		LCU_MIN_SIZE_PELS) * (HFI_ALIGN(frame_height, \
 		LCU_MAX_SIZE_PELS) / LCU_MIN_SIZE_PELS)) * \
 		NUM_HW_PIC_BUF, VENUS_DMA_ALIGNMENT);  \
-		_size = MIN(_size, H265D_MAX_SLICE + 1);    \
+		_size = AR50_MIN(_size, H265D_MAX_SLICE + 1);    \
 		_size = HFI_ALIGN(_size, 4);  \
 		_size = 2 * _size * SIZE_H265D_VPP_CMD_PER_BUF; \
 		if (_size > VPP_CMD_MAX_SIZE)  { \
@@ -620,9 +620,9 @@ typedef u32 HFI_BOOL;
 		BUFFER_ALIGNMENT_16_BYTES) *\
 		HFI_ALIGN(frame_height, BUFFER_ALIGNMENT_16_BYTES) * 3 / 2;  \
 		_size_yuv = HFI_ALIGN(_size_yuv, VENUS_DMA_ALIGNMENT); \
-		_size = HFI_ALIGN(((((MAX(_size_yuv, VPX_DECODER_FRAME_BIN_BUFFER_SIZE)) * \
+		_size = HFI_ALIGN(((((AR50_MAX(_size_yuv, VPX_DECODER_FRAME_BIN_BUFFER_SIZE)) * \
 		6)/5) / num_vpp_pipes), VENUS_DMA_ALIGNMENT) + \
-		HFI_ALIGN(((MAX(_size_yuv, VPX_DECODER_FRAME_BIN_BUFFER_SIZE) * 4) \
+		HFI_ALIGN(((AR50_MAX(_size_yuv, VPX_DECODER_FRAME_BIN_BUFFER_SIZE) * 4) \
 		/ num_vpp_pipes), VENUS_DMA_ALIGNMENT);  \
 		_size = _size * num_vpp_pipes; \
 	} while (0)

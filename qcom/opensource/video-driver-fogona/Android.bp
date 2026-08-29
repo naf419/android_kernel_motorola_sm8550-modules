@@ -8,7 +8,7 @@ video_headers_out = [
 
 video_kernel_headers_verbose = "--verbose "
 genrule {
-    name: "qti_generate_video_kernel_headers",
+    name: "qti_generate_video_kernel_headers_fogona",
     tools: ["headers_install.sh",
             "unifdef"
     ],
@@ -27,9 +27,9 @@ genrule {
 }
 
 cc_library_headers {
-    name: "qti_video_kernel_uapi",
-    generated_headers: ["qti_generate_video_kernel_headers"],
-    export_generated_headers: ["qti_generate_video_kernel_headers"],
+    name: "qti_video_kernel_uapi_fogona",
+    generated_headers: ["qti_generate_video_kernel_headers_fogona"],
+    export_generated_headers: ["qti_generate_video_kernel_headers_fogona"],
     vendor: true,
     recovery_available: true
 }
