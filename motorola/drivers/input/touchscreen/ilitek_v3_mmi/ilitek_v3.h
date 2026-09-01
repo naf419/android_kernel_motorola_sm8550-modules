@@ -103,6 +103,11 @@
 #include <linux/msm_drm_notify.h>
 #endif
 
+#if IS_ENABLED(CONFIG_QCOM_PANEL_EVENT_NOTIFIER)
+#define ILI_DRM_PANEL_EVENT_NOTIFICATIONS  1
+#include <linux/soc/qcom/panel_event_notifier.h>
+#endif
+
 #ifdef ILI_SENSOR_EN
 #include <linux/sensors.h>
 #endif
@@ -128,6 +133,7 @@
 #define NONE			-1
 
 /* Options */
+
 #define TDDI_INTERFACE			BUS_SPI /* BUS_I2C(0x18) or BUS_SPI(0x1C) */
 #define VDD_VOLTAGE			1800000
 #define VCC_VOLTAGE			1800000
@@ -181,6 +187,7 @@
 #else
 #define GENERIC_KERNEL_IMAGE	DISABLE/*follow gki */
 #endif
+
 #define SUSPEND_RESUME_SUPPORT		ENABLE
 
 #define BOOT_FW_UPDATE_MODE			BOOT_FW_VER_DIFF
@@ -241,19 +248,19 @@
 
 #define ILI_INFO(fmt, arg...)						\
 ({									\
-	pr_info("ILITEK: (%s, %d): " fmt, __func__, __LINE__, ##arg);	\
+	pr_info("ILITEK[INFO]: (%s, %d): " fmt, __func__, __LINE__, ##arg);	\
 })									\
 
 #define ILI_ERR(fmt, arg...)						\
 ({									\
-	pr_err("ILITEK: (%s, %d): " fmt, __func__, __LINE__, ##arg);	\
+	pr_err("ILITEK[ERR]: (%s, %d): " fmt, __func__, __LINE__, ##arg);	\
 })									\
 
 extern bool debug_en;
 #define ILI_DBG(fmt, arg...)						\
 do {									\
 	if (debug_en)						\
-	pr_info("ILITEK: (%s, %d): " fmt, __func__, __LINE__, ##arg);	\
+	pr_info("ILITEK[DBG]: (%s, %d): " fmt, __func__, __LINE__, ##arg);	\
 } while (0)
 
 #define ERR_ALLOC_MEM(X)	((IS_ERR(X) || X == NULL) ? 1 : 0)
@@ -543,6 +550,20 @@ struct report_info_block {
 	u8 nReserved03		:8;
 };
 
+#ifdef ILI_DEBUG_INFO
+/*--------------------------debug-info--------------*/
+struct ili_debug_info{//Glove Hopping Charge NoiseWarning Rebase Bending GndUnstable Palm NoiseState BGState
+	u8 nGlove		    : 1;
+	u8 nHopping		    : 1;
+	u8 nCharge		    : 1;
+	u8 nNoiseWarning	    : 1;
+	u8 nRebase		    : 1;
+	u8 nBending		    : 1;
+	u8 nGndUnstable   	    : 1;
+	u8 nPalm		    : 1;
+};
+/*----------------------debug-info--------------------*/
+#endif
 struct file_buffer {
 	char *ptr;
 	char fname[128];
@@ -1015,6 +1036,9 @@ struct ilitek_pen_info {
 #define P5_X_FW_SIGNAL_DATA_MODE			0x03
 #define P5_X_FW_RAW_DATA_MODE				0x08
 #define P5_X_DEMO_PACKET_ID				0x5A
+#ifdef ILI_DEBUG_INFO
+#define P5_X_DEBUG_INFO_PACKET_ID			0xBB
+#endif
 #define P5_X_DEMO_AXIS_PACKET_ID			0x5B
 #define P5_X_DEBUG_PACKET_ID				0xA7
 #define P5_X_DEBUG_AXIS_PACKET_ID			0xA8
@@ -1146,6 +1170,10 @@ struct ilitek_ts_data {
 
 #if IS_ENABLED(CONFIG_DRM_MEDIATEK)
 	struct notifier_block disp_notifier;
+
+#endif
+#ifdef ILI_DRM_PANEL_EVENT_NOTIFICATIONS
+    void* notifier_cookie;
 #endif
 #if  defined(CONFIG_FB) || defined(CONFIG_DRM)
 	struct notifier_block notifier_fb;
@@ -1260,7 +1288,11 @@ struct ilitek_ts_data {
 	int gesture_demo_ctrl;
 	struct gesture_symbol ges_sym;
 	struct report_info_block rib;
-
+#ifdef ILI_DEBUG_INFO
+	/*------debug-info-----*/
+	struct ili_debug_info di;
+	/*------debug-info-----*/
+#endif
 #if CHARGER_NOTIFIER_CALLBACK
 	const char *psy_name;
 #endif
@@ -1340,6 +1372,23 @@ struct ilitek_ts_data {
 
 	int set_stowed;
 	int get_stowed;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0)
+	bool wakeable;
+	bool should_enable_gesture;
+	bool gesture_enabled;
+	uint32_t report_gesture_key;
+	uint8_t supported_gesture_type;
+	uint8_t sys_gesture_type;
+	uint8_t rst_pull_flag;
+
+	struct mutex state_mutex;
+	struct ili_sensor_platform_data *sensor_pdata;
+#ifdef CONFIG_HAS_WAKELOCK
+	struct wake_lock gesture_wakelock;
+#else
+	struct wakeup_source *gesture_wakelock;
+#endif
+#else
 #ifdef ILI_SENSOR_EN
 	bool wakeable;
 	bool should_enable_gesture;
@@ -1358,6 +1407,7 @@ struct ilitek_ts_data {
 	struct wakeup_source *gesture_wakelock;
 #endif
 #endif //ILI_SENSOR_EN
+#endif
 
 	atomic_t ignore_report;
 	atomic_t sync_stat;
@@ -1498,6 +1548,11 @@ extern int ili_fw_upgrade(int op);
 
 /* Prototypes for tddi mp test */
 extern int ili_mp_test_main(char *apk, bool lcm_on);
+
+#ifdef ILI_DEBUG_INFO
+/* debug-info for moto */
+extern void ili_report_touch_debug_info(u8 *buf);
+#endif
 
 /* Prototypes for tddi core functions */
 extern int ili_touch_esd_gesture_flash(void);

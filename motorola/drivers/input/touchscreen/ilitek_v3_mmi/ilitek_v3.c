@@ -182,6 +182,11 @@ static void ilitek_resume_by_ddi_work(struct work_struct *work)
 	}
 
 	ili_irq_enable();
+#if defined (ILI_STOWED_MODE_EN)&& defined(ILI_SENSOR_EN)
+	ilits->set_stowed = 0;
+	ilits->prox_near = false;
+	ILI_ERR("ilits->set_stowed = %d,ilits->prox_near = %d\n",ilits->set_stowed,ilits->prox_near);
+#endif
 	ILI_INFO("TP resume end by wq\n");
 	ili_wq_ctrl(WQ_ESD, ENABLE);
 	ili_wq_ctrl(WQ_BAT, ENABLE);
@@ -1283,7 +1288,12 @@ int ili_report_handler(void)
 	trdata = ilits->tr_buf;
 	pid = trdata[0];
 	ILI_DBG("Packet ID = %x\n", pid);
-
+#ifdef ILI_DEBUG_INFO
+	if(pid == P5_X_DEBUG_INFO_PACKET_ID){
+		ili_report_touch_debug_info(trdata);
+		goto out;
+	}
+#endif
 	if (checksum != pack_checksum && pid != P5_X_I2CUART_PACKET_ID) {
 		ILI_ERR("Checksum Error (0x%X)! Pack = 0x%X, len = %d\n", checksum, pack_checksum, rlen);
 		debug_en = DEBUG_ALL;
@@ -1477,6 +1487,9 @@ static void ili_update_tp_module_info(void)
 	int module;
 
 	module = ilits->tp_module;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0)
+	module = MODEL_TXD;
+#endif
 
 	switch (module) {
 	case MODEL_CSOT:

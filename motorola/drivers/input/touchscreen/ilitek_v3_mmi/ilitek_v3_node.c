@@ -1784,6 +1784,9 @@ static ssize_t ilitek_node_change_list_read(struct file *filp, char __user *buff
 
 	len += snprintf(g_user_buf + len, USER_STR_BUFF - len, "============= Change list ==============\n");
 	len += snprintf(g_user_buf + len, USER_STR_BUFF - len, "[Drive version] = %s\n", DRIVER_VERSION);
+#ifdef ILI_DEBUG_INFO
+	len += snprintf(g_user_buf + len, USER_STR_BUFF - len, "2024-02-28 - add debug info\n");
+#endif
 	/* len += snprintf(g_user_buf + len, USER_STR_BUFF - len, "[Patch] 202001-0001\n"); */
 	len += snprintf(g_user_buf + len, USER_STR_BUFF - len, "========================================\n");
 
@@ -2530,10 +2533,13 @@ static ssize_t ilitek_node_ioctl_write(struct file *filp, const char *buff, size
 
 	}else if (strncmp(cmd, "disableicemode", strlen(cmd)) == 0) {
 		bool mcu;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0)
+		mcu = data[1] & BIT(0);
+#else
 		u8 mode;
 		mcu = data[1] & BIT(0);
 		mode = data[2] & 0x0F;
-
+#endif
 		if (ilits->cascade_info_block.nNum != 0) {
 #if (TDDI_INTERFACE == BUS_I2C)
 		ili_ice_mode_ctrl_by_mode(DISABLE, mcu, mode);
@@ -4086,7 +4092,7 @@ static ssize_t stowed_store(struct device *dev,
 		ILI_INFO("Failed to convert value.\n");
 		return -EINVAL;
 	}
-	ilits->set_stowed = ilits->get_stowed;
+	ilits->get_stowed = mode;
 	if (ilits->set_stowed == mode) {
 		ILI_INFO("The value = %lu is same, so not to write", mode);
 		ret = size;
@@ -4107,7 +4113,7 @@ static ssize_t stowed_store(struct device *dev,
 		return ret;
 	}
 
-	ilits->get_stowed = mode;
+	ilits->set_stowed = mode;
 	ret = size;
 	ILI_INFO("Success to set stowed mode %lu\n", mode);
         mutex_unlock(&ilits->touch_mutex);
