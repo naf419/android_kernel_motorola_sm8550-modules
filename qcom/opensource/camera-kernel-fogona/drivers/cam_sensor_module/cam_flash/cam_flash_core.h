@@ -6,6 +6,14 @@
 #ifndef _CAM_FLASH_CORE_H_
 #define _CAM_FLASH_CORE_H_
 
+#ifdef CONFIG_DEVON_CAMERA_FLASH
+#define DEVON_CAMERA_PWM_GPIO 1165
+#endif
+
+#ifdef CONFIG_FOGONA_CAMERA_FLASH
+#define FOGONA_CAMERA_PWM_GPIO 396
+#endif
+
 #include <media/cam_sensor.h>
 #include "cam_flash_dev.h"
 

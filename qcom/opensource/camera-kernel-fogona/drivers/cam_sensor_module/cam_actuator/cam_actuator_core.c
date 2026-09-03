@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -11,6 +11,9 @@
 #include "cam_trace.h"
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
+#ifdef CONFIG_AF_NOISE_ELIMINATION
+#include "mot_actuator_policy.h"
+#endif
 
 int32_t cam_actuator_construct_default_power_setting(
 	struct cam_sensor_power_ctrl_t *power_info)
@@ -253,7 +256,13 @@ int32_t cam_actuator_apply_settings(struct cam_actuator_ctrl_t *a_ctrl,
 		CAM_ERR(CAM_ACTUATOR, " Invalid settings");
 		return -EINVAL;
 	}
-
+#ifdef CONFIG_AF_NOISE_ELIMINATION
+	/*Usually actuator initial setting will execute power down reset(PD), actuator can't respond
+	  CCI access for a while after PD. Add lock to avoid access actuator while PD operation.*/
+	if (a_ctrl->is_multi_user_supported) {
+		mot_actuator_lock();
+	}
+#endif
 	list_for_each_entry(i2c_list,
 		&(i2c_set->list_head), list) {
 		rc = cam_actuator_i2c_modes_util(
@@ -269,6 +278,14 @@ int32_t cam_actuator_apply_settings(struct cam_actuator_ctrl_t *a_ctrl,
 				i2c_set->request_id);
 		}
 	}
+
+#ifdef CONFIG_AF_NOISE_ELIMINATION
+	/*Usually actuator initial setting will execute power down reset(PD), actuator can't respond
+	  CCI access for a while after PD. Add lock to avoid access actuator while PD operation.*/
+	if (a_ctrl->is_multi_user_supported) {
+		mot_actuator_unlock();
+	}
+#endif
 
 	return rc;
 }
@@ -489,10 +506,6 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 
 		/* Loop through multiple command buffers */
 		for (i = 0; i < csl_packet->num_cmd_buf; i++) {
-			rc = cam_packet_util_validate_cmd_desc(&cmd_desc[i]);
-			if (rc)
-				return rc;
-
 			total_cmd_buf_in_bytes = cmd_desc[i].length;
 			if (!total_cmd_buf_in_bytes)
 				continue;
@@ -505,6 +518,7 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 			cmd_buf = (uint32_t *)generic_ptr;
 			if (!cmd_buf) {
 				CAM_ERR(CAM_ACTUATOR, "invalid cmd buf");
+				cam_mem_put_cpu_buf(cmd_desc[i].mem_handle);
 				rc = -EINVAL;
 				goto end;
 			}
@@ -513,6 +527,7 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 				sizeof(struct common_header)))) {
 				CAM_ERR(CAM_ACTUATOR,
 					"Invalid length for sensor cmd");
+				cam_mem_put_cpu_buf(cmd_desc[i].mem_handle);
 				rc = -EINVAL;
 				goto end;
 			}
@@ -529,6 +544,7 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 				if (rc < 0) {
 					CAM_ERR(CAM_ACTUATOR,
 					"Failed to parse slave info: %d", rc);
+					cam_mem_put_cpu_buf(cmd_desc[i].mem_handle);
 					goto end;
 				}
 				break;
@@ -544,6 +560,7 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 					CAM_ERR(CAM_ACTUATOR,
 					"Failed:parse power settings: %d",
 					rc);
+					cam_mem_put_cpu_buf(cmd_desc[i].mem_handle);
 					goto end;
 				}
 				break;
@@ -564,12 +581,20 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 					CAM_ERR(CAM_ACTUATOR,
 					"Failed:parse init settings: %d",
 					rc);
+					cam_mem_put_cpu_buf(cmd_desc[i].mem_handle);
 					goto end;
 				}
 				break;
 			}
 			cam_mem_put_cpu_buf(cmd_desc[i].mem_handle);
 		}
+
+#ifdef CONFIG_AF_NOISE_ELIMINATION
+		if (a_ctrl->cam_act_state == CAM_ACTUATOR_ACQUIRE &&
+			a_ctrl->is_multi_user_supported == true) {
+			mot_actuator_get(ACTUATOR_CLIENT_CAMERA);
+		}
+#endif
 
 		if (a_ctrl->cam_act_state == CAM_ACTUATOR_ACQUIRE) {
 			rc = cam_actuator_power_up(a_ctrl);
@@ -864,6 +889,11 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl,
 		}
 
 		if (a_ctrl->cam_act_state == CAM_ACTUATOR_CONFIG) {
+#ifdef CONFIG_AF_NOISE_ELIMINATION
+			if (a_ctrl->is_multi_user_supported == true) {
+				mot_actuator_put(ACTUATOR_CLIENT_CAMERA);
+			}
+#endif
 			rc = cam_actuator_power_down(a_ctrl);
 			if (rc < 0) {
 				CAM_ERR(CAM_ACTUATOR,

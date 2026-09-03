@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022, 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/init.h>
@@ -477,7 +478,11 @@ int cam_res_mgr_gpio_request(struct device *dev, uint gpio,
 }
 EXPORT_SYMBOL(cam_res_mgr_gpio_request);
 
+#ifdef CONFIG_CAMERA_FLASH_PWM
+void cam_res_mgr_gpio_free(struct device *dev, uint gpio)
+#else
 static void cam_res_mgr_gpio_free(struct device *dev, uint gpio)
+#endif
 {
 	bool found = false;
 	bool need_free = true;
@@ -535,6 +540,9 @@ static void cam_res_mgr_gpio_free(struct device *dev, uint gpio)
 	if (need_free)
 		gpio_free(gpio);
 }
+#ifdef CONFIG_CAMERA_FLASH_PWM
+EXPORT_SYMBOL(cam_res_mgr_gpio_free);
+#endif
 
 void cam_res_mgr_gpio_free_arry(struct device *dev,
 		const struct gpio *array, size_t num)
