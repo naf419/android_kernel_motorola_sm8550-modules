@@ -17,3 +17,4 @@ KBUILD_EXTRA_SYMBOLS += $(M)/../../../mmi_info/$(GKI_OBJ_MODULE_DIR)/Module.symv
 KBUILD_EXTRA_SYMBOLS += $(M)/../touchscreen_mmi/$(GKI_OBJ_MODULE_DIR)/Module.symvers
 KBUILD_EXTRA_SYMBOLS += $(M)/../../../misc/pen/$(GKI_OBJ_MODULE_DIR)/Module.symvers
 KBUILD_EXTRA_SYMBOLS += $(M)/../../../../../qcom/opensource/display-drivers/msm/Module.symvers
+KBUILD_EXTRA_SYMBOLS += $(M)/../../../../../qcom/opensource/display-drivers-fogona/msm/Module.symvers

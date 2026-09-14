@@ -1,5 +1,3 @@
-ifeq ($(strip $(MODULE_KERNEL_VERSION)), 5.15)
-
 all: modules
 
 modules:
@@ -17,18 +15,3 @@ clean:
 
 KBUILD_EXTRA_SYMBOLS += $(CURDIR)/$(KBUILD_EXTMOD)/../adapter_class/$(GKI_OBJ_MODULE_DIR)/Module.symvers
 KBUILD_EXTRA_SYMBOLS += $(CURDIR)/$(KBUILD_EXTMOD)/../../../power/mmi_discrete_charger/$(GKI_OBJ_MODULE_DIR)/Module.symvers
-
-else
-
-KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
-
-all:
-	$(MAKE) -C $(KERNEL_SRC) M=$(shell pwd) modules $(KBUILD_OPTIONS)
-
-modules_install:
-	$(MAKE) INSTALL_MOD_STRIP=1 -C $(KERNEL_SRC) M=$(shell pwd) modules_install
-
-clean:
-	$(MAKE) -C $(KERNEL_SRC) M=$(PWD) clean
-
-endif
