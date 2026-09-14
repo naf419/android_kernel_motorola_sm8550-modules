@@ -4362,6 +4362,9 @@ endif
 endif
 ccflags-y += -Wmissing-prototypes
 
+# disable address-of-packed-member warnings
+ccflags-y += -Wno-error=address-of-packed-member
+
 ifeq ($(call cc-option-yn, -Wheader-guard), y)
 ccflags-y += -Wheader-guard
 endif
